@@ -2,7 +2,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { CONFIG } from "../config.ts";
-import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
+// import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
 import { GitHubSDK } from "../sdks/github.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { createGithubLinkToken } from "../utils/githubLinkToken.ts";
@@ -76,7 +76,7 @@ const postGithubOauthPrompt = async (ctx: KarbyHitlMcpContext, reason: string | 
 
 export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
   createSdkMcpServer({
-    name: "karby-auth",
+    name: "auth",
     version: "0.0.1",
     tools: [
       tool(
@@ -86,11 +86,12 @@ export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
           reason: z.string().optional(),
         },
         async (args) => {
-          const credential = await findGithubCredentialBySlackUserId(ctx.slack.slackUserId);
-          if (credential?.accessToken) {
-            return { content: [{ type: "text", text: "이미 GitHub 계정이 연동되어 있습니다." }] };
-          }
+          // const credential = await findGithubCredentialBySlackUserId(ctx.slack.slackUserId);
+          // if (credential?.accessToken) {
+          //   return { content: [{ type: "text", text: "이미 GitHub 계정이 연동되어 있습니다." }] };
+          // }
 
+          // TODO: credential 기능 비활성화됨 - 항상 연동 프롬프트 표시
           await postGithubOauthPrompt(ctx, args.reason?.trim() || null).catch(() => undefined);
           return {
             content: [
@@ -112,8 +113,9 @@ export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
           reason: z.string().optional(),
         },
         async (args) => {
-          const credential = await findGithubCredentialBySlackUserId(ctx.slack.slackUserId);
-          const token = credential?.accessToken ?? null;
+          // const credential = await findGithubCredentialBySlackUserId(ctx.slack.slackUserId);
+          // const token = credential?.accessToken ?? null;
+          const token = null; // TODO: credential 기능 비활성화됨
 
           if (!token) {
             await postGithubOauthPrompt(ctx, args.reason?.trim() || null).catch(() => undefined);

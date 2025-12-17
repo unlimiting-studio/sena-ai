@@ -2,7 +2,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { CONFIG } from "../config.ts";
-import { findSlackCredentialBySlackUserId } from "../db/slackCredentials.ts";
+// import { findSlackCredentialBySlackUserId } from "../db/slackCredentials.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { createSlackLinkToken } from "../utils/slackLinkToken.ts";
 
@@ -99,7 +99,7 @@ const postSlackSearchOauthPrompt = async (ctx: KarbySlackMcpContext): Promise<vo
 
 export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
   createSdkMcpServer({
-    name: "karby-slack",
+    name: "slack",
     version: "0.0.1",
     tools: [
       tool(
@@ -156,8 +156,9 @@ export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
           page: z.number().int().min(1).default(1),
         },
         async (args) => {
-          const credential = await findSlackCredentialBySlackUserId(ctx.slack.slackUserId);
-          const userToken = credential?.accessToken ?? null;
+          // const credential = await findSlackCredentialBySlackUserId(ctx.slack.slackUserId);
+          // const userToken = credential?.accessToken ?? null;
+          const userToken = null; // TODO: credential 기능 비활성화됨
           if (!userToken) {
             await postSlackSearchOauthPrompt(ctx).catch(() => undefined);
             return {

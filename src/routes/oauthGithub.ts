@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
 import { CONFIG } from "../config.ts";
-import { upsertGithubCredential } from "../db/githubCredentials.ts";
+// import { upsertGithubCredential } from "../db/githubCredentials.ts";
 import { GitHubSDK } from "../sdks/github.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { isGithubLinkTokenExpired, parseGithubLinkToken } from "../utils/githubLinkToken.ts";
@@ -246,10 +246,10 @@ export async function githubOAuthRoutes(fastify: FastifyInstance) {
       });
       const user = await sdk.getAuthenticatedUser();
 
-      await upsertGithubCredential({
-        slackUserId: payload.slackUserId,
-        accessToken: sdk.getAccessToken(),
-      });
+      // await upsertGithubCredential({
+      //   slackUserId: payload.slackUserId,
+      //   accessToken: sdk.getAccessToken(),
+      // });
 
       const continuationText = "GitHub 연동이 완료되었습니다. 작업을 계속합니다.";
       let resumed = false;

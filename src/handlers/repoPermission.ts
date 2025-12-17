@@ -1,5 +1,5 @@
 import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
-import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
+// import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
 import { GitHubSDK } from "../sdks/github.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { isGithubLinkTokenExpired, parseGithubLinkToken } from "../utils/githubLinkToken.ts";
@@ -114,19 +114,20 @@ export async function handleRepoPermissionGranted(params: RepoPermissionGrantedP
     return;
   }
 
-  const credential = await findGithubCredentialBySlackUserId(userId);
-  if (!credential?.accessToken) {
-    await sendEphemeralResponse({
-      channelId: resolvedChannelId,
-      userId,
-      threadTs: resolvedThreadTs,
-      text: "⚠️ GitHub 계정이 연동되어 있지 않습니다. 먼저 GitHub 계정을 연동해주세요.",
-    });
-    return;
-  }
+  // const credential = await findGithubCredentialBySlackUserId(userId);
+  // if (!credential?.accessToken) {
+  //   await sendEphemeralResponse({
+  //     channelId: resolvedChannelId,
+  //     userId,
+  //     threadTs: resolvedThreadTs,
+  //     text: "⚠️ GitHub 계정이 연동되어 있지 않습니다. 먼저 GitHub 계정을 연동해주세요.",
+  //   });
+  //   return;
+  // }
 
   try {
-    const sdk = new GitHubSDK(credential.accessToken);
+    // TODO: credential 기능 비활성화됨 - 임시로 빈 토큰 사용
+    const sdk = new GitHubSDK("");
     const user = await sdk.getAuthenticatedUser();
     const { hasPushAccess } = await sdk.getCollaboratorPermissionLevel(owner, repo, user.login);
 

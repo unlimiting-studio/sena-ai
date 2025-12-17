@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
 import { CONFIG } from "../config.ts";
-import { upsertSlackCredential } from "../db/slackCredentials.ts";
+// import { upsertSlackCredential } from "../db/slackCredentials.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { isSlackLinkTokenExpired, parseSlackLinkToken } from "../utils/slackLinkToken.ts";
 
@@ -265,7 +265,7 @@ export async function slackOAuthRoutes(fastify: FastifyInstance) {
       }
 
       const slackUserId = tokenData.authed_user.id;
-      await upsertSlackCredential(slackUserId, tokenData.authed_user.access_token);
+      // await upsertSlackCredential(slackUserId, tokenData.authed_user.access_token);
 
       const continuationText = "Slack 연동이 완료되었습니다. 작업을 계속합니다.";
 
