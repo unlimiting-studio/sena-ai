@@ -97,7 +97,7 @@ const postSlackSearchOauthPrompt = async (ctx: KarbySlackMcpContext): Promise<vo
   });
 };
 
-export const createKarbySlackMcpServer = (ctx: KarbySlackMcpContext) =>
+export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
   createSdkMcpServer({
     name: "karby-slack",
     version: "0.0.1",
@@ -144,7 +144,7 @@ export const createKarbySlackMcpServer = (ctx: KarbySlackMcpContext) =>
           return {
             content: [{ type: "text", text: `${header}\n\n${body}` }],
           };
-        },
+        }
       ),
       tool(
         "search_messages",
@@ -192,9 +192,9 @@ export const createKarbySlackMcpServer = (ctx: KarbySlackMcpContext) =>
 
             const matches = result.messages?.matches ?? [];
             const lines = matches.map((match) => {
-              const channel = match.channel?.name ? `#${match.channel.name}` : (match.channel?.id ?? "");
+              const channel = match.channel?.name ? `#${match.channel.name}` : match.channel?.id ?? "";
               const ts = match.ts ?? "";
-              const user = match.username ? `@${match.username}` : (match.user ?? "");
+              const user = match.username ? `@${match.username}` : match.user ?? "";
               const text = match.text ?? "";
               const permalink = match.permalink ? ` (${match.permalink})` : "";
               return `- [${ts}] ${user} in ${channel}: ${text}${permalink}`;
@@ -204,7 +204,9 @@ export const createKarbySlackMcpServer = (ctx: KarbySlackMcpContext) =>
               content: [
                 {
                   type: "text",
-                  text: `Search results for "${args.query}": total=${result.messages?.total ?? 0}, returned=${matches.length}\n\n${lines.join("\n")}`,
+                  text: `Search results for "${args.query}": total=${result.messages?.total ?? 0}, returned=${
+                    matches.length
+                  }\n\n${lines.join("\n")}`,
                 },
               ],
             };
@@ -215,7 +217,7 @@ export const createKarbySlackMcpServer = (ctx: KarbySlackMcpContext) =>
               isError: true,
             };
           }
-        },
+        }
       ),
     ],
   });

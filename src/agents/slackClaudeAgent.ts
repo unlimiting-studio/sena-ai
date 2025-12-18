@@ -1,12 +1,16 @@
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+
 import { CONFIG } from "../config.ts";
-import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
-import { createKarbyHitlMcpServer } from "../mcp/hitlMcp.ts";
-import { createKarbySlackMcpServer } from "../mcp/slackMcp.ts";
+// import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
+import { createSenaHitlMcpServer } from "../mcp/hitlMcp.ts";
+import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { sanitizeEnv } from "../utils/env.ts";
 import { isRecord } from "../utils/object.ts";
+import { SlackThreadSessionStore } from "./threadSessionStore.ts";
 
 export type SlackContext = {
   teamId: string | null;
@@ -42,8 +46,8 @@ const formatSeoulDateTime = (date: Date): string =>
 const SLACK_MARKDOWN_GUIDANCE =
   "마크다운을 사용 할 때에는 반드시 Slack에서도 동작하는 일반 Markdown만 사용하세요: `**굵게**`, `_기울임_`, `~~취소선~~`, `인라인 코드`, ```코드 블록```, `>` 인용문, `-` 또는 `1.` 목록, `[표시 텍스트](https://example.com)` 링크. `#`, `##` 등의 제목은 지원하지 않습니다. 표 등 확장 Markdown은 지원되지 않으니 리스트로 표현하세요. 불필요한 이스케이프를 피하며, 줄바꿈에 역슬래시를 두 번 써서 이스케이프 하지 마세요.";
 
-const KARBY_SYSTEM_PROMPT_APPEND = [
-  "당신은 카비(Karby)입니다. Slack 멘션으로 호출되어 요청된 작업을 수행하는 사내 다기능 코딩 에이전트입니다.",
+const SENA_SYSTEM_PROMPT_APPEND = [
+  "당신은 세나(Sena)입니다. Slack 멘션으로 호출되어 요청된 작업을 수행하는 사내 다기능 코딩 에이전트입니다.",
   "특히 코딩/리포지토리 분석/문서 조사에 강하며, Slack 동료에게 따뜻하고 친절한 동료처럼 응답합니다.",
   "",
   "[운영 컨텍스트]",
@@ -54,11 +58,11 @@ const KARBY_SYSTEM_PROMPT_APPEND = [
   "",
   "[사용 가능한 도구]",
   "- Slack 컨텍스트 수집:",
-  "  - `mcp__karby-slack__get_messages`: 현재 채널/스레드 메시지를 읽습니다.",
-  "  - `mcp__karby-slack__search_messages`: 워크스페이스에서 메시지를 검색합니다. 권한이 없으면 연동 안내가 자동 전송됩니다.",
+  "  - `mcp__sena-slack__get_messages`: 현재 채널/스레드 메시지를 읽습니다.",
+  "  - `mcp__sena-slack__search_messages`: 워크스페이스에서 메시지를 검색합니다. 권한이 없으면 연동 안내가 자동 전송됩니다.",
   "- GitHub 연동(HITL):",
-  "  - `mcp__karby-auth__guide_github_integration`: GitHub OAuth 연동이 필요할 때 사용자에게 개인 메시지 안내를 보냅니다.",
-  "  - `mcp__karby-auth__guide_repo_permission`: 특정 리포지토리(owner/repo)의 Write 권한이 필요할 때 확인/신청 안내를 보냅니다.",
+  "  - `mcp__sena-auth__guide_github_integration`: GitHub OAuth 연동이 필요할 때 사용자에게 개인 메시지 안내를 보냅니다.",
+  "  - `mcp__sena-auth__guide_repo_permission`: 특정 리포지토리(owner/repo)의 Write 권한이 필요할 때 확인/신청 안내를 보냅니다.",
   "- 라이브러리 문서:",
   "  - `mcp__context7__resolve-library-id` / `mcp__context7__get-library-docs`: 최신 사용법을 확인합니다.",
   "- 또한 Claude Code의 기본 도구(Read/Write/Edit/Bash 등)로 코드베이스를 분석하고 수정할 수 있습니다. 보안/파괴적 작업은 사전 설명 후 최소 범위로 수행하세요.",
@@ -284,6 +288,10 @@ class AsyncUserMessageQueue implements AsyncIterable<SDKUserMessage> {
           this.waiting.push(resolve);
         });
       },
+      return: () => {
+        this.close();
+        return Promise.resolve({ value: undefined, done: true });
+      },
     };
   }
 }
@@ -300,6 +308,7 @@ class SlackThreadRunner {
   private promptQueue = new AsyncUserMessageQueue();
   private abortController = new AbortController();
   private started = false;
+  private ended = false;
 
   private resumeSessionId: string | null;
   private sessionId: string | null;
@@ -354,6 +363,8 @@ class SlackThreadRunner {
         await this.updateSlack(`⚠️ 실행 중 오류가 발생했습니다.\n\n${message}`, true);
       })
       .finally(() => {
+        this.ended = true;
+        this.promptQueue.close();
         this.onStop();
       });
   }
@@ -370,14 +381,14 @@ class SlackThreadRunner {
     }
   }
 
-  enqueueUserInput(text: string, options?: { isSynthetic?: boolean }): void {
+  enqueueUserInput(text: string, options?: { isSynthetic?: boolean }): boolean {
     const normalized = text.trim();
     if (normalized.length === 0) {
-      return;
+      return false;
     }
 
-    if (!this.started) {
-      this.start();
+    if (!this.canAcceptInput()) {
+      return false;
     }
 
     this.bumpIdleTimer();
@@ -386,7 +397,22 @@ class SlackThreadRunner {
     const prompt = this.bootstrapped ? this.buildFollowupPrompt(normalized) : this.buildBootstrapPrompt(normalized);
 
     this.bootstrapped = true;
-    this.promptQueue.push(this.toSdkUserMessage(prompt, { isSynthetic: options?.isSynthetic ?? false }));
+    const enqueued = this.promptQueue.push(
+      this.toSdkUserMessage(prompt, { isSynthetic: options?.isSynthetic ?? false })
+    );
+    if (!enqueued) {
+      return false;
+    }
+
+    if (!this.started) {
+      this.start();
+    }
+
+    return true;
+  }
+
+  canAcceptInput(): boolean {
+    return !this.ended && this.stopReason === null;
   }
 
   private toSdkUserMessage(text: string, options: { isSynthetic: boolean }): SDKUserMessage {
@@ -419,7 +445,9 @@ class SlackThreadRunner {
       "",
       "새 Slack 멘션이 도착했습니다. 이 스레드에서 사용자의 요청을 처리하세요.",
       "",
-      `[Slack Context] teamId=${this.slack.teamId ?? ""}, channelId=${this.slack.channelId}, threadTs=${threadTs}, messageTs=${this.slack.messageTs}, requesterSlackUserId=${this.slack.slackUserId}`,
+      `[Slack Context] teamId=${this.slack.teamId ?? ""}, channelId=${
+        this.slack.channelId
+      }, threadTs=${threadTs}, messageTs=${this.slack.messageTs}, requesterSlackUserId=${this.slack.slackUserId}`,
       "",
       "[사용자 요청]",
       userText,
@@ -433,7 +461,9 @@ class SlackThreadRunner {
       "",
       "새 Slack 메시지가 도착했습니다. 이전 맥락을 유지한 채로 이어서 처리하세요.",
       "",
-      `[Slack Context] teamId=${this.slack.teamId ?? ""}, channelId=${this.slack.channelId}, threadTs=${threadTs}, messageTs=${this.slack.messageTs}, requesterSlackUserId=${this.slack.slackUserId}`,
+      `[Slack Context] teamId=${this.slack.teamId ?? ""}, channelId=${
+        this.slack.channelId
+      }, threadTs=${threadTs}, messageTs=${this.slack.messageTs}, requesterSlackUserId=${this.slack.slackUserId}`,
       "",
       "[추가 요청]",
       userText,
@@ -455,7 +485,7 @@ class SlackThreadRunner {
       .postMessage({
         channel: this.slack.channelId,
         thread_ts: this.slack.threadTs ?? this.slack.messageTs,
-        text: "카비가 생각중이에요…",
+        text: "세나가 생각중이에요…",
       })
       .catch(() => null);
 
@@ -488,7 +518,7 @@ class SlackThreadRunner {
   }
 
   private async showThinking(): Promise<void> {
-    await this.updateSlack("카비가 생각중이에요…", true);
+    await this.updateSlack("세나가 생각중이에요…", true);
   }
 
   private getCurrentStepIndex(): number {
@@ -588,7 +618,7 @@ class SlackThreadRunner {
 
     const currentStep = this.getCurrentStepIndex();
     const toolCallsToDisplay = this.toolCalls.filter(
-      (call) => call.stepIndex === currentStep || call.status === "running",
+      (call) => call.stepIndex === currentStep || call.status === "running"
     );
 
     if (toolCallsToDisplay.length > 0) {
@@ -618,7 +648,7 @@ class SlackThreadRunner {
     }
 
     const rendered = lines.join("\n").trim();
-    return rendered.length > 0 ? rendered : "카비가 생각중이에요…";
+    return rendered.length > 0 ? rendered : "세나가 생각중이에요…";
   }
 
   private async updateProgress(force: boolean): Promise<void> {
@@ -648,20 +678,22 @@ class SlackThreadRunner {
   }
 
   private async runLoop(): Promise<void> {
-    const githubCredential = await findGithubCredentialBySlackUserId(this.slack.slackUserId);
-    const githubToken = githubCredential?.accessToken ?? null;
+    // const githubCredential = await findGithubCredentialBySlackUserId(this.slack.slackUserId);
+    // const githubToken = githubCredential?.accessToken ?? null;
+
+    await fs.mkdir(CONFIG.WORKSPACE_DIR, { recursive: true });
 
     const env = {
       ...sanitizeEnv(process.env),
-      ...(githubToken ? { GITHUB_TOKEN: githubToken, GH_TOKEN: githubToken } : {}),
+      // ...(githubToken ? { GITHUB_TOKEN: githubToken, GH_TOKEN: githubToken } : {}),
     };
 
-    const slackMcp = createKarbySlackMcpServer({
+    const slackMcp = createSenaSlackMcpServer({
       slack: this.slack,
       getSessionId: () => this.sessionId,
     });
 
-    const hitlMcp = createKarbyHitlMcpServer({
+    const hitlMcp = createSenaHitlMcpServer({
       slack: this.slack,
       getSessionId: () => this.sessionId,
     });
@@ -673,13 +705,13 @@ class SlackThreadRunner {
         cwd: CONFIG.WORKSPACE_DIR,
         includePartialMessages: true,
         permissionMode: "bypassPermissions",
-        systemPrompt: { type: "preset", preset: "claude_code", append: KARBY_SYSTEM_PROMPT_APPEND },
+        systemPrompt: { type: "preset", preset: "claude_code", append: SENA_SYSTEM_PROMPT_APPEND },
         settingSources: ["user", "project", "local"],
         abortController: this.abortController,
         ...(this.resumeSessionId ? { resume: this.resumeSessionId } : {}),
         mcpServers: {
-          "karby-slack": slackMcp,
-          "karby-auth": hitlMcp,
+          "sena-slack": slackMcp,
+          "sena-auth": hitlMcp,
           context7: { type: "http", url: "https://mcp.context7.com/mcp" },
         },
         env,
@@ -772,6 +804,9 @@ class SlackThreadRunner {
       const errorText = `⚠️ 실행 중 오류가 발생했습니다.\n\n${message}`;
       await this.updateSlack(errorText, true);
       return;
+    } finally {
+      this.ended = true;
+      this.promptQueue.close();
     }
 
     const hasFinalAnswer = this.stopReason === null && (this.finalAnswer?.trim().length ?? 0) > 0;
@@ -796,6 +831,9 @@ export class SlackClaudeAgent {
 
   private threadSessions = new Map<string, string>();
   private threadRunners = new Map<string, SlackThreadRunner>();
+  private threadSessionStore = new SlackThreadSessionStore({
+    filePath: path.join(CONFIG.WORKSPACE_DIR, "slack-thread-sessions.json"),
+  });
 
   static get instance(): SlackClaudeAgent {
     if (!SlackClaudeAgent._instance) {
@@ -840,7 +878,13 @@ export class SlackClaudeAgent {
 
     const resolvedThreadTs = resolveThreadTs(threadTs, resolvedMessageTs);
     const threadKey = buildThreadKey(channelId, resolvedThreadTs);
-    const resumeSessionId = this.threadSessions.get(threadKey) ?? null;
+    let resumeSessionId = this.threadSessions.get(threadKey) ?? null;
+    if (!resumeSessionId) {
+      resumeSessionId = (await this.threadSessionStore.get(threadKey).catch(() => null)) ?? null;
+      if (resumeSessionId) {
+        this.threadSessions.set(threadKey, resumeSessionId);
+      }
+    }
 
     const runner = this.getOrCreateRunner({
       threadKey,
@@ -854,7 +898,21 @@ export class SlackClaudeAgent {
       resumeSessionId,
     });
 
-    runner.enqueueUserInput(normalizedText);
+    const accepted = runner.enqueueUserInput(normalizedText);
+    if (!accepted) {
+      this.getOrCreateRunner({
+        threadKey,
+        slack: {
+          teamId,
+          channelId,
+          threadTs: resolvedThreadTs,
+          messageTs: resolvedMessageTs,
+          slackUserId,
+        },
+        resumeSessionId,
+        forceNew: true,
+      }).enqueueUserInput(normalizedText);
+    }
   }
 
   async resumeSessionFromLinkToken(_params: {
@@ -871,6 +929,9 @@ export class SlackClaudeAgent {
     const resolvedThreadTs = resolveThreadTs(_params.slack.threadTs, _params.slack.messageTs);
     const threadKey = buildThreadKey(_params.slack.channelId, resolvedThreadTs);
 
+    this.threadSessions.set(threadKey, sessionId);
+    void this.threadSessionStore.set(threadKey, sessionId).catch(() => undefined);
+
     const shouldRestart = _params.provider === "github";
     if (shouldRestart) {
       this.stopRunner(threadKey);
@@ -886,7 +947,18 @@ export class SlackClaudeAgent {
       forceNew: shouldRestart,
     });
 
-    runner.enqueueUserInput(_params.continuationText, { isSynthetic: true });
+    const accepted = runner.enqueueUserInput(_params.continuationText, { isSynthetic: true });
+    if (!accepted) {
+      this.getOrCreateRunner({
+        threadKey,
+        slack: {
+          ..._params.slack,
+          threadTs: resolvedThreadTs,
+        },
+        resumeSessionId: sessionId,
+        forceNew: true,
+      }).enqueueUserInput(_params.continuationText, { isSynthetic: true });
+    }
     return true;
   }
 
@@ -906,7 +978,7 @@ export class SlackClaudeAgent {
     forceNew?: boolean;
   }): SlackThreadRunner {
     const existing = params.forceNew ? null : this.threadRunners.get(params.threadKey);
-    if (existing) {
+    if (existing?.canAcceptInput()) {
       existing.updateSlackContext(params.slack);
       return existing;
     }
@@ -917,6 +989,7 @@ export class SlackClaudeAgent {
       resumeSessionId: params.resumeSessionId,
       onSessionId: (sessionId) => {
         this.threadSessions.set(threadKey, sessionId);
+        void this.threadSessionStore.set(threadKey, sessionId).catch(() => undefined);
       },
       onStop: () => {
         const current = this.threadRunners.get(threadKey);

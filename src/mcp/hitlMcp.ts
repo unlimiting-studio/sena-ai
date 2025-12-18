@@ -74,7 +74,7 @@ const postGithubOauthPrompt = async (ctx: KarbyHitlMcpContext, reason: string | 
   });
 };
 
-export const createKarbyHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
+export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
   createSdkMcpServer({
     name: "karby-auth",
     version: "0.0.1",
@@ -101,7 +101,7 @@ export const createKarbyHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
             ],
             isError: true,
           };
-        },
+        }
       ),
       tool(
         "guide_repo_permission",
@@ -129,7 +129,7 @@ export const createKarbyHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
             const { hasPushAccess, permission } = await sdk.getCollaboratorPermissionLevel(
               args.owner,
               args.repo,
-              user.login,
+              user.login
             );
             if (hasPushAccess) {
               return {
@@ -198,7 +198,7 @@ export const createKarbyHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
             content: [{ type: "text", text: "Write 권한이 필요합니다. Slack에 권한 신청 안내를 전송했습니다." }],
             isError: true,
           };
-        },
+        }
       ),
     ],
   });
