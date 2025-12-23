@@ -1,4 +1,5 @@
 import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
+import { formatAgentNameWithSuffix } from "../agentConfig.ts";
 // import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
 import { GitHubSDK } from "../sdks/github.ts";
 import { SlackSDK } from "../sdks/slack.ts";
@@ -12,6 +13,8 @@ export interface RepoPermissionGrantedParams {
   threadTs: string | null;
   actionValue: string | null;
 }
+
+const AGENT_MENTION_TO_REQUEST = formatAgentNameWithSuffix("에게");
 
 const sendEphemeralResponse = async (params: {
   channelId: string | null;
@@ -99,7 +102,7 @@ export async function handleRepoPermissionGranted(params: RepoPermissionGrantedP
       channelId: resolvedChannelId,
       userId,
       threadTs: resolvedThreadTs,
-      text: "⚠️ 요청이 만료되었습니다. 카비에게 다시 요청해주세요.",
+      text: `⚠️ 요청이 만료되었습니다. ${AGENT_MENTION_TO_REQUEST} 다시 요청해주세요.`,
     });
     return;
   }

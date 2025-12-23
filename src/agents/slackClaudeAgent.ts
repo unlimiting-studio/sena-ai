@@ -3,6 +3,7 @@ import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claud
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
+import { getAgentBasePrompt, getAgentSubject } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
 // import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
 import { createSenaHitlMcpServer } from "../mcp/hitlMcp.ts";
@@ -11,6 +12,7 @@ import { SlackSDK } from "../sdks/slack.ts";
 import { sanitizeEnv } from "../utils/env.ts";
 import { isRecord } from "../utils/object.ts";
 import { SlackThreadSessionStore } from "./threadSessionStore.ts";
+import type { KnownBlock } from "@slack/web-api";
 
 export type SlackContext = {
   teamId: string | null;
@@ -23,7 +25,7 @@ export type SlackContext = {
 const DEFAULT_MODEL = "claude-sonnet-4-5";
 
 const MAX_SLACK_TEXT_LENGTH = 38_000;
-const SLACK_UPDATE_THROTTLE_MS = 1500;
+const SLACK_PROGRESS_THROTTLE_MS = 500;
 const THREAD_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 const SEOUL_TIME_ZONE = {
@@ -46,9 +48,11 @@ const formatSeoulDateTime = (date: Date): string =>
 const SLACK_MARKDOWN_GUIDANCE =
   "마크다운을 사용 할 때에는 반드시 Slack에서도 동작하는 일반 Markdown만 사용하세요: `**굵게**`, `_기울임_`, `~~취소선~~`, `인라인 코드`, ```코드 블록```, `>` 인용문, `-` 또는 `1.` 목록, `[표시 텍스트](https://example.com)` 링크. `#`, `##` 등의 제목은 지원하지 않습니다. 표 등 확장 Markdown은 지원되지 않으니 리스트로 표현하세요. 불필요한 이스케이프를 피하며, 줄바꿈에 역슬래시를 두 번 써서 이스케이프 하지 마세요.";
 
-const SENA_SYSTEM_PROMPT_APPEND = [
-  "당신은 세나(Sena)입니다. Slack 멘션으로 호출되어 요청된 작업을 수행하는 사내 다기능 코딩 에이전트입니다.",
-  "특히 코딩/리포지토리 분석/문서 조사에 강하며, Slack 동료에게 따뜻하고 친절한 동료처럼 응답합니다.",
+const AGENT_BASE_PROMPT = getAgentBasePrompt();
+const THINKING_CONTEXT_TEXT = `:loading-dots: ${getAgentSubject()} 생각 중이에요`;
+
+const SYSTEM_PROMPT_APPEND = [
+  AGENT_BASE_PROMPT,
   "",
   "[운영 컨텍스트]",
   "- 이 대화는 *Slack 스레드*에서 진행됩니다. 항상 스레드 맥락을 우선으로 파악하고 답하세요.",
@@ -86,8 +90,70 @@ const SENA_SYSTEM_PROMPT_APPEND = [
   "2) 정보가 부족하면 질문을 1~3개로 최소화합니다.",
   "3) 필요하면 Slack 히스토리/문서를 도구로 조회한 뒤 답합니다.",
   "4) 코딩 작업이라면: 변경 계획 → 변경 내용(파일/핵심 diff) → 검증 방법 순서로 제시합니다.",
-  "5) 작업이 길어질 것 같으면, 현재 무엇을 하고 있는지 짧게 중간 업데이트를 포함합니다.",
+  "5) 진행 상태는 메시지 하단 컨텍스트로 표시되므로, 최종 답변은 결과/요청사항 위주로 간결하게 정리합니다.",
 ].join("\n");
+
+type ProgressPhase = "idle" | "acknowledged" | "working" | "drafting" | "waiting" | "completed" | "error";
+
+type ToolMeta = {
+  userActionHint?: string;
+};
+
+const TOOL_RULES: ReadonlyArray<{
+  pattern: RegExp;
+  userActionHint?: string;
+}> = [
+  {
+    pattern: /^mcp__sena-auth__guide_github_integration$/u,
+    userActionHint: "GitHub 계정 연동",
+  },
+  {
+    pattern: /^mcp__sena-auth__guide_repo_permission$/u,
+    userActionHint: "GitHub 리포지토리 권한 승인",
+  },
+  {
+    pattern: /^mcp__sena-slack__search_messages$/u,
+  },
+  {
+    pattern: /^mcp__sena-slack__get_messages$/u,
+  },
+  {
+    pattern: /^mcp__context7__/u,
+  },
+  {
+    pattern: /^(bash|shell_command)$/iu,
+  },
+  {
+    pattern: /read_file|file_read|open_file|file_open|view_file|read\b/iu,
+  },
+  {
+    pattern: /list_files|list_directory|directory_list|list\b/iu,
+  },
+  {
+    pattern: /search|rg|ripgrep|grep/iu,
+  },
+  {
+    pattern: /apply_patch|edit|write|update/iu,
+  },
+  {
+    pattern: /test|lint|check|typecheck|build/iu,
+  },
+];
+
+const resolveToolMeta = (toolName: string): ToolMeta => {
+  const normalized = toolName.trim();
+  if (normalized.length === 0) {
+    return {};
+  }
+
+  for (const rule of TOOL_RULES) {
+    if (rule.pattern.test(normalized)) {
+      return { userActionHint: rule.userActionHint };
+    }
+  }
+
+  return {};
+};
 
 const trimSlackText = (text: string): string => {
   if (text.length <= MAX_SLACK_TEXT_LENGTH) {
@@ -139,15 +205,48 @@ const extractAssistantText = (message: SDKMessage): string | null => {
   return joined.length > 0 ? joined : null;
 };
 
+const extractStreamDeltaText = (message: SDKMessage): string | null => {
+  if (message.type !== "stream_event") {
+    return null;
+  }
+
+  if (message.event.type !== "content_block_delta") {
+    return null;
+  }
+
+  if (message.event.delta.type !== "text_delta") {
+    return null;
+  }
+
+  const text = message.event.delta.text;
+  return text.length > 0 ? text : null;
+};
+
 type ToolCallStatus = "running" | "success" | "error";
 
 type ToolCallEntry = {
   id: string;
   name: string;
   status: ToolCallStatus;
-  stepIndex: number;
   startedAt: number;
   endedAt: number | null;
+};
+
+const logToolCall = (payload: {
+  phase: "start" | "complete";
+  id: string;
+  name: string;
+  status: ToolCallStatus;
+  durationMs?: number;
+}): void => {
+  console.info("[tool]", payload);
+};
+
+type SlackMessageBlock = KnownBlock;
+
+type SlackMessagePayload = {
+  text: string;
+  blocks: SlackMessageBlock[];
 };
 
 const extractToolUses = (message: SDKMessage): Array<{ id: string; name: string }> => {
@@ -315,18 +414,27 @@ class SlackThreadRunner {
   private onSessionId: (sessionId: string) => void;
   private onStop: () => void;
 
+  private inTurn = false;
+  private pendingTurns: Array<{ isSynthetic: boolean }> = [];
+
   private outputMessageTs: string | null = null;
-  private lastSlackUpdateAt = 0;
   private lastEnsureOutputAt = 0;
+  private lastProgressUpdateAt = 0;
+  private lastProgressText: string | null = null;
+  private pendingProgressTimer: NodeJS.Timeout | null = null;
+  private pendingForceProgress = false;
   private idleTimer: NodeJS.Timeout | null = null;
   private stopReason: "idle" | "restart" | "manual" | null = null;
 
-  private assistantOutputs: string[] = [];
-  private toolCalls: ToolCallEntry[] = [];
+  private progressPhase: ProgressPhase = "idle";
+  private progressDetail: string | null = null;
+  private awaitingUserAction = false;
+  private awaitingUserActionHint: string | null = null;
+  private hasDraftOutput = false;
   private toolCallsById = new Map<string, ToolCallEntry>();
+  private lastAssistantText: string | null = null;
+  private streamingAssistantText: string | null = null;
   private finalAnswer: string | null = null;
-  private finalPosted = false;
-  private finalInlineAnswer: string | null = null;
   private bootstrapped = false;
 
   constructor(options: ThreadRunnerOptions) {
@@ -355,12 +463,12 @@ class SlackThreadRunner {
     }
     this.started = true;
     void this.runLoop()
-      .catch(async (error) => {
+      .catch((error) => {
         if (this.stopReason) {
           return;
         }
         const message = error instanceof Error ? error.message : "알 수 없는 오류";
-        await this.updateSlack(`⚠️ 실행 중 오류가 발생했습니다.\n\n${message}`, true);
+        this.setPhase("error", message, { force: true });
       })
       .finally(() => {
         this.ended = true;
@@ -379,6 +487,11 @@ class SlackThreadRunner {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
     }
+    if (this.pendingProgressTimer) {
+      clearTimeout(this.pendingProgressTimer);
+      this.pendingProgressTimer = null;
+      this.pendingForceProgress = false;
+    }
   }
 
   enqueueUserInput(text: string, options?: { isSynthetic?: boolean }): boolean {
@@ -392,7 +505,10 @@ class SlackThreadRunner {
     }
 
     this.bumpIdleTimer();
-    void this.showThinking().catch(() => undefined);
+    this.pendingTurns.push({ isSynthetic: options?.isSynthetic ?? false });
+    if (!this.inTurn) {
+      this.startNextTurn();
+    }
 
     const prompt = this.bootstrapped ? this.buildFollowupPrompt(normalized) : this.buildBootstrapPrompt(normalized);
 
@@ -470,7 +586,35 @@ class SlackThreadRunner {
     ].join("\n");
   }
 
-  private async ensureOutputMessageTs(): Promise<string | null> {
+  private buildSlackMessagePayload(text: string, options: { includeThinking: boolean }): SlackMessagePayload | null {
+    const trimmed = text.trim();
+    const hasText = trimmed.length > 0;
+    const normalized = hasText ? trimSlackText(trimmed) : "";
+    const blocks: SlackMessageBlock[] = [];
+
+    if (hasText) {
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: normalized },
+        expand: true,
+      });
+    }
+
+    if (options.includeThinking) {
+      blocks.push({
+        type: "context",
+        elements: [{ type: "mrkdwn", text: THINKING_CONTEXT_TEXT }],
+      });
+    }
+
+    if (blocks.length === 0) {
+      return null;
+    }
+
+    return { text: hasText ? normalized : THINKING_CONTEXT_TEXT, blocks };
+  }
+
+  private async ensureOutputMessageTs(payload: SlackMessagePayload): Promise<string | null> {
     if (this.outputMessageTs) {
       return this.outputMessageTs;
     }
@@ -485,7 +629,8 @@ class SlackThreadRunner {
       .postMessage({
         channel: this.slack.channelId,
         thread_ts: this.slack.threadTs ?? this.slack.messageTs,
-        text: "세나가 생각중이에요…",
+        text: payload.text,
+        blocks: payload.blocks,
       })
       .catch(() => null);
 
@@ -496,67 +641,248 @@ class SlackThreadRunner {
     return ts;
   }
 
-  private async updateSlack(text: string, force: boolean): Promise<void> {
-    const outputTs = await this.ensureOutputMessageTs();
+  private async updateSlack(text: string, options?: { includeThinking?: boolean }): Promise<boolean> {
+    const includeThinking = options?.includeThinking ?? this.inTurn;
+    const payload = this.buildSlackMessagePayload(text, { includeThinking });
+    if (!payload) {
+      return false;
+    }
+    const outputTs = await this.ensureOutputMessageTs(payload);
     if (!outputTs) {
-      return;
+      return false;
     }
-
-    const now = Date.now();
-    if (!force && now - this.lastSlackUpdateAt < SLACK_UPDATE_THROTTLE_MS) {
-      return;
-    }
-    this.lastSlackUpdateAt = now;
 
     await SlackSDK.instance
       .updateMessage({
         channel: this.slack.channelId,
         ts: outputTs,
-        text: trimSlackText(text),
+        text: payload.text,
+        blocks: payload.blocks,
       })
       .catch(() => undefined);
+    return true;
   }
 
-  private async showThinking(): Promise<void> {
-    await this.updateSlack("세나가 생각중이에요…", true);
+  private async showThinkingIndicator(): Promise<void> {
+    const updated = await this.updateSlack("", { includeThinking: true });
+    if (updated) {
+      this.lastProgressText = "";
+      this.lastProgressUpdateAt = Date.now();
+    }
   }
 
-  private getCurrentStepIndex(): number {
-    return Math.max(this.assistantOutputs.length, 1);
+  private async finalizeTurn(text: string): Promise<void> {
+    const normalized = text.trim();
+    if (normalized.length === 0) {
+      if (!this.awaitingUserAction) {
+        await this.finalizeError("완료했지만 출력이 비어있어요. 다시 시도해 주세요.");
+        return;
+      }
+      this.finishTurn();
+      return;
+    }
+
+    const updated = await this.updateSlack(normalized, { includeThinking: false });
+    if (updated) {
+      this.lastProgressText = normalized;
+      this.lastProgressUpdateAt = Date.now();
+    }
+
+    if (this.awaitingUserAction) {
+      this.finishTurn();
+      return;
+    }
+
+    this.finishTurn();
   }
 
-  private upsertAssistantOutput(nextText: string): boolean {
+  private async finalizeError(message: string): Promise<void> {
+    const normalized = message.trim();
+    const text = normalized.length > 0 ? `⚠️ ${normalized}` : "⚠️ 알 수 없는 오류";
+    const updated = await this.updateSlack(text, { includeThinking: false });
+    if (updated) {
+      this.lastProgressText = text;
+      this.lastProgressUpdateAt = Date.now();
+    }
+    this.finishTurn();
+  }
+
+  private startNextTurn(): void {
+    const next = this.pendingTurns.shift();
+    if (!next) {
+      return;
+    }
+    this.inTurn = true;
+    this.outputMessageTs = null;
+    this.lastEnsureOutputAt = 0;
+    this.resetProgressState(next.isSynthetic);
+    void this.showThinkingIndicator().catch(() => undefined);
+  }
+
+  private finishTurn(): void {
+    this.inTurn = false;
+    this.awaitingUserAction = false;
+    this.awaitingUserActionHint = null;
+    this.hasDraftOutput = false;
+    this.toolCallsById.clear();
+    this.lastAssistantText = null;
+    this.streamingAssistantText = null;
+    this.finalAnswer = null;
+    this.progressPhase = "idle";
+    this.progressDetail = null;
+    this.outputMessageTs = null;
+    this.lastEnsureOutputAt = 0;
+    this.lastProgressText = null;
+    this.lastProgressUpdateAt = 0;
+    if (this.pendingProgressTimer) {
+      clearTimeout(this.pendingProgressTimer);
+      this.pendingProgressTimer = null;
+      this.pendingForceProgress = false;
+    }
+    if (this.pendingTurns.length > 0) {
+      this.startNextTurn();
+    }
+  }
+
+  private resetProgressState(isSynthetic: boolean): void {
+    this.awaitingUserAction = false;
+    this.awaitingUserActionHint = null;
+    this.hasDraftOutput = false;
+    this.toolCallsById.clear();
+    this.lastAssistantText = null;
+    this.streamingAssistantText = null;
+    this.finalAnswer = null;
+    this.lastProgressText = null;
+    this.lastProgressUpdateAt = 0;
+    if (this.pendingProgressTimer) {
+      clearTimeout(this.pendingProgressTimer);
+      this.pendingProgressTimer = null;
+      this.pendingForceProgress = false;
+    }
+    const detail = isSynthetic ? "사용자 확인을 반영했어요. 이어서 처리할게요." : null;
+    this.setPhase("acknowledged", detail, { force: true });
+  }
+
+  private queueProgressUpdate(force: boolean): void {
+    const now = Date.now();
+    const elapsed = now - this.lastProgressUpdateAt;
+    if (force || elapsed >= SLACK_PROGRESS_THROTTLE_MS) {
+      void this.flushProgressUpdate(force).catch(() => undefined);
+      return;
+    }
+
+    this.pendingForceProgress = this.pendingForceProgress || force;
+    if (this.pendingProgressTimer) {
+      return;
+    }
+
+    const delay = SLACK_PROGRESS_THROTTLE_MS - elapsed;
+    this.pendingProgressTimer = setTimeout(() => {
+      this.pendingProgressTimer = null;
+      const useForce = this.pendingForceProgress;
+      this.pendingForceProgress = false;
+      void this.flushProgressUpdate(useForce).catch(() => undefined);
+    }, delay);
+    this.pendingProgressTimer.unref?.();
+  }
+
+  private async flushProgressUpdate(force: boolean): Promise<void> {
+    const text = this.renderProgressMessage();
+    if (!text) {
+      return;
+    }
+
+    if (!force && text === this.lastProgressText) {
+      return;
+    }
+
+    const updated = await this.updateSlack(text);
+    if (!updated) {
+      return;
+    }
+
+    this.lastProgressText = text;
+    this.lastProgressUpdateAt = Date.now();
+  }
+
+  private setPhase(nextPhase: ProgressPhase, detail: string | null = null, options?: { force?: boolean }): boolean {
+    if (this.awaitingUserAction && nextPhase !== "waiting" && nextPhase !== "completed" && nextPhase !== "error") {
+      return false;
+    }
+
+    const normalizedDetail = detail?.trim() ?? null;
+    const changed = this.progressPhase !== nextPhase || this.progressDetail !== normalizedDetail;
+
+    this.progressPhase = nextPhase;
+    this.progressDetail = normalizedDetail;
+
+    if (changed || options?.force) {
+      this.queueProgressUpdate(options?.force ?? false);
+    }
+
+    return changed;
+  }
+
+  private markAwaitingUserAction(hint: string | null): void {
+    const normalizedHint = hint?.trim() ?? null;
+    const changed = !this.awaitingUserAction || this.awaitingUserActionHint !== normalizedHint;
+    this.awaitingUserAction = true;
+    this.awaitingUserActionHint = normalizedHint;
+    if (changed) {
+      this.setPhase("waiting", null, { force: true });
+    }
+  }
+
+  private updateAssistantText(nextText: string): boolean {
     const normalized = nextText.trim();
     if (normalized.length === 0) {
       return false;
     }
 
-    if (this.assistantOutputs.length === 0) {
-      this.assistantOutputs.push(normalized);
+    if (!this.lastAssistantText) {
+      this.lastAssistantText = normalized;
       return true;
     }
 
-    const lastIndex = this.assistantOutputs.length - 1;
-    const previous = this.assistantOutputs[lastIndex];
-
-    if (normalized === previous) {
+    if (normalized === this.lastAssistantText) {
       return false;
     }
 
-    if (normalized.startsWith(previous)) {
-      this.assistantOutputs[lastIndex] = normalized;
+    if (normalized.startsWith(this.lastAssistantText)) {
+      this.lastAssistantText = normalized;
       return true;
     }
 
-    if (previous.startsWith(normalized)) {
+    if (this.lastAssistantText.startsWith(normalized)) {
       return false;
     }
 
-    this.assistantOutputs.push(normalized);
+    this.lastAssistantText = normalized;
     return true;
   }
 
-  private registerToolCall(params: { id: string; name: string; stepIndex: number }): boolean {
+  private appendAssistantDelta(deltaText: string): boolean {
+    if (deltaText.length === 0) {
+      return false;
+    }
+
+    const current = this.streamingAssistantText ?? "";
+    this.streamingAssistantText = current + deltaText;
+    return this.noteAssistantDraft(this.streamingAssistantText);
+  }
+
+  private noteAssistantDraft(nextText: string): boolean {
+    const changed = this.updateAssistantText(nextText);
+    if (!this.hasDraftOutput) {
+      this.hasDraftOutput = true;
+      if (!this.awaitingUserAction && this.toolCallsById.size === 0) {
+        this.setPhase("drafting");
+      }
+    }
+    return changed;
+  }
+
+  private registerToolCall(params: { id: string; name: string }): boolean {
     const id = params.id.trim();
     const name = params.name.trim();
     if (id.length === 0 || name.length === 0) {
@@ -564,25 +890,40 @@ class SlackThreadRunner {
     }
 
     const existing = this.toolCallsById.get(id);
+    const meta = resolveToolMeta(name);
     if (existing) {
-      if (existing.name.length === 0 && existing.name !== name) {
+      let changed = false;
+      if (existing.name !== name) {
         existing.name = name;
-        return true;
+        changed = true;
       }
-      return false;
+      if (meta.userActionHint) {
+        this.markAwaitingUserAction(meta.userActionHint);
+      } else if (!this.awaitingUserAction) {
+        this.setPhase("working");
+      }
+      if (changed) {
+        this.queueProgressUpdate(false);
+      }
+      return changed;
     }
 
     const entry: ToolCallEntry = {
       id,
       name,
       status: "running",
-      stepIndex: params.stepIndex,
       startedAt: Date.now(),
       endedAt: null,
     };
 
-    this.toolCalls.push(entry);
     this.toolCallsById.set(id, entry);
+    logToolCall({ phase: "start", id: entry.id, name: entry.name, status: entry.status });
+    if (meta.userActionHint) {
+      this.markAwaitingUserAction(meta.userActionHint);
+    } else if (!this.awaitingUserAction) {
+      this.setPhase("working");
+    }
+    this.queueProgressUpdate(false);
     return true;
   }
 
@@ -604,77 +945,38 @@ class SlackThreadRunner {
 
     entry.status = nextStatus;
     entry.endedAt = Date.now();
+    this.toolCallsById.delete(toolUseId);
+    logToolCall({
+      phase: "complete",
+      id: entry.id,
+      name: entry.name,
+      status: entry.status,
+      durationMs: Math.max(0, entry.endedAt - entry.startedAt),
+    });
+
+    if (params.isError && entry.name === "mcp__sena-slack__search_messages") {
+      this.markAwaitingUserAction("Slack 검색 권한 연동");
+    }
+
+    if (!this.awaitingUserAction && this.toolCallsById.size === 0 && this.hasDraftOutput) {
+      this.setPhase("drafting");
+    }
+
+    this.queueProgressUpdate(false);
     return true;
   }
 
-  private renderProgressMessage(): string {
-    const lines: string[] = [];
-
-    for (let index = 0; index < this.assistantOutputs.length; index += 1) {
-      lines.push(`[에이전트 출력${index + 1}]`);
-      lines.push(this.assistantOutputs[index]);
-      lines.push("");
+  private renderProgressMessage(): string | null {
+    if (this.lastAssistantText) {
+      return this.lastAssistantText;
     }
 
-    const currentStep = this.getCurrentStepIndex();
-    const toolCallsToDisplay = this.toolCalls.filter(
-      (call) => call.stepIndex === currentStep || call.status === "running"
-    );
-
-    if (toolCallsToDisplay.length > 0) {
-      const tokens = toolCallsToDisplay
-        .map((call) => {
-          if (call.status === "success") {
-            return `[${call.name} ✅]`;
-          }
-          if (call.status === "error") {
-            return `[${call.name} ❌]`;
-          }
-          return `[${call.name}]`;
-        })
-        .join(" ");
-
-      lines.push("[도구 호출]");
-      lines.push(tokens);
+    if (this.progressPhase === "error") {
+      const detail = this.progressDetail ?? "알 수 없는 오류";
+      return `⚠️ ${detail}`;
     }
 
-    if (this.finalPosted) {
-      lines.push("");
-      lines.push("---새 메시지---");
-      if (this.finalInlineAnswer) {
-        lines.push("");
-        lines.push(this.finalInlineAnswer);
-      }
-    }
-
-    const rendered = lines.join("\n").trim();
-    return rendered.length > 0 ? rendered : "세나가 생각중이에요…";
-  }
-
-  private async updateProgress(force: boolean): Promise<void> {
-    await this.updateSlack(this.renderProgressMessage(), force);
-  }
-
-  private async postFinalAnswer(text: string): Promise<boolean> {
-    const normalized = text.trim();
-    if (normalized.length === 0) {
-      return false;
-    }
-
-    const finalText =
-      normalized.length <= MAX_SLACK_TEXT_LENGTH
-        ? normalized
-        : `${normalized.slice(0, MAX_SLACK_TEXT_LENGTH)}\n\n...(truncated)`;
-
-    const response = await SlackSDK.instance
-      .postMessage({
-        channel: this.slack.channelId,
-        thread_ts: this.slack.threadTs ?? this.slack.messageTs,
-        text: finalText,
-      })
-      .catch(() => null);
-
-    return Boolean(isRecord(response) && response.ok === true);
+    return null;
   }
 
   private async runLoop(): Promise<void> {
@@ -705,7 +1007,7 @@ class SlackThreadRunner {
         cwd: CONFIG.WORKSPACE_DIR,
         includePartialMessages: true,
         permissionMode: "bypassPermissions",
-        systemPrompt: { type: "preset", preset: "claude_code", append: SENA_SYSTEM_PROMPT_APPEND },
+        systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_PROMPT_APPEND },
         settingSources: ["user", "project", "local"],
         abortController: this.abortController,
         ...(this.resumeSessionId ? { resume: this.resumeSessionId } : {}),
@@ -728,64 +1030,49 @@ class SlackThreadRunner {
 
         const toolProgress = extractToolProgress(message);
         if (toolProgress) {
-          const changed = this.registerToolCall({
+          this.registerToolCall({
             id: toolProgress.toolUseId,
             name: toolProgress.toolName,
-            stepIndex: this.getCurrentStepIndex(),
           });
-          if (changed) {
-            await this.updateProgress(false);
-          }
           continue;
         }
 
         let shouldContinue = false;
-        let hasChanged = false;
-        let forceUpdate = false;
 
         const toolResults = extractToolResults(message);
         if (toolResults.length > 0) {
-          let changedToolResults = false;
           for (const result of toolResults) {
-            if (this.completeToolCall({ toolUseId: result.toolUseId, isError: result.isError })) {
-              changedToolResults = true;
-            }
+            this.completeToolCall({ toolUseId: result.toolUseId, isError: result.isError });
           }
+          shouldContinue = true;
+        }
 
-          if (changedToolResults) {
-            hasChanged = true;
-            forceUpdate = true;
+        const streamDelta = extractStreamDeltaText(message);
+        if (streamDelta) {
+          if (this.appendAssistantDelta(streamDelta)) {
+            const shouldForce = this.outputMessageTs === null || this.lastProgressText === "";
+            this.queueProgressUpdate(shouldForce);
           }
           shouldContinue = true;
         }
 
         const assistantText = extractAssistantText(message);
         if (assistantText) {
-          const changedOutput = this.upsertAssistantOutput(assistantText);
-          if (changedOutput) {
-            hasChanged = true;
+          if (this.noteAssistantDraft(assistantText)) {
+            const shouldForce = this.outputMessageTs === null || this.lastProgressText === "";
+            this.queueProgressUpdate(shouldForce);
           }
           shouldContinue = true;
         }
 
         const toolUses = extractToolUses(message);
         if (toolUses.length > 0) {
-          let changedTools = false;
-          const stepIndex = this.getCurrentStepIndex();
           for (const toolUse of toolUses) {
-            if (this.registerToolCall({ id: toolUse.id, name: toolUse.name, stepIndex })) {
-              changedTools = true;
-            }
-          }
-          if (changedTools) {
-            hasChanged = true;
+            this.registerToolCall({ id: toolUse.id, name: toolUse.name });
           }
           shouldContinue = true;
         }
 
-        if (hasChanged) {
-          await this.updateProgress(forceUpdate);
-        }
         if (shouldContinue) {
           continue;
         }
@@ -793,7 +1080,7 @@ class SlackThreadRunner {
         const resultText = extractResultText(message);
         if (resultText) {
           this.finalAnswer = resultText;
-          await this.updateProgress(true);
+          await this.finalizeTurn(resultText);
         }
       }
     } catch (error) {
@@ -801,27 +1088,30 @@ class SlackThreadRunner {
         return;
       }
       const message = error instanceof Error ? error.message : "알 수 없는 오류";
-      const errorText = `⚠️ 실행 중 오류가 발생했습니다.\n\n${message}`;
-      await this.updateSlack(errorText, true);
+      await this.finalizeError(message);
       return;
     } finally {
       this.ended = true;
       this.promptQueue.close();
     }
 
-    const hasFinalAnswer = this.stopReason === null && (this.finalAnswer?.trim().length ?? 0) > 0;
-    if (hasFinalAnswer) {
-      const posted = await this.postFinalAnswer(this.finalAnswer ?? "");
-      this.finalPosted = true;
-      if (!posted) {
-        this.finalInlineAnswer = this.finalAnswer;
-      }
-      await this.updateProgress(true);
+    if (this.stopReason) {
       return;
     }
 
-    if (this.assistantOutputs.join("\n").trim().length === 0) {
-      await this.updateSlack("완료했지만 출력이 비어있어요. 다시 시도해 주세요.", true);
+    if (this.inTurn) {
+      const fallback = this.finalAnswer?.trim() ? this.finalAnswer : this.lastAssistantText;
+      if (fallback) {
+        await this.finalizeTurn(fallback);
+        return;
+      }
+
+      if (this.awaitingUserAction) {
+        this.finishTurn();
+        return;
+      }
+
+      await this.finalizeError("완료했지만 출력이 비어있어요. 다시 시도해 주세요.");
     }
   }
 }

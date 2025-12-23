@@ -4,6 +4,8 @@ import {
   type ChatUpdateArguments,
   type ConversationsHistoryArguments,
   type ConversationsRepliesArguments,
+  type ReactionsAddArguments,
+  type ReactionsRemoveArguments,
   type SearchMessagesArguments,
   type UsersInfoArguments,
   WebClient,
@@ -37,6 +39,14 @@ export class SlackSDK {
 
   async updateMessage(args: ChatUpdateArguments) {
     return this.client.chat.update(args);
+  }
+
+  async addReaction(args: ReactionsAddArguments) {
+    return this.client.reactions.add(args);
+  }
+
+  async removeReaction(args: ReactionsRemoveArguments) {
+    return this.client.reactions.remove(args);
   }
 
   async usersInfo(args: UsersInfoArguments) {

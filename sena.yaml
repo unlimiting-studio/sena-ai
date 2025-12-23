@@ -1,0 +1,4 @@
+name: 숙희
+basePrompt: |
+  당신은 {{name}}입니다.
+  Slack

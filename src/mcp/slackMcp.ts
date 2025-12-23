@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
+import { getAgentSubject } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
 // import { findSlackCredentialBySlackUserId } from "../db/slackCredentials.ts";
 import { SlackSDK } from "../sdks/slack.ts";
@@ -15,6 +16,21 @@ export type KarbySlackMcpContext = {
     slackUserId: string;
   };
   getSessionId: () => string | null;
+};
+
+const AGENT_SUBJECT = getAgentSubject();
+
+const PROMPT_THROTTLE_MS = 5 * 60 * 1000;
+const promptThrottleMap = new Map<string, number>();
+
+const shouldSendPrompt = (key: string): boolean => {
+  const now = Date.now();
+  const lastSentAt = promptThrottleMap.get(key);
+  if (lastSentAt && now - lastSentAt < PROMPT_THROTTLE_MS) {
+    return false;
+  }
+  promptThrottleMap.set(key, now);
+  return true;
 };
 
 const toNonEmptyString = (value: unknown): string | null => {
@@ -40,6 +56,11 @@ const formatSlackMessage = (msg: unknown): string | null => {
 };
 
 const postSlackSearchOauthPrompt = async (ctx: KarbySlackMcpContext): Promise<void> => {
+  const throttleKey = `slack_search:${ctx.slack.slackUserId}`;
+  if (!shouldSendPrompt(throttleKey)) {
+    return;
+  }
+
   const sessionId = ctx.getSessionId();
   const { token, expiresAt } = createSlackLinkToken({
     teamId: ctx.slack.teamId,
@@ -59,7 +80,7 @@ const postSlackSearchOauthPrompt = async (ctx: KarbySlackMcpContext): Promise<vo
     channel: ctx.slack.channelId,
     user: ctx.slack.slackUserId,
     thread_ts: ctx.slack.threadTs ?? ctx.slack.messageTs,
-    text: "Slack 검색 권한 연동이 필요해요. 버튼을 눌러 연동을 완료하면 카비가 작업을 이어갑니다.",
+    text: `Slack 검색 권한 연동이 필요해요. 버튼을 눌러 연동을 완료하면 ${AGENT_SUBJECT} 작업을 이어갑니다.`,
     blocks: [
       {
         type: "header",
@@ -144,7 +165,7 @@ export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
           return {
             content: [{ type: "text", text: `${header}\n\n${body}` }],
           };
-        }
+        },
       ),
       tool(
         "search_messages",
@@ -193,9 +214,9 @@ export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
 
             const matches = result.messages?.matches ?? [];
             const lines = matches.map((match) => {
-              const channel = match.channel?.name ? `#${match.channel.name}` : match.channel?.id ?? "";
+              const channel = match.channel?.name ? `#${match.channel.name}` : (match.channel?.id ?? "");
               const ts = match.ts ?? "";
-              const user = match.username ? `@${match.username}` : match.user ?? "";
+              const user = match.username ? `@${match.username}` : (match.user ?? "");
               const text = match.text ?? "";
               const permalink = match.permalink ? ` (${match.permalink})` : "";
               return `- [${ts}] ${user} in ${channel}: ${text}${permalink}`;
@@ -218,7 +239,7 @@ export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
               isError: true,
             };
           }
-        }
+        },
       ),
     ],
   });

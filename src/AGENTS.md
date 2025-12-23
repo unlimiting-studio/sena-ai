@@ -6,6 +6,7 @@ Sena의 런타임 소스 코드 디렉토리다. Slack 이벤트 → Claude Agen
 
 - 기능별로 `agents/`, `routes/`, `mcp/`, `db/`, `sdks/`, `utils/`, `handlers/`로 분리한다.
 - 라우팅은 `routes/*`에 두고 `server.ts`에서 prefix로 조립한다.
+- 사용자-facing 에이전트 이름/기초 프롬프트는 `src/agentConfig.ts`에서 로드한다.
 
 ## 코드 작성 컨벤션
 

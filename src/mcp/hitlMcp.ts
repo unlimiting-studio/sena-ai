@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
+import { getAgentSubject } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
 // import { findGithubCredentialBySlackUserId } from "../db/githubCredentials.ts";
 import { GitHubSDK } from "../sdks/github.ts";
@@ -17,7 +18,27 @@ export type KarbyHitlMcpContext = {
   getSessionId: () => string | null;
 };
 
+const AGENT_SUBJECT = getAgentSubject();
+
+const PROMPT_THROTTLE_MS = 5 * 60 * 1000;
+const promptThrottleMap = new Map<string, number>();
+
+const shouldSendPrompt = (key: string): boolean => {
+  const now = Date.now();
+  const lastSentAt = promptThrottleMap.get(key);
+  if (lastSentAt && now - lastSentAt < PROMPT_THROTTLE_MS) {
+    return false;
+  }
+  promptThrottleMap.set(key, now);
+  return true;
+};
+
 const postGithubOauthPrompt = async (ctx: KarbyHitlMcpContext, reason: string | null): Promise<void> => {
+  const throttleKey = `github_oauth:${ctx.slack.slackUserId}`;
+  if (!shouldSendPrompt(throttleKey)) {
+    return;
+  }
+
   const sessionId = ctx.getSessionId();
   const { token, expiresAt } = createGithubLinkToken({
     slackUserId: ctx.slack.slackUserId,
@@ -36,7 +57,7 @@ const postGithubOauthPrompt = async (ctx: KarbyHitlMcpContext, reason: string | 
     channel: ctx.slack.channelId,
     user: ctx.slack.slackUserId,
     thread_ts: ctx.slack.threadTs ?? ctx.slack.messageTs,
-    text: "GitHub 연동이 필요해요. 버튼을 눌러 연동을 완료하면 카비가 작업을 이어갑니다.",
+    text: `GitHub 연동이 필요해요. 버튼을 눌러 연동을 완료하면 ${AGENT_SUBJECT} 작업을 이어갑니다.`,
     blocks: [
       {
         type: "header",
@@ -102,7 +123,7 @@ export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
             ],
             isError: true,
           };
-        }
+        },
       ),
       tool(
         "guide_repo_permission",
@@ -131,7 +152,7 @@ export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
             const { hasPushAccess, permission } = await sdk.getCollaboratorPermissionLevel(
               args.owner,
               args.repo,
-              user.login
+              user.login,
             );
             if (hasPushAccess) {
               return {
@@ -200,7 +221,7 @@ export const createSenaHitlMcpServer = (ctx: KarbyHitlMcpContext) =>
             content: [{ type: "text", text: "Write 권한이 필요합니다. Slack에 권한 신청 안내를 전송했습니다." }],
             isError: true,
           };
-        }
+        },
       ),
     ],
   });

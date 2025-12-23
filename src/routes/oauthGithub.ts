@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 
+import { formatAgentNameWithSuffix, getAgentSubject } from "../agentConfig.ts";
 import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
 import { CONFIG } from "../config.ts";
 // import { upsertGithubCredential } from "../db/githubCredentials.ts";
@@ -25,6 +26,10 @@ const CallbackQuerySchema = z.object({
   error: z.string().optional(),
   error_description: z.string().optional(),
 });
+
+const AGENT_SUBJECT = getAgentSubject();
+const AGENT_REQUEST_TARGET = formatAgentNameWithSuffix("에게");
+const AGENT_CONNECT_TARGET = formatAgentNameWithSuffix("에");
 
 const buildCallbackUrl = (): string => new URL("/api/auth/github/callback", CONFIG.BACKEND_URL).toString();
 
@@ -84,7 +89,7 @@ const renderHtmlPage = ({
             : ""
         }
         <div class="space-y-2 text-sm text-slate-500">
-          <p>창을 닫아도 Karby가 작업을 계속 진행합니다.</p>
+          <p>창을 닫아도 ${AGENT_SUBJECT} 작업을 계속 진행합니다.</p>
           <p>문제가 지속되면 관리자에게 문의해주세요.</p>
         </div>
       </div>
@@ -151,7 +156,7 @@ export async function githubOAuthRoutes(fastify: FastifyInstance) {
       if (isGithubLinkTokenExpired(payload)) {
         sendHtml(reply, 410, {
           title: "링크가 만료되었습니다",
-          message: "GitHub 연동 링크가 만료되었습니다. Karby에게 다시 요청하여 새 링크를 발급받아 주세요.",
+          message: `GitHub 연동 링크가 만료되었습니다. ${AGENT_REQUEST_TARGET} 다시 요청하여 새 링크를 발급받아 주세요.`,
           variant: "error",
         });
         return;
@@ -223,7 +228,7 @@ export async function githubOAuthRoutes(fastify: FastifyInstance) {
       if (isGithubLinkTokenExpired(payload)) {
         sendHtml(reply, 410, {
           title: "링크가 만료되었습니다",
-          message: "GitHub 연동 링크가 만료되었습니다. Karby에게 다시 요청하여 새 링크를 발급받아 주세요.",
+          message: `GitHub 연동 링크가 만료되었습니다. ${AGENT_REQUEST_TARGET} 다시 요청하여 새 링크를 발급받아 주세요.`,
           variant: "error",
         });
         return;
@@ -295,7 +300,7 @@ export async function githubOAuthRoutes(fastify: FastifyInstance) {
 
       sendHtml(reply, 200, {
         title: "GitHub 연동이 완료되었습니다",
-        message: `${user.login} 계정이 Karby에 연결되었습니다. 창을 닫아도 Karby가 자동으로 작업을 이어갑니다.`,
+        message: `${user.login} 계정이 ${AGENT_CONNECT_TARGET} 연결되었습니다. 창을 닫아도 ${AGENT_SUBJECT} 자동으로 작업을 이어갑니다.`,
         variant: "success",
       });
     } catch (error) {
