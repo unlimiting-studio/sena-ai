@@ -9,7 +9,7 @@ enabled = true
 class_name = "SenaAgentContainer"
 image = "../../agent/Dockerfile"
 max_instances = 10
-instance_type = "basic"
+instance_type = "standard-1"
 
 [[durable_objects.bindings]]
 name = "SENA_AGENT"

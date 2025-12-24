@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
-        specifier: ^0.1.72
-        version: 0.1.72(zod@4.2.1)
+        specifier: ^0.1.76
+        version: 0.1.76(zod@4.2.1)
       '@fastify/formbody':
         specifier: ^8.0.2
         version: 8.0.2
@@ -63,8 +63,8 @@ importers:
 
 packages:
 
-  '@anthropic-ai/claude-agent-sdk@0.1.72':
-    resolution: {integrity: sha512-fS/aTDfpafNA49K3Kn2QCQYpFiz6RckIxDFeBO0xw9ciudkao2M3uqjaa7K4eHMOhrXePfypCij4uTt8D4tyHQ==}
+  '@anthropic-ai/claude-agent-sdk@0.1.76':
+    resolution: {integrity: sha512-s7RvpXoFaLXLG7A1cJBAPD8ilwOhhc/12fb5mJXRuD561o4FmPtQ+WRfuy9akMmrFRfLsKv8Ornw3ClGAPL2fw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       zod: ^3.24.1 || ^4.0.0
@@ -1119,7 +1119,7 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/claude-agent-sdk@0.1.72(zod@4.2.1)':
+  '@anthropic-ai/claude-agent-sdk@0.1.76(zod@4.2.1)':
     dependencies:
       zod: 4.2.1
     optionalDependencies:
