@@ -23,3 +23,6 @@ new_sqlite_classes = ["SenaAgentContainer"]
 NODE_ENV = "production"
 BACKEND_URL = "https://<your-worker-domain>"
 WORKSPACE_DIR = "/tmp/sena-workspaces"
+SLACK_VERIFY_MODE = "external"
+SLACK_APP_ID = "A09PZRBLM3L"
+SLACK_CLIENT_ID = "8262598999586.9815861701122"

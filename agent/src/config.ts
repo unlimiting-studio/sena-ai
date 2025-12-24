@@ -13,6 +13,13 @@ const toInt = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const normalizeSlackVerifyMode = (value: string | undefined): "agent" | "external" => {
+  if (!value) {
+    return "agent";
+  }
+  return value.trim().toLowerCase() === "external" ? "external" : "agent";
+};
+
 export const CONFIG = {
   PORT: toInt(process.env.PORT, 22481),
   NODE_ENV: process.env.NODE_ENV || "development",
@@ -29,6 +36,7 @@ export const CONFIG = {
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET || "",
   SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID || "",
   SLACK_CLIENT_SECRET: process.env.SLACK_CLIENT_SECRET || "",
+  SLACK_VERIFY_MODE: normalizeSlackVerifyMode(process.env.SLACK_VERIFY_MODE),
 
   // GitHub
   GITHUB_OAUTH_CLIENT_ID: process.env.GITHUB_OAUTH_CLIENT_ID || "",

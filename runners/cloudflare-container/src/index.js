@@ -5,6 +5,9 @@ const SLACK_EVENTS_PATH = "/api/slack/events";
 const SLACK_INTERACTIONS_PATH = "/api/slack/interactions";
 const SLACK_OAUTH_PATHS = new Set(["/api/auth/slack/start", "/api/auth/slack/callback"]);
 const GITHUB_OAUTH_PATHS = new Set(["/api/auth/github/start", "/api/auth/github/callback"]);
+const SLACK_SIGNATURE_HEADER = "x-slack-signature";
+const SLACK_TIMESTAMP_HEADER = "x-slack-request-timestamp";
+const SLACK_TIMESTAMP_TOLERANCE_SECONDS = 60 * 5;
 const NON_ENCRYPTED_TEXT_LENGTH = 28;
 const AUTH_TAG_LENGTH = 16;
 
@@ -26,6 +29,28 @@ const decodeBase64 = (value) => {
 let cachedKey = null;
 let cachedKeySource = "";
 
+let cachedSlackKey = null;
+let cachedSlackKeySource = "";
+
+const timingSafeEqual = (a, b) => {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+};
+
+const toHex = (bytes) => {
+  let output = "";
+  for (const byte of bytes) {
+    output += byte.toString(16).padStart(2, "0");
+  }
+  return output;
+};
+
 const getCryptoKey = async (base64Key) => {
   if (cachedKey && cachedKeySource === base64Key) {
     return cachedKey;
@@ -37,6 +62,49 @@ const getCryptoKey = async (base64Key) => {
   cachedKeySource = base64Key;
   cachedKey = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
   return cachedKey;
+};
+
+const getSlackHmacKey = async (secret) => {
+  if (cachedSlackKey && cachedSlackKeySource === secret) {
+    return cachedSlackKey;
+  }
+  cachedSlackKeySource = secret;
+  cachedSlackKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return cachedSlackKey;
+};
+
+const verifySlackSignature = async (rawBody, headers, signingSecret) => {
+  if (!signingSecret) {
+    return false;
+  }
+  const timestampHeader = headers.get(SLACK_TIMESTAMP_HEADER);
+  const signatureHeader = headers.get(SLACK_SIGNATURE_HEADER);
+  if (!timestampHeader || !signatureHeader) {
+    return false;
+  }
+
+  const timestamp = Number.parseInt(timestampHeader, 10);
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > SLACK_TIMESTAMP_TOLERANCE_SECONDS) {
+    return false;
+  }
+
+  const baseString = `v0:${timestamp}:${rawBody}`;
+  const key = await getSlackHmacKey(signingSecret);
+  const signatureBytes = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(baseString));
+  const computed = `v0=${toHex(new Uint8Array(signatureBytes))}`;
+
+  return timingSafeEqual(computed, signatureHeader);
 };
 
 const decryptTokenPayload = async (token, env) => {
@@ -122,13 +190,51 @@ const extractThreadFromSlackInteraction = (rawBody) => {
   }
 };
 
-const resolveContainerId = async (request, env) => {
+const maybeHandleSlackRequest = async (request, env, rawBody) => {
+  const url = new URL(request.url);
+  const { pathname } = url;
+
+  if (request.method !== "POST") {
+    return null;
+  }
+
+  if (pathname !== SLACK_EVENTS_PATH && pathname !== SLACK_INTERACTIONS_PATH) {
+    return null;
+  }
+
+  const signingSecret = env.SLACK_SIGNING_SECRET ?? "";
+  const isValid = await verifySlackSignature(rawBody, request.headers, signingSecret);
+  if (!isValid) {
+    return new Response(JSON.stringify({ error: "Invalid Slack signature" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  if (pathname === SLACK_EVENTS_PATH) {
+    try {
+      const payload = JSON.parse(rawBody);
+      if (payload?.type === "url_verification" && typeof payload.challenge === "string") {
+        return new Response(JSON.stringify({ challenge: payload.challenge }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const resolveContainerId = async (request, env, rawBody) => {
   const url = new URL(request.url);
   const { pathname } = url;
 
   if (pathname === SLACK_EVENTS_PATH && request.method === "POST") {
-    const rawBody = await request.clone().text();
-    const thread = extractThreadFromSlackEvent(rawBody);
+    const payload = rawBody ?? (await request.clone().text());
+    const thread = extractThreadFromSlackEvent(payload);
     if (thread) {
       return buildThreadContainerId(thread.channelId, thread.threadTs);
     }
@@ -136,8 +242,8 @@ const resolveContainerId = async (request, env) => {
   }
 
   if (pathname === SLACK_INTERACTIONS_PATH && request.method === "POST") {
-    const rawBody = await request.clone().text();
-    const thread = extractThreadFromSlackInteraction(rawBody);
+    const payload = rawBody ?? (await request.clone().text());
+    const thread = extractThreadFromSlackInteraction(payload);
     if (thread) {
       return buildThreadContainerId(thread.channelId, thread.threadTs);
     }
@@ -174,6 +280,7 @@ export class SenaAgentContainer extends Container {
     SLACK_SIGNING_SECRET: this.env.SLACK_SIGNING_SECRET ?? "",
     SLACK_CLIENT_ID: this.env.SLACK_CLIENT_ID ?? "",
     SLACK_CLIENT_SECRET: this.env.SLACK_CLIENT_SECRET ?? "",
+    SLACK_VERIFY_MODE: this.env.SLACK_VERIFY_MODE ?? "",
     GITHUB_OAUTH_CLIENT_ID: this.env.GITHUB_OAUTH_CLIENT_ID ?? "",
     GITHUB_OAUTH_CLIENT_SECRET: this.env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
     WORKSPACE_DIR: this.env.WORKSPACE_DIR ?? "",
@@ -182,7 +289,21 @@ export class SenaAgentContainer extends Container {
 
 export default {
   async fetch(request, env) {
-    const containerId = await resolveContainerId(request, env);
+    const url = new URL(request.url);
+    const shouldInspectSlack =
+      request.method === "POST" &&
+      (url.pathname === SLACK_EVENTS_PATH || url.pathname === SLACK_INTERACTIONS_PATH);
+
+    let rawBody = null;
+    if (shouldInspectSlack) {
+      rawBody = await request.clone().text();
+      const slackResponse = await maybeHandleSlackRequest(request, env, rawBody);
+      if (slackResponse) {
+        return slackResponse;
+      }
+    }
+
+    const containerId = await resolveContainerId(request, env, rawBody);
     const container = getContainer(env.SENA_AGENT, containerId);
     return container.fetch(request);
   },

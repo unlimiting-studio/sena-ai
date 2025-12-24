@@ -10,6 +10,8 @@ import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
 import { CONFIG } from "../config.ts";
 import { handleRepoPermissionGranted } from "../handlers/repoPermission.ts";
 
+const slackVerificationEnabled = CONFIG.SLACK_VERIFY_MODE !== "external";
+
 const SlackEventSchema = z.object({
   type: z.string(),
   challenge: z.string().optional(),
@@ -156,11 +158,15 @@ export async function slackRoutes(fastify: FastifyInstance) {
       }
 
       if (body.type === "url_verification" && body.challenge) {
-        reply.send({ challenge: body.challenge });
+        if (slackVerificationEnabled) {
+          reply.send({ challenge: body.challenge });
+        } else {
+          reply.code(200).send({ ok: true });
+        }
         return;
       }
 
-      if (!verifySlackSignature(request)) {
+      if (slackVerificationEnabled && !verifySlackSignature(request)) {
         reply.code(401).send({ error: "Invalid Slack signature" });
         return;
       }
@@ -209,7 +215,7 @@ export async function slackRoutes(fastify: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      if (!verifySlackSignature(request)) {
+      if (slackVerificationEnabled && !verifySlackSignature(request)) {
         reply.code(401).send({ error: "Invalid Slack signature" });
         return;
       }
