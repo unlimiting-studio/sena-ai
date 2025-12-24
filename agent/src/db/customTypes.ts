@@ -1,29 +1,32 @@
-import { customType } from "drizzle-orm/mysql-core";
+import { customType } from "drizzle-orm/mysql-core/columns/custom";
 
 import { cipherDecrypt, cipherEncrypt } from "../utils/cipher.ts";
+
+type EncryptedTypeConfig = { mode: "varchar"; length?: number } | { mode: "text" };
 
 export const encrypted = customType<{
   data: string;
   driverData: string;
-  config?: { mode: "varchar"; length?: number } | { mode: "text" };
+  config: EncryptedTypeConfig;
+  configRequired: false;
 }>({
-  dataType(config) {
+  dataType(config?: EncryptedTypeConfig) {
     if (config?.mode !== "text") {
       const varcharLength = config?.length ?? 256;
       return `varchar(${varcharLength})`;
     }
     return "text";
   },
-  fromDriver(value) {
+  fromDriver(value: string) {
     if (!value) {
       return value;
     }
     return cipherDecrypt(value);
   },
-  toDriver(value) {
+  toDriver(value: string) {
     if (!value) {
       return value;
     }
     return cipherEncrypt(value);
   },
-});
+}) as (name: string, config?: EncryptedTypeConfig) => any;

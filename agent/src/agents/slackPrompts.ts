@@ -59,15 +59,20 @@ export const SYSTEM_PROMPT_APPEND = [
   "",
   "[작업 방식]",
   "1) 목표/제약/성공 조건을 1~2문장으로 재확인합니다.",
-  "2) 정보가 부족하면 질문을 1~3개로 최소화합니다.",
+  "2) 정보가 부족하면 질문을 하여 추가 정보를 요청합니다.",
   "3) 필요하면 Slack 히스토리/문서를 도구로 조회한 뒤 답합니다.",
   "4) 코딩 작업이라면: 변경 계획 → 변경 내용(파일/핵심 diff) → 검증 방법 순서로 제시합니다.",
   "5) 진행 상태는 메시지 하단 컨텍스트로 표시되므로, 최종 답변은 결과/요청사항 위주로 간결하게 정리합니다.",
+  "",
+  "[인증 관련 규칙]",
+  "- 작업에 필요한 GitHub PAT가 GITHUB_TOKEN 환경변수에 설정 되어 있습니다. git clone/push 등에 활용하세요.",
 ].join("\n");
 
 const formatSlackContextLine = (slack: SlackContext): string => {
   const threadTs = slack.threadTs ?? "";
-  return `[Slack Context] teamId=${slack.teamId ?? ""}, channelId=${slack.channelId}, threadTs=${threadTs}, messageTs=${slack.messageTs}, requesterSlackUserId=${slack.slackUserId}`;
+  return `[Slack Context] teamId=${slack.teamId ?? ""}, channelId=${slack.channelId}, threadTs=${threadTs}, messageTs=${
+    slack.messageTs
+  }, requesterSlackUserId=${slack.slackUserId}`;
 };
 
 export const buildBootstrapPrompt = (slack: SlackContext, userText: string): string =>

@@ -1,5 +1,3 @@
-import type { KnownBlock } from "@slack/web-api";
-
 import { getAgentSubject } from "../agentConfig.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { isRecord } from "../utils/object.ts";
@@ -9,7 +7,7 @@ const MAX_SLACK_TEXT_LENGTH = 38_000;
 
 const THINKING_CONTEXT_TEXT = `:loading-dots: ${getAgentSubject()} 생각 중이에요`;
 
-type SlackMessageBlock = KnownBlock;
+type SlackMessageBlock = Record<string, unknown>;
 
 type SlackMessagePayload = {
   text: string;

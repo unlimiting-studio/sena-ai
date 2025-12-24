@@ -1,17 +1,31 @@
-import {
-  type ChatPostEphemeralArguments,
-  type ChatPostMessageArguments,
-  type ChatUpdateArguments,
-  type ConversationsHistoryArguments,
-  type ConversationsRepliesArguments,
-  type ReactionsAddArguments,
-  type ReactionsRemoveArguments,
-  type SearchMessagesArguments,
-  type UsersInfoArguments,
-  WebClient,
-} from "@slack/web-api";
+import { WebClient } from "@slack/web-api";
 
 import { CONFIG } from "../config.ts";
+
+type ChatPostMessageArgs = Parameters<WebClient["chat"]["postMessage"]>[0];
+type ChatPostEphemeralArgs = Parameters<WebClient["chat"]["postEphemeral"]>[0];
+type ChatUpdateArgs = Parameters<WebClient["chat"]["update"]>[0];
+type ReactionsAddArgs = Parameters<WebClient["reactions"]["add"]>[0];
+type ReactionsRemoveArgs = Parameters<WebClient["reactions"]["remove"]>[0];
+type UsersInfoArgs = Parameters<WebClient["users"]["info"]>[0];
+type SearchMessagesArgs = Parameters<WebClient["search"]["messages"]>[0];
+
+type ThreadRepliesArgs = {
+  channel: string;
+  ts: string;
+  latest?: string;
+  oldest?: string;
+  limit?: number;
+  inclusive?: boolean;
+};
+
+type ChannelHistoryArgs = {
+  channel: string;
+  latest?: string;
+  oldest?: string;
+  limit?: number;
+  inclusive?: boolean;
+};
 
 export class SlackSDK {
   private client: WebClient;
@@ -29,43 +43,39 @@ export class SlackSDK {
     return SlackSDK._instance;
   }
 
-  async postMessage(args: ChatPostMessageArguments) {
+  async postMessage(args: ChatPostMessageArgs) {
     return this.client.chat.postMessage(args);
   }
 
-  async postEphemeral(args: ChatPostEphemeralArguments) {
+  async postEphemeral(args: ChatPostEphemeralArgs) {
     return this.client.chat.postEphemeral(args);
   }
 
-  async updateMessage(args: ChatUpdateArguments) {
+  async updateMessage(args: ChatUpdateArgs) {
     return this.client.chat.update(args);
   }
 
-  async addReaction(args: ReactionsAddArguments) {
+  async addReaction(args: ReactionsAddArgs) {
     return this.client.reactions.add(args);
   }
 
-  async removeReaction(args: ReactionsRemoveArguments) {
+  async removeReaction(args: ReactionsRemoveArgs) {
     return this.client.reactions.remove(args);
   }
 
-  async usersInfo(args: UsersInfoArguments) {
+  async usersInfo(args: UsersInfoArgs) {
     return this.client.users.info(args);
   }
 
-  async getThreadReplies(
-    args: Pick<ConversationsRepliesArguments, "channel" | "ts" | "latest" | "oldest" | "limit" | "inclusive">,
-  ) {
+  async getThreadReplies(args: ThreadRepliesArgs) {
     return this.client.conversations.replies(args);
   }
 
-  async getChannelHistory(
-    args: Pick<ConversationsHistoryArguments, "channel" | "latest" | "oldest" | "limit" | "inclusive">,
-  ) {
+  async getChannelHistory(args: ChannelHistoryArgs) {
     return this.client.conversations.history(args);
   }
 
-  async searchMessages(args: SearchMessagesArguments) {
+  async searchMessages(args: SearchMessagesArgs) {
     return this.client.search.messages(args);
   }
 

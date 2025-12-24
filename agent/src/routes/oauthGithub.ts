@@ -124,7 +124,8 @@ const fetchSlackMessageText = async ({
       limit: 1,
     });
 
-    const message = response.messages?.find((item) => item.ts === messageTs) ?? response.messages?.[0];
+    const message =
+      response.messages?.find((item: { ts?: string }) => item.ts === messageTs) ?? response.messages?.[0];
     const text = typeof message?.text === "string" ? message.text : null;
     if (!text) {
       throw new Error("슬랙 쓰레드에서 원본 메시지를 찾을 수 없습니다.");

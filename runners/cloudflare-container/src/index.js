@@ -74,7 +74,7 @@ const getSlackHmacKey = async (secret) => {
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
+    ["sign"]
   );
   return cachedSlackKey;
 };
@@ -283,6 +283,7 @@ export class SenaAgentContainer extends Container {
     SLACK_VERIFY_MODE: this.env.SLACK_VERIFY_MODE ?? "",
     GITHUB_OAUTH_CLIENT_ID: this.env.GITHUB_OAUTH_CLIENT_ID ?? "",
     GITHUB_OAUTH_CLIENT_SECRET: this.env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
+    GITHUB_TOKEN: this.env.GITHUB_TOKEN ?? "",
     WORKSPACE_DIR: this.env.WORKSPACE_DIR ?? "",
   };
 }
@@ -291,8 +292,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const shouldInspectSlack =
-      request.method === "POST" &&
-      (url.pathname === SLACK_EVENTS_PATH || url.pathname === SLACK_INTERACTIONS_PATH);
+      request.method === "POST" && (url.pathname === SLACK_EVENTS_PATH || url.pathname === SLACK_INTERACTIONS_PATH);
 
     let rawBody = null;
     if (shouldInspectSlack) {

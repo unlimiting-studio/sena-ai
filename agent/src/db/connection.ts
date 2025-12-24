@@ -1,4 +1,4 @@
-import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2/driver";
 import * as mysql from "mysql2/promise";
 import { CONFIG } from "../config.ts";
 import * as schema from "./schema.ts";

@@ -41,6 +41,8 @@ const toNonEmptyString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const toArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
 const formatSlackMessage = (msg: unknown): string | null => {
   if (!msg || typeof msg !== "object") {
     return null;
@@ -53,6 +55,15 @@ const formatSlackMessage = (msg: unknown): string | null => {
 
   const author = userId ? `<@${userId}>` : "<unknown>";
   return `[${ts}] ${author}: ${text}`;
+};
+
+type SlackSearchMatch = {
+  channel?: { name?: string; id?: string };
+  ts?: string;
+  username?: string;
+  user?: string;
+  text?: string;
+  permalink?: string;
 };
 
 const postSlackSearchOauthPrompt = async (ctx: KarbySlackMcpContext): Promise<void> => {
@@ -155,7 +166,8 @@ export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
                   oldest: args.oldest,
                 });
 
-          const lines = (response.messages ?? [])
+          const messages = toArray(response.messages);
+          const lines = messages
             .map((message) => formatSlackMessage(message))
             .filter((line): line is string => Boolean(line));
 
@@ -212,7 +224,7 @@ export const createSenaSlackMcpServer = (ctx: KarbySlackMcpContext) =>
               };
             }
 
-            const matches = result.messages?.matches ?? [];
+            const matches = toArray(result.messages?.matches) as SlackSearchMatch[];
             const lines = matches.map((match) => {
               const channel = match.channel?.name ? `#${match.channel.name}` : (match.channel?.id ?? "");
               const ts = match.ts ?? "";
