@@ -104,6 +104,7 @@ export class SlackThreadRunner {
   private onStop: () => void;
 
   private inTurn = false;
+  private finalizingTurn = false;
   private pendingTurns: Array<{ isSynthetic: boolean }> = [];
 
   private lastProgressUpdateAt = 0;
@@ -239,6 +240,7 @@ export class SlackThreadRunner {
       return;
     }
     this.inTurn = true;
+    this.finalizingTurn = false;
     this.output.resetForTurn();
     this.resetProgressState(next.isSynthetic);
     void this.showThinkingIndicator().catch(() => undefined);
@@ -261,6 +263,7 @@ export class SlackThreadRunner {
 
   private finishTurn(): void {
     this.inTurn = false;
+    this.finalizingTurn = false;
     this.progress.clearAfterTurn();
     this.output.resetForTurn();
     this.lastProgressText = null;
@@ -280,6 +283,8 @@ export class SlackThreadRunner {
   }
 
   private async finalizeTurn(text: string): Promise<void> {
+    this.finalizingTurn = true;
+    this.clearProgressTimer();
     const normalized = text.trim();
     if (normalized.length === 0) {
       if (!this.progress.isAwaitingUserAction()) {
@@ -300,6 +305,8 @@ export class SlackThreadRunner {
   }
 
   private async finalizeError(message: string): Promise<void> {
+    this.finalizingTurn = true;
+    this.clearProgressTimer();
     const normalized = message.trim();
     const text = normalized.length > 0 ? `⚠️ ${normalized}` : "⚠️ 알 수 없는 오류";
     const updated = await this.output.update(text, { includeThinking: false });
@@ -311,6 +318,9 @@ export class SlackThreadRunner {
   }
 
   private queueProgressUpdate(force: boolean): void {
+    if (!this.inTurn || this.finalizingTurn) {
+      return;
+    }
     const now = Date.now();
     const elapsed = now - this.lastProgressUpdateAt;
     if (force || elapsed >= SLACK_PROGRESS_THROTTLE_MS) {
@@ -334,6 +344,9 @@ export class SlackThreadRunner {
   }
 
   private async flushProgressUpdate(force: boolean): Promise<void> {
+    if (!this.inTurn || this.finalizingTurn) {
+      return;
+    }
     const text = this.progress.renderProgressMessage();
     if (!text) {
       return;

@@ -80,6 +80,7 @@ export class SlackThreadOutput {
   private slack: SlackContext;
   private outputMessageTs: string | null = null;
   private lastEnsureOutputAt = 0;
+  private updateChain: Promise<void> = Promise.resolve();
 
   constructor(slack: SlackContext) {
     this.slack = { ...slack };
@@ -104,25 +105,34 @@ export class SlackThreadOutput {
 
   async update(text: string, options?: { includeThinking?: boolean }): Promise<boolean> {
     const includeThinking = options?.includeThinking ?? true;
-    const payload = this.buildSlackMessagePayload(text, { includeThinking });
-    if (!payload) {
-      return false;
-    }
+    const task = async (): Promise<boolean> => {
+      const payload = this.buildSlackMessagePayload(text, { includeThinking });
+      if (!payload) {
+        return false;
+      }
 
-    const outputTs = await this.ensureOutputMessageTs(payload);
-    if (!outputTs) {
-      return false;
-    }
+      const outputTs = await this.ensureOutputMessageTs(payload);
+      if (!outputTs) {
+        return false;
+      }
 
-    await SlackSDK.instance
-      .updateMessage({
-        channel: this.slack.channelId,
-        ts: outputTs,
-        text: payload.text,
-        blocks: payload.blocks,
-      })
-      .catch(() => undefined);
-    return true;
+      await SlackSDK.instance
+        .updateMessage({
+          channel: this.slack.channelId,
+          ts: outputTs,
+          text: payload.text,
+          blocks: payload.blocks,
+        })
+        .catch(() => undefined);
+      return true;
+    };
+
+    const next = this.updateChain.then(task, task);
+    this.updateChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private buildSlackMessagePayload(text: string, options: { includeThinking: boolean }): SlackMessagePayload | null {
