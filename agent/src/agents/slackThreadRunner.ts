@@ -28,6 +28,8 @@ const DEFAULT_MODEL = "claude-sonnet-4-5";
 const SLACK_PROGRESS_THROTTLE_MS = 500;
 const THREAD_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
+type TurnState = "idle" | "active" | "finalizing";
+
 class AsyncUserMessageQueue implements AsyncIterable<SDKUserMessage> {
   private closed = false;
   private queue: SDKUserMessage[] = [];
@@ -103,9 +105,8 @@ export class SlackThreadRunner {
   private onSessionId: (sessionId: string) => void;
   private onStop: () => void;
 
-  private inTurn = false;
-  private finalizingTurn = false;
-  private pendingTurns: Array<{ isSynthetic: boolean }> = [];
+  private turnState: TurnState = "idle";
+  private pendingTurns = 0;
 
   private lastProgressUpdateAt = 0;
   private lastProgressText: string | null = null;
@@ -114,7 +115,7 @@ export class SlackThreadRunner {
   private idleTimer: NodeJS.Timeout | null = null;
   private stopReason: "idle" | "restart" | "manual" | null = null;
 
-  private bootstrapped = false;
+  private hasPrompted = false;
 
   constructor(options: ThreadRunnerOptions) {
     this.slack = { ...options.initialSlack };
@@ -183,16 +184,14 @@ export class SlackThreadRunner {
     }
 
     this.bumpIdleTimer();
-    this.pendingTurns.push({ isSynthetic: options?.isSynthetic ?? false });
-    if (!this.inTurn) {
-      this.startNextTurn();
-    }
+    this.pendingTurns += 1;
+    this.startNextTurn();
 
-    const prompt = this.bootstrapped
+    const prompt = this.hasPrompted
       ? buildFollowupPrompt(this.slack, normalized)
       : buildBootstrapPrompt(this.slack, normalized);
 
-    this.bootstrapped = true;
+    this.hasPrompted = true;
     const enqueued = this.promptQueue.push(
       this.toSdkUserMessage(prompt, { isSynthetic: options?.isSynthetic ?? false }),
     );
@@ -235,14 +234,14 @@ export class SlackThreadRunner {
   }
 
   private startNextTurn(): void {
-    const next = this.pendingTurns.shift();
-    if (!next) {
+    if (this.turnState !== "idle" || this.pendingTurns === 0) {
       return;
     }
-    this.inTurn = true;
-    this.finalizingTurn = false;
+
+    this.pendingTurns -= 1;
+    this.turnState = "active";
     this.output.resetForTurn();
-    this.resetProgressState(next.isSynthetic);
+    this.resetProgressState();
     void this.showThinkingIndicator().catch(() => undefined);
   }
 
@@ -254,22 +253,21 @@ export class SlackThreadRunner {
     }
   }
 
-  private resetProgressState(isSynthetic: boolean): void {
-    this.progress.resetForTurn(isSynthetic);
+  private resetProgressState(): void {
+    this.progress.resetForTurn();
     this.lastProgressText = null;
     this.lastProgressUpdateAt = 0;
     this.clearProgressTimer();
   }
 
   private finishTurn(): void {
-    this.inTurn = false;
-    this.finalizingTurn = false;
+    this.turnState = "idle";
     this.progress.clearAfterTurn();
     this.output.resetForTurn();
     this.lastProgressText = null;
     this.lastProgressUpdateAt = 0;
     this.clearProgressTimer();
-    if (this.pendingTurns.length > 0) {
+    if (this.pendingTurns > 0) {
       this.startNextTurn();
     }
   }
@@ -283,7 +281,7 @@ export class SlackThreadRunner {
   }
 
   private async finalizeTurn(text: string): Promise<void> {
-    this.finalizingTurn = true;
+    this.turnState = "finalizing";
     this.clearProgressTimer();
     const normalized = text.trim();
     if (normalized.length === 0) {
@@ -305,7 +303,7 @@ export class SlackThreadRunner {
   }
 
   private async finalizeError(message: string): Promise<void> {
-    this.finalizingTurn = true;
+    this.turnState = "finalizing";
     this.clearProgressTimer();
     const normalized = message.trim();
     const text = normalized.length > 0 ? `⚠️ ${normalized}` : "⚠️ 알 수 없는 오류";
@@ -318,7 +316,7 @@ export class SlackThreadRunner {
   }
 
   private queueProgressUpdate(force: boolean): void {
-    if (!this.inTurn || this.finalizingTurn) {
+    if (this.turnState !== "active") {
       return;
     }
     const now = Date.now();
@@ -344,7 +342,7 @@ export class SlackThreadRunner {
   }
 
   private async flushProgressUpdate(force: boolean): Promise<void> {
-    if (!this.inTurn || this.finalizingTurn) {
+    if (this.turnState !== "active") {
       return;
     }
     const text = this.progress.renderProgressMessage();
@@ -356,7 +354,7 @@ export class SlackThreadRunner {
       return;
     }
 
-    const updated = await this.output.update(text, { includeThinking: this.inTurn });
+    const updated = await this.output.update(text, { includeThinking: this.turnState === "active" });
     if (!updated) {
       return;
     }
@@ -515,7 +513,7 @@ export class SlackThreadRunner {
       return;
     }
 
-    if (this.inTurn) {
+    if (this.turnState === "active") {
       const fallback = this.progress.getFinalAnswer()?.trim() || this.progress.getLastAssistantText();
       if (fallback) {
         await this.finalizeTurn(fallback);
