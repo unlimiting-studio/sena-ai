@@ -65,7 +65,7 @@ export const SYSTEM_PROMPT_APPEND = [
   "5) 진행 상태는 메시지 하단 컨텍스트로 표시되므로, 최종 답변은 결과/요청사항 위주로 간결하게 정리합니다.",
   "",
   "[인증 관련 규칙]",
-  "- 작업에 필요한 GitHub PAT가 GITHUB_TOKEN 환경변수에 설정 되어 있습니다. git clone/push 등에 활용하세요.",
+  "- 작업에 필요한 GitHub PAT가 **GITHUB_TOKEN 환경변수에 설정 되어 있습니다**. git clone/push 등에 활용하세요.",
 ].join("\n");
 
 const formatSlackContextLine = (slack: SlackContext): string => {
