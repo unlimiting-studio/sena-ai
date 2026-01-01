@@ -1,6 +1,7 @@
 import { Container, getContainer } from "@cloudflare/containers";
 
 const DEFAULT_CONTAINER_ID = "sena-agent-default";
+const AGENT_PATH_PREFIX = "/api/agents/";
 const SLACK_EVENTS_PATH = "/api/slack/events";
 const SLACK_INTERACTIONS_PATH = "/api/slack/interactions";
 const SLACK_OAUTH_PATHS = new Set(["/api/auth/slack/start", "/api/auth/slack/callback"]);
@@ -10,8 +11,56 @@ const SLACK_TIMESTAMP_HEADER = "x-slack-request-timestamp";
 const SLACK_TIMESTAMP_TOLERANCE_SECONDS = 60 * 5;
 const NON_ENCRYPTED_TEXT_LENGTH = 28;
 const AUTH_TAG_LENGTH = 16;
+const AGENT_CONFIG_TABLE = "agent_configs";
 
-const buildThreadContainerId = (channelId, threadTs) => `${channelId}:${threadTs}`;
+const buildAgentPrefix = (agentId) => `agent:${encodeURIComponent(agentId)}`;
+
+const buildThreadContainerId = (agentId, channelId, threadTs) => {
+  if (agentId) {
+    return `${buildAgentPrefix(agentId)}:${channelId}:${threadTs}`;
+  }
+  return `${channelId}:${threadTs}`;
+};
+
+const buildDefaultContainerId = (agentId) => {
+  if (agentId) {
+    return `${buildAgentPrefix(agentId)}:default`;
+  }
+  return DEFAULT_CONTAINER_ID;
+};
+
+const parseAgentRoute = (pathname) => {
+  if (!pathname.startsWith(AGENT_PATH_PREFIX)) {
+    return null;
+  }
+  const rest = pathname.slice(AGENT_PATH_PREFIX.length);
+  const slashIndex = rest.indexOf("/");
+  if (slashIndex <= 0) {
+    return null;
+  }
+  const rawAgentId = rest.slice(0, slashIndex);
+  let agentId = null;
+  try {
+    agentId = decodeURIComponent(rawAgentId);
+  } catch {
+    return null;
+  }
+  const remainder = rest.slice(slashIndex + 1);
+  const normalizedRemainder = remainder.startsWith("api/") ? remainder : `api/${remainder}`;
+  const agentPath = `/${normalizedRemainder}`;
+  if (!agentPath || agentPath === "/") {
+    return null;
+  }
+  return { agentId, agentPath };
+};
+
+const isSlackPath = (pathname) => pathname === SLACK_EVENTS_PATH || pathname === SLACK_INTERACTIONS_PATH;
+
+const jsonResponse = (body, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 const decodeBase64 = (value) => {
   const normalized = value.trim();
@@ -77,6 +126,37 @@ const getSlackHmacKey = async (secret) => {
     ["sign"]
   );
   return cachedSlackKey;
+};
+
+const normalizeDbText = (value) => (typeof value === "string" ? value : "");
+
+const loadAgentConfig = async (agentId, env) => {
+  const database = env.SENA_APPS;
+  if (!database) {
+    return { error: "missing_sena_apps_binding" };
+  }
+  const row = await database
+    .prepare(
+      `SELECT slack_app_id, slack_token, slack_bot_token, slack_signing_secret, github_token, sena_yaml
+       FROM ${AGENT_CONFIG_TABLE}
+       WHERE agent_id = ?`
+    )
+    .bind(agentId)
+    .first();
+  console.log("row", row);
+  if (!row) {
+    return { error: "agent_not_found" };
+  }
+  return {
+    config: {
+      slackAppId: normalizeDbText(row.slack_app_id),
+      slackToken: normalizeDbText(row.slack_token),
+      slackBotToken: normalizeDbText(row.slack_bot_token),
+      slackSigningSecret: normalizeDbText(row.slack_signing_secret),
+      githubToken: normalizeDbText(row.github_token),
+      senaYaml: normalizeDbText(row.sena_yaml),
+    },
+  };
 };
 
 const verifySlackSignature = async (rawBody, headers, signingSecret) => {
@@ -190,35 +270,25 @@ const extractThreadFromSlackInteraction = (rawBody) => {
   }
 };
 
-const maybeHandleSlackRequest = async (request, env, rawBody) => {
-  const url = new URL(request.url);
-  const { pathname } = url;
-
+const maybeHandleSlackRequest = async ({ request, rawBody, slackPath, signingSecret }) => {
   if (request.method !== "POST") {
     return null;
   }
 
-  if (pathname !== SLACK_EVENTS_PATH && pathname !== SLACK_INTERACTIONS_PATH) {
+  if (!isSlackPath(slackPath)) {
     return null;
   }
 
-  const signingSecret = env.SLACK_SIGNING_SECRET ?? "";
   const isValid = await verifySlackSignature(rawBody, request.headers, signingSecret);
   if (!isValid) {
-    return new Response(JSON.stringify({ error: "Invalid Slack signature" }), {
-      status: 401,
-      headers: { "content-type": "application/json" },
-    });
+    return jsonResponse({ error: "Invalid Slack signature" }, 401);
   }
 
-  if (pathname === SLACK_EVENTS_PATH) {
+  if (slackPath === SLACK_EVENTS_PATH) {
     try {
       const payload = JSON.parse(rawBody);
       if (payload?.type === "url_verification" && typeof payload.challenge === "string") {
-        return new Response(JSON.stringify({ challenge: payload.challenge }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return jsonResponse({ challenge: payload.challenge }, 200);
       }
     } catch {
       return null;
@@ -228,39 +298,59 @@ const maybeHandleSlackRequest = async (request, env, rawBody) => {
   return null;
 };
 
-const resolveContainerId = async (request, env, rawBody) => {
+const resolveContainerId = async ({ request, env, rawBody, agentId, effectivePath }) => {
   const url = new URL(request.url);
-  const { pathname } = url;
 
-  if (pathname === SLACK_EVENTS_PATH && request.method === "POST") {
+  if (effectivePath === SLACK_EVENTS_PATH && request.method === "POST") {
     const payload = rawBody ?? (await request.clone().text());
     const thread = extractThreadFromSlackEvent(payload);
     if (thread) {
-      return buildThreadContainerId(thread.channelId, thread.threadTs);
+      return buildThreadContainerId(agentId, thread.channelId, thread.threadTs);
     }
-    return DEFAULT_CONTAINER_ID;
+    return buildDefaultContainerId(agentId);
   }
 
-  if (pathname === SLACK_INTERACTIONS_PATH && request.method === "POST") {
+  if (effectivePath === SLACK_INTERACTIONS_PATH && request.method === "POST") {
     const payload = rawBody ?? (await request.clone().text());
     const thread = extractThreadFromSlackInteraction(payload);
     if (thread) {
-      return buildThreadContainerId(thread.channelId, thread.threadTs);
+      return buildThreadContainerId(agentId, thread.channelId, thread.threadTs);
     }
-    return DEFAULT_CONTAINER_ID;
+    return buildDefaultContainerId(agentId);
   }
 
-  if (SLACK_OAUTH_PATHS.has(pathname) || GITHUB_OAUTH_PATHS.has(pathname)) {
+  if (SLACK_OAUTH_PATHS.has(effectivePath) || GITHUB_OAUTH_PATHS.has(effectivePath)) {
     const state = url.searchParams.get("state") ?? url.searchParams.get("token") ?? "";
     const thread = await extractThreadFromEncryptedState(state, env);
     if (thread) {
-      return buildThreadContainerId(thread.channelId, thread.threadTs);
+      return buildThreadContainerId(agentId, thread.channelId, thread.threadTs);
     }
-    return DEFAULT_CONTAINER_ID;
+    return buildDefaultContainerId(agentId);
   }
 
-  return DEFAULT_CONTAINER_ID;
+  return buildDefaultContainerId(agentId);
 };
+
+const buildContainerEnvVars = (env, agentConfig) => ({
+  NODE_ENV: env.NODE_ENV ?? "production",
+  PORT: "22481",
+  BACKEND_URL: env.BACKEND_URL ?? "",
+  DATABASE_URL: env.DATABASE_URL ?? "",
+  DATA_ENCRYPTION_KEY: env.DATA_ENCRYPTION_KEY ?? "",
+  ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ?? "",
+  SLACK_APP_ID: agentConfig?.slackAppId ?? "",
+  SLACK_TOKEN: agentConfig?.slackToken ?? "",
+  SLACK_BOT_TOKEN: agentConfig?.slackBotToken ?? "",
+  SLACK_SIGNING_SECRET: agentConfig?.slackSigningSecret ?? "",
+  SLACK_CLIENT_ID: env.SLACK_CLIENT_ID ?? "",
+  SLACK_CLIENT_SECRET: env.SLACK_CLIENT_SECRET ?? "",
+  SLACK_VERIFY_MODE: env.SLACK_VERIFY_MODE ?? "",
+  GITHUB_OAUTH_CLIENT_ID: env.GITHUB_OAUTH_CLIENT_ID ?? "",
+  GITHUB_OAUTH_CLIENT_SECRET: env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
+  GITHUB_TOKEN: agentConfig?.githubToken ?? "",
+  WORKSPACE_DIR: env.WORKSPACE_DIR ?? "",
+  SENA_YAML: agentConfig?.senaYaml ?? "",
+});
 
 export class SenaAgentContainer extends Container {
   defaultPort = 22481;
@@ -285,26 +375,74 @@ export class SenaAgentContainer extends Container {
     GITHUB_OAUTH_CLIENT_SECRET: this.env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
     GITHUB_TOKEN: this.env.GITHUB_TOKEN ?? "",
     WORKSPACE_DIR: this.env.WORKSPACE_DIR ?? "",
+    SENA_YAML: this.env.SENA_YAML ?? "",
   };
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const shouldInspectSlack =
-      request.method === "POST" && (url.pathname === SLACK_EVENTS_PATH || url.pathname === SLACK_INTERACTIONS_PATH);
+    const agentRoute = parseAgentRoute(url.pathname);
+    const effectivePath = agentRoute?.agentPath ?? url.pathname;
+    const shouldInspectSlack = request.method === "POST" && isSlackPath(effectivePath);
 
     let rawBody = null;
+    let agentConfig = null;
     if (shouldInspectSlack) {
       rawBody = await request.clone().text();
-      const slackResponse = await maybeHandleSlackRequest(request, env, rawBody);
+      let signingSecret = env.SLACK_SIGNING_SECRET ?? "";
+      if (agentRoute) {
+        const agentResult = await loadAgentConfig(agentRoute.agentId, env);
+        if (agentResult.error) {
+          const status = agentResult.error === "agent_not_found" ? 404 : 500;
+          return jsonResponse({ error: agentResult.error }, status);
+        }
+        agentConfig = agentResult.config;
+        signingSecret = agentConfig.slackSigningSecret;
+      }
+      const slackResponse = await maybeHandleSlackRequest({
+        request,
+        rawBody,
+        slackPath: effectivePath,
+        signingSecret,
+      });
       if (slackResponse) {
         return slackResponse;
       }
     }
 
-    const containerId = await resolveContainerId(request, env, rawBody);
+    if (agentRoute && !agentConfig) {
+      const agentResult = await loadAgentConfig(agentRoute.agentId, env);
+      if (agentResult.error) {
+        const status = agentResult.error === "agent_not_found" ? 404 : 500;
+        return jsonResponse({ error: agentResult.error }, status);
+      }
+      agentConfig = agentResult.config;
+    }
+
+    const containerId = await resolveContainerId({
+      request,
+      env,
+      rawBody,
+      agentId: agentRoute?.agentId ?? null,
+      effectivePath,
+    });
     const container = getContainer(env.SENA_AGENT, containerId);
-    return container.fetch(request);
+    if (agentRoute) {
+      await container.startAndWaitForPorts({
+        startOptions: {
+          envVars: buildContainerEnvVars(env, agentConfig),
+        },
+      });
+    }
+
+    if (!agentRoute) {
+      return container.fetch(request);
+    }
+
+    const targetUrl = new URL(request.url);
+    targetUrl.pathname = agentRoute.agentPath;
+    const containerRequest = new Request(targetUrl, request);
+    return container.fetch(containerRequest);
   },
 };

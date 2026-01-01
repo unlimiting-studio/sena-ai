@@ -66,7 +66,38 @@ const parseConfig = (raw: string, format: ConfigFormat): unknown => {
   return JSON5.parse(normalized);
 };
 
+const loadAgentConfigFromEnv = (): AgentConfig | null => {
+  const raw = process.env.SENA_YAML;
+  if (!raw || raw.trim().length === 0) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseConfig(raw, "yaml");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.warn(`Failed to parse SENA_YAML: ${message}`);
+    return buildDefaultConfig();
+  }
+
+  const result = AgentConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    console.warn("Invalid SENA_YAML format; falling back to defaults.");
+    return buildDefaultConfig();
+  }
+
+  const name = normalizeName(result.data.name);
+  const basePrompt = normalizeBasePrompt(result.data.basePrompt, name);
+  return { name, basePrompt };
+};
+
 const loadAgentConfig = (): AgentConfig => {
+  const envConfig = loadAgentConfigFromEnv();
+  if (envConfig) {
+    return envConfig;
+  }
+
   for (const candidate of CONFIG_CANDIDATES) {
     if (!fs.existsSync(candidate.path)) {
       continue;

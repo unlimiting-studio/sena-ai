@@ -9,6 +9,9 @@ type ReactionsAddArgs = Parameters<WebClient["reactions"]["add"]>[0];
 type ReactionsRemoveArgs = Parameters<WebClient["reactions"]["remove"]>[0];
 type UsersInfoArgs = Parameters<WebClient["users"]["info"]>[0];
 type SearchMessagesArgs = Parameters<WebClient["search"]["messages"]>[0];
+type ChatStartStreamArgs = Parameters<WebClient["chat"]["startStream"]>[0];
+type ChatAppendStreamArgs = Parameters<WebClient["chat"]["appendStream"]>[0];
+type ChatStopStreamArgs = Parameters<WebClient["chat"]["stopStream"]>[0];
 
 type ThreadRepliesArgs = {
   channel: string;
@@ -99,5 +102,17 @@ export class SlackSDK {
       page: options?.page ?? 1,
       highlight: options?.highlight ?? true,
     });
+  }
+
+  async startStream(args: ChatStartStreamArgs) {
+    return this.client.chat.startStream(args);
+  }
+
+  async appendStream(args: ChatAppendStreamArgs) {
+    return this.client.chat.appendStream(args);
+  }
+
+  async stopStream(args: ChatStopStreamArgs) {
+    return this.client.chat.stopStream(args);
   }
 }
