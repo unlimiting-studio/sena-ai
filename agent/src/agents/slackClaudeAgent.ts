@@ -17,6 +17,9 @@ export class SlackClaudeAgent {
     filePath: path.join(CONFIG.WORKSPACE_DIR, "slack-thread-sessions.json"),
   });
 
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private readonly HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
   static get instance(): SlackClaudeAgent {
     if (!SlackClaudeAgent._instance) {
       SlackClaudeAgent._instance = new SlackClaudeAgent();
@@ -153,6 +156,36 @@ export class SlackClaudeAgent {
     this.threadRunners.delete(threadKey);
   }
 
+  private isInCloudflareContainer(): boolean {
+    return CONFIG.NODE_ENV === "production" && !!CONFIG.BACKEND_URL && !CONFIG.BACKEND_URL.includes("localhost");
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatInterval !== null || !this.isInCloudflareContainer()) {
+      return;
+    }
+
+    const containerId = process.env.CONTAINER_ID;
+    if (!containerId) {
+      return;
+    }
+
+    const heartbeatUrl = `${CONFIG.BACKEND_URL}/api/agents/${encodeURIComponent(containerId)}/health`;
+
+    this.heartbeatInterval = setInterval(() => {
+      fetch(heartbeatUrl).catch(() => {});
+    }, this.HEARTBEAT_INTERVAL_MS);
+
+    this.heartbeatInterval.unref?.();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval !== null) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
   private getOrCreateRunner(params: {
     threadKey: string;
     slack: SlackContext;
@@ -178,10 +211,21 @@ export class SlackClaudeAgent {
         if (current === runner) {
           this.threadRunners.delete(threadKey);
         }
+
+        // Stop heartbeat if no more runners
+        if (this.threadRunners.size === 0) {
+          this.stopHeartbeat();
+        }
       },
     });
 
     this.threadRunners.set(threadKey, runner);
+
+    // Start heartbeat if this is the first runner
+    if (this.threadRunners.size === 1) {
+      this.startHeartbeat();
+    }
+
     return runner;
   }
 }

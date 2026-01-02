@@ -28,7 +28,7 @@ migrations_dir = "migrations"
 
 [vars]
 NODE_ENV = "production"
-BACKEND_URL = "https://<your-worker-domain>"
+BACKEND_URL = "https://sena-agent-container.yechanny.workers.dev"
 WORKSPACE_DIR = "/tmp/sena-workspaces"
 SLACK_VERIFY_MODE = "external"
 SLACK_APP_ID = "A09PZRBLM3L"

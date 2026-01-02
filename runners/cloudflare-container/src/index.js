@@ -376,6 +376,7 @@ export class SenaAgentContainer extends Container {
     GITHUB_TOKEN: this.env.GITHUB_TOKEN ?? "",
     WORKSPACE_DIR: this.env.WORKSPACE_DIR ?? "",
     SENA_YAML: this.env.SENA_YAML ?? "",
+    CONTAINER_ID: this.id ?? "",
   };
 }
 
