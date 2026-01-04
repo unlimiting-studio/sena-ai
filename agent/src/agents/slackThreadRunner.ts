@@ -25,7 +25,7 @@ import { SlackThreadProgress } from "./slackThreadProgress.ts";
 
 const DEFAULT_MODEL = "claude-sonnet-4-5";
 
-const SLACK_PROGRESS_THROTTLE_MS = 500;
+const SLACK_PROGRESS_THROTTLE_MS = 3000;
 const THREAD_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 type TurnState = "idle" | "active" | "finalizing";
