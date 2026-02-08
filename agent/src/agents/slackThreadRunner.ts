@@ -15,6 +15,7 @@ import {
   extractToolProgress,
   extractToolResults,
   extractToolUses,
+  isAssistantStreamMessageStart,
   type ToolProgress,
   type ToolResult,
   type ToolUse,
@@ -452,6 +453,11 @@ export class SlackThreadRunner {
         if (sessionId) {
           this.sessionId = sessionId;
           this.onSessionId(sessionId);
+        }
+
+        if (isAssistantStreamMessageStart(message)) {
+          this.progress.resetStreamingAssistantBuffer();
+          continue;
         }
 
         const toolProgress = extractToolProgress(message);
