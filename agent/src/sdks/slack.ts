@@ -12,6 +12,7 @@ type SearchMessagesArgs = Parameters<WebClient["search"]["messages"]>[0];
 type ChatStartStreamArgs = Parameters<WebClient["chat"]["startStream"]>[0];
 type ChatAppendStreamArgs = Parameters<WebClient["chat"]["appendStream"]>[0];
 type ChatStopStreamArgs = Parameters<WebClient["chat"]["stopStream"]>[0];
+type FilesInfoArgs = Parameters<WebClient["files"]["info"]>[0];
 
 type ThreadRepliesArgs = {
   channel: string;
@@ -114,5 +115,19 @@ export class SlackSDK {
 
   async stopStream(args: ChatStopStreamArgs) {
     return this.client.chat.stopStream(args);
+  }
+
+  async getFileInfo(args: FilesInfoArgs) {
+    return this.client.files.info(args);
+  }
+
+  async downloadFile(url: string): Promise<ArrayBuffer> {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${CONFIG.SLACK_BOT_TOKEN}` },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+    }
+    return response.arrayBuffer();
   }
 }
