@@ -8,7 +8,6 @@ import { z } from "zod";
 
 import { SlackClaudeAgent } from "../agents/slackClaudeAgent.ts";
 import { CONFIG } from "../config.ts";
-import { handleRepoPermissionGranted } from "../handlers/repoPermission.ts";
 
 const slackVerificationEnabled = CONFIG.SLACK_VERIFY_MODE !== "external";
 
@@ -262,15 +261,7 @@ export async function slackRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      if (action.action_id === "repo_permission_granted") {
-        void handleRepoPermissionGranted({
-          userId: payload.user.id,
-          channelId: payload.channel?.id ?? null,
-          messageTs: payload.message?.ts ?? null,
-          threadTs: payload.message?.thread_ts ?? null,
-          actionValue: action.value ?? null,
-        });
-      }
+      // TODO: handle action
     },
   );
 }
