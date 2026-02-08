@@ -42,6 +42,12 @@ export const CONFIG = {
   GITHUB_OAUTH_CLIENT_ID: process.env.GITHUB_OAUTH_CLIENT_ID || "",
   GITHUB_OAUTH_CLIENT_SECRET: process.env.GITHUB_OAUTH_CLIENT_SECRET || "",
 
+  // CouchDB (Obsidian LiveSync)
+  COUCHDB_URL: process.env.COUCHDB_URL || "",
+  COUCHDB_DATABASE: process.env.COUCHDB_DATABASE || "obsidian",
+  COUCHDB_USER: process.env.COUCHDB_USER || "",
+  COUCHDB_PASSWORD: process.env.COUCHDB_PASSWORD || "",
+
   // Workdir
   WORKSPACE_DIR: process.env.WORKSPACE_DIR || path.join(fs.realpathSync(os.tmpdir()), "sena-workspaces"),
 };
