@@ -2,8 +2,6 @@ import Fastify from "fastify";
 
 import { CONFIG } from "./config.ts";
 import { closeDB } from "./db/connection.ts";
-import { githubOAuthRoutes } from "./routes/oauthGithub.ts";
-import { slackOAuthRoutes } from "./routes/oauthSlack.ts";
 import { slackRoutes } from "./routes/slack.ts";
 
 export async function startServer(): Promise<void> {
@@ -19,8 +17,6 @@ export async function startServer(): Promise<void> {
   }));
 
   await fastify.register(slackRoutes, { prefix: "/api/slack" });
-  await fastify.register(slackOAuthRoutes, { prefix: "/api/auth" });
-  await fastify.register(githubOAuthRoutes, { prefix: "/api/auth" });
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     fastify.log.info({ signal }, "Graceful shutdown signal received");

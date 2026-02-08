@@ -3,7 +3,6 @@ import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as fs from "node:fs/promises";
 
 import { CONFIG } from "../config.ts";
-import { createSenaHitlMcpServer } from "../mcp/hitlMcp.ts";
 import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { sanitizeEnv } from "../utils/env.ts";
 import { buildBootstrapPrompt, buildFollowupPrompt, SYSTEM_PROMPT_APPEND } from "./slackPrompts.ts";
@@ -426,11 +425,6 @@ export class SlackThreadRunner {
       getSessionId: () => this.sessionId,
     });
 
-    const hitlMcp = createSenaHitlMcpServer({
-      slack: this.slack,
-      getSessionId: () => this.sessionId,
-    });
-
     const stream = query({
       prompt: this.promptQueue,
       options: {
@@ -443,8 +437,7 @@ export class SlackThreadRunner {
         abortController: this.abortController,
         ...(this.resumeSessionId ? { resume: this.resumeSessionId } : {}),
         mcpServers: {
-          "sena-slack": slackMcp,
-          "sena-auth": hitlMcp,
+          slack: slackMcp,
           context7: { type: "http", url: "https://mcp.context7.com/mcp" },
         },
         env,
