@@ -2,6 +2,7 @@ import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import * as fs from "node:fs/promises";
 
+import { getAgentMcpServers } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
 import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { sanitizeEnv } from "../utils/env.ts";
@@ -437,6 +438,7 @@ export class SlackThreadRunner {
         abortController: this.abortController,
         ...(this.resumeSessionId ? { resume: this.resumeSessionId } : {}),
         mcpServers: {
+          ...getAgentMcpServers(),
           slack: slackMcp,
           context7: { type: "http", url: "https://mcp.context7.com/mcp" },
         },

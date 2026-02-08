@@ -13,14 +13,34 @@ const DEFAULT_BASE_PROMPT = [
 ].join("\n");
 
 const BasePromptSchema = z.union([z.string(), z.array(z.string())]);
+
+const McpHttpServerSchema = z.object({
+  type: z.enum(["http", "sse"]),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
+const McpStdioServerSchema = z.object({
+  type: z.literal("stdio").optional(),
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+const McpServerEntrySchema = z.union([McpHttpServerSchema, McpStdioServerSchema]);
+
 const AgentConfigSchema = z.object({
   name: z.string().min(1).optional(),
   basePrompt: BasePromptSchema.optional(),
+  mcpServers: z.record(z.string(), McpServerEntrySchema).optional(),
 });
+
+type McpServerEntry = z.infer<typeof McpServerEntrySchema>;
 
 type AgentConfig = {
   name: string;
   basePrompt: string;
+  mcpServers: Record<string, McpServerEntry>;
 };
 
 type ConfigFormat = "yaml" | "jsonc";
@@ -53,9 +73,43 @@ const normalizeBasePrompt = (value: string | string[] | undefined, name: string)
   return applyNameTemplate(prompt, name);
 };
 
+const substituteEnvVars = (value: string): string =>
+  value.replace(/\{\{(\w+)\}\}/g, (_, key: string) => process.env[key] ?? "");
+
+const substituteEnvVarsInRecord = (record: Record<string, string>): Record<string, string> => {
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(record)) {
+    result[k] = substituteEnvVars(v);
+  }
+  return result;
+};
+
+const normalizeMcpServers = (raw: Record<string, McpServerEntry> | undefined): Record<string, McpServerEntry> => {
+  if (!raw) {
+    return {};
+  }
+  const result: Record<string, McpServerEntry> = {};
+  for (const [name, entry] of Object.entries(raw)) {
+    if ("command" in entry) {
+      result[name] = {
+        ...entry,
+        ...(entry.env ? { env: substituteEnvVarsInRecord(entry.env) } : {}),
+      };
+    } else {
+      result[name] = {
+        ...entry,
+        url: substituteEnvVars(entry.url),
+        ...(entry.headers ? { headers: substituteEnvVarsInRecord(entry.headers) } : {}),
+      };
+    }
+  }
+  return result;
+};
+
 const buildDefaultConfig = (): AgentConfig => ({
   name: DEFAULT_AGENT_NAME,
   basePrompt: applyNameTemplate(DEFAULT_BASE_PROMPT, DEFAULT_AGENT_NAME),
+  mcpServers: {},
 });
 
 const parseConfig = (raw: string, format: ConfigFormat): unknown => {
@@ -89,7 +143,8 @@ const loadAgentConfigFromEnv = (): AgentConfig | null => {
 
   const name = normalizeName(result.data.name);
   const basePrompt = normalizeBasePrompt(result.data.basePrompt, name);
-  return { name, basePrompt };
+  const mcpServers = normalizeMcpServers(result.data.mcpServers);
+  return { name, basePrompt, mcpServers };
 };
 
 const loadAgentConfig = (): AgentConfig => {
@@ -121,7 +176,8 @@ const loadAgentConfig = (): AgentConfig => {
 
     const name = normalizeName(result.data.name);
     const basePrompt = normalizeBasePrompt(result.data.basePrompt, name);
-    return { name, basePrompt };
+    const mcpServers = normalizeMcpServers(result.data.mcpServers);
+    return { name, basePrompt, mcpServers };
   }
 
   return buildDefaultConfig();
@@ -147,5 +203,6 @@ const withJosa = (value: string, consonant: string, vowel: string): string =>
 export const getAgentConfig = (): AgentConfig => AGENT_CONFIG;
 export const getAgentName = (): string => AGENT_CONFIG.name;
 export const getAgentBasePrompt = (): string => AGENT_CONFIG.basePrompt;
+export const getAgentMcpServers = (): Record<string, McpServerEntry> => AGENT_CONFIG.mcpServers;
 export const getAgentSubject = (): string => withJosa(getAgentName(), "이", "가");
 export const formatAgentNameWithSuffix = (suffix: string): string => `${getAgentName()}${suffix}`;
