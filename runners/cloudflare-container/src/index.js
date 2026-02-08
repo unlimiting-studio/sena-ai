@@ -123,15 +123,14 @@ const getSlackHmacKey = async (secret) => {
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
   return cachedSlackKey;
 };
 
 const normalizeDbText = (value) => (typeof value === "string" ? value : "");
 
-const substituteEnvVarsInYaml = (yaml, env) =>
-  yaml.replace(/\{\{(\w+)\}\}/g, (_, key) => env[key] ?? "");
+const substituteEnvVarsInYaml = (yaml, env) => yaml.replace(/\{\{(\w+)\}\}/g, (_, key) => env[key] ?? "");
 
 const loadAgentConfig = async (agentId, env) => {
   const database = env.SENA_APPS;
@@ -142,7 +141,7 @@ const loadAgentConfig = async (agentId, env) => {
     .prepare(
       `SELECT slack_app_id, slack_token, slack_bot_token, slack_signing_secret, github_token, sena_yaml
        FROM ${AGENT_CONFIG_TABLE}
-       WHERE agent_id = ?`
+       WHERE agent_id = ?`,
     )
     .bind(agentId)
     .first();
@@ -351,6 +350,10 @@ const buildContainerEnvVars = (env, agentConfig) => ({
   GITHUB_OAUTH_CLIENT_ID: env.GITHUB_OAUTH_CLIENT_ID ?? "",
   GITHUB_OAUTH_CLIENT_SECRET: env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
   GITHUB_TOKEN: agentConfig?.githubToken ?? "",
+  COUCHDB_URL: env.COUCHDB_URL ?? "",
+  COUCHDB_DATABASE: env.COUCHDB_DATABASE ?? "",
+  COUCHDB_USER: env.COUCHDB_USER ?? "",
+  COUCHDB_PASSWORD: env.COUCHDB_PASSWORD ?? "",
   WORKSPACE_DIR: env.WORKSPACE_DIR ?? "",
   SENA_YAML: substituteEnvVarsInYaml(agentConfig?.senaYaml ?? "", env),
 });
@@ -377,6 +380,10 @@ export class SenaAgentContainer extends Container {
     GITHUB_OAUTH_CLIENT_ID: this.env.GITHUB_OAUTH_CLIENT_ID ?? "",
     GITHUB_OAUTH_CLIENT_SECRET: this.env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
     GITHUB_TOKEN: this.env.GITHUB_TOKEN ?? "",
+    COUCHDB_URL: this.env.COUCHDB_URL ?? "",
+    COUCHDB_DATABASE: this.env.COUCHDB_DATABASE ?? "",
+    COUCHDB_USER: this.env.COUCHDB_USER ?? "",
+    COUCHDB_PASSWORD: this.env.COUCHDB_PASSWORD ?? "",
     WORKSPACE_DIR: this.env.WORKSPACE_DIR ?? "",
     SENA_YAML: this.env.SENA_YAML ?? "",
     CONTAINER_ID: this.id ?? "",

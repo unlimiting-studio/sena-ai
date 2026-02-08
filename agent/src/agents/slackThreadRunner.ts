@@ -4,7 +4,9 @@ import * as fs from "node:fs/promises";
 
 import { getAgentMcpServers } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
+import { createSenaObsidianMcpServer } from "../mcp/obsidianMcp.ts";
 import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
+import { getCouchDBClient } from "../sdks/couchdb.ts";
 import { sanitizeEnv } from "../utils/env.ts";
 import { buildBootstrapPrompt, buildFollowupPrompt, SYSTEM_PROMPT_APPEND } from "./slackPrompts.ts";
 import {
@@ -427,6 +429,9 @@ export class SlackThreadRunner {
       getSessionId: () => this.sessionId,
     });
 
+    const couchdbClient = getCouchDBClient();
+    const obsidianMcp = couchdbClient ? createSenaObsidianMcpServer(couchdbClient) : null;
+
     const stream = query({
       prompt: this.promptQueue,
       options: {
@@ -441,6 +446,7 @@ export class SlackThreadRunner {
         mcpServers: {
           ...getAgentMcpServers(),
           slack: slackMcp,
+          ...(obsidianMcp ? { obsidian: obsidianMcp } : {}),
           context7: { type: "http", url: "https://mcp.context7.com/mcp" },
         },
         env,
