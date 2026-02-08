@@ -66,6 +66,14 @@ export const extractStreamDeltaText = (message: SDKMessage): string | null => {
   return text.length > 0 ? text : null;
 };
 
+export const isAssistantStreamMessageStart = (message: SDKMessage): boolean => {
+  if (message.type !== "stream_event") {
+    return false;
+  }
+
+  return message.event.type === "message_start";
+};
+
 export const extractToolUses = (message: SDKMessage): ToolUse[] => {
   if (message.type !== "assistant") {
     return [];

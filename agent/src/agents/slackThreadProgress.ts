@@ -38,6 +38,7 @@ export class SlackThreadProgress {
   private toolCallsById = new Map<string, ToolCallEntry>();
   private lastAssistantText: string | null = null;
   private streamingAssistantText: string | null = null;
+  private hasStreamingDelta = false;
   private finalAnswer: string | null = null;
   private errorDetail: string | null = null;
 
@@ -46,6 +47,7 @@ export class SlackThreadProgress {
     this.toolCallsById.clear();
     this.lastAssistantText = null;
     this.streamingAssistantText = null;
+    this.hasStreamingDelta = false;
     this.finalAnswer = null;
     this.errorDetail = null;
   }
@@ -55,6 +57,7 @@ export class SlackThreadProgress {
     this.toolCallsById.clear();
     this.lastAssistantText = null;
     this.streamingAssistantText = null;
+    this.hasStreamingDelta = false;
     this.finalAnswer = null;
     this.errorDetail = null;
   }
@@ -97,7 +100,21 @@ export class SlackThreadProgress {
   }
 
   noteAssistantText(nextText: string): boolean {
-    return this.updateAssistantText(nextText);
+    const normalized = normalizeOptionalText(nextText);
+    if (!normalized) {
+      return false;
+    }
+
+    if (this.hasStreamingDelta) {
+      // Partial assistant snapshots can lag behind stream deltas.
+      // Ignore regressions to avoid short/long oscillation in Slack updates.
+      if (this.lastAssistantText && !normalized.startsWith(this.lastAssistantText)) {
+        return false;
+      }
+      this.streamingAssistantText = normalized;
+    }
+
+    return this.updateAssistantText(normalized);
   }
 
   appendAssistantDelta(deltaText: string): boolean {
@@ -105,9 +122,15 @@ export class SlackThreadProgress {
       return false;
     }
 
+    this.hasStreamingDelta = true;
     const current = this.streamingAssistantText ?? "";
     this.streamingAssistantText = current + deltaText;
     return this.updateAssistantText(this.streamingAssistantText);
+  }
+
+  resetStreamingAssistantBuffer(): void {
+    this.streamingAssistantText = null;
+    this.hasStreamingDelta = false;
   }
 
   registerToolCall(params: { id: string; name: string }): boolean {
