@@ -130,6 +130,9 @@ const getSlackHmacKey = async (secret) => {
 
 const normalizeDbText = (value) => (typeof value === "string" ? value : "");
 
+const substituteEnvVarsInYaml = (yaml, env) =>
+  yaml.replace(/\{\{(\w+)\}\}/g, (_, key) => env[key] ?? "");
+
 const loadAgentConfig = async (agentId, env) => {
   const database = env.SENA_APPS;
   if (!database) {
@@ -349,7 +352,7 @@ const buildContainerEnvVars = (env, agentConfig) => ({
   GITHUB_OAUTH_CLIENT_SECRET: env.GITHUB_OAUTH_CLIENT_SECRET ?? "",
   GITHUB_TOKEN: agentConfig?.githubToken ?? "",
   WORKSPACE_DIR: env.WORKSPACE_DIR ?? "",
-  SENA_YAML: agentConfig?.senaYaml ?? "",
+  SENA_YAML: substituteEnvVarsInYaml(agentConfig?.senaYaml ?? "", env),
 });
 
 export class SenaAgentContainer extends Container {
