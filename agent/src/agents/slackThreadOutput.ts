@@ -1,3 +1,5 @@
+import type { Block, KnownBlock } from "@slack/types";
+
 import { getAgentSubject } from "../agentConfig.ts";
 import { SlackSDK } from "../sdks/slack.ts";
 import { isRecord } from "../utils/object.ts";
@@ -11,7 +13,7 @@ const SLACK_MESSAGE_RETRY_DELAY_MS = 2000;
 
 const THINKING_CONTEXT_TEXT = `:loading-dots: ${getAgentSubject()} 생각 중이에요`;
 
-type SlackMessageBlock = Record<string, unknown>;
+type SlackMessageBlock = Block | KnownBlock;
 
 type SlackMessagePayload = {
   text: string;
@@ -451,7 +453,10 @@ export class SlackThreadOutput {
     return next;
   }
 
-  private buildSlackMessagePayload(blocks: SlackMessageBlock[], options: { includeThinking: boolean }): SlackMessagePayload | null {
+  private buildSlackMessagePayload(
+    blocks: SlackMessageBlock[],
+    options: { includeThinking: boolean },
+  ): SlackMessagePayload | null {
     const messageBlocks = [...blocks];
     if (options.includeThinking) {
       messageBlocks.push({

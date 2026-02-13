@@ -14,7 +14,7 @@ export class SlackClaudeAgent {
   private threadSessions = new Map<string, string>();
   private threadRunners = new Map<string, SlackThreadRunner>();
   private threadSessionStore = new SlackThreadSessionStore({
-    filePath: path.join(CONFIG.WORKSPACE_DIR, "slack-thread-sessions.json"),
+    filePath: path.join(CONFIG.WORKSPACE_DIR, `slack-thread-sessions-${CONFIG.AGENT_RUNTIME_MODE}.json`),
   });
 
   private heartbeatInterval: NodeJS.Timeout | null = null;

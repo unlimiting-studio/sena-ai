@@ -1,44 +1,53 @@
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 
-import { getAgentMcpServers } from "../agentConfig.ts";
+import { getAgentMcpServers, type McpServerEntry } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
 import { createSenaObsidianMcpServer } from "../mcp/obsidianMcp.ts";
 import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { getCouchDBClient } from "../sdks/couchdb.ts";
 import { sanitizeEnv } from "../utils/env.ts";
+import { createAgentRuntimeStream, type AgentRuntimeUserMessage, type AgentRuntimeEvent } from "./agentRuntime.ts";
 import { buildBootstrapPrompt, buildFollowupPrompt, SYSTEM_PROMPT_APPEND } from "./slackPrompts.ts";
-import {
-  extractAssistantText,
-  extractResultText,
-  extractSessionId,
-  extractStreamDeltaText,
-  extractToolProgress,
-  extractToolResults,
-  extractToolUses,
-  isAssistantStreamMessageStart,
-  type ToolProgress,
-  type ToolResult,
-  type ToolUse,
-} from "./slackStreamParser.ts";
 import type { SlackContext } from "./slackContext.ts";
 import { SlackThreadOutput } from "./slackThreadOutput.ts";
 import { SlackThreadProgress } from "./slackThreadProgress.ts";
 
-const DEFAULT_MODEL = "claude-sonnet-4-5";
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
+const DEFAULT_CODEX_MODEL = "gpt-5-codex";
+const CODEX_MCP_SERVER_ARG = "--mcp-server";
 
 const SLACK_PROGRESS_THROTTLE_MS = 3000;
 const THREAD_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 type TurnState = "idle" | "active" | "finalizing";
 
-class AsyncUserMessageQueue implements AsyncIterable<SDKUserMessage> {
-  private closed = false;
-  private queue: SDKUserMessage[] = [];
-  private waiting: Array<(result: IteratorResult<SDKUserMessage, void>) => void> = [];
+type ToolProgress = { toolUseId: string; toolName: string };
+type ToolResult = { toolUseId: string; isError: boolean };
+type ToolUse = { id: string; name: string };
 
-  push(value: SDKUserMessage): boolean {
+const BRIDGE_EXEC_ARGV_BLOCKLIST = [/^--inspect(?:-brk)?(?:=.*)?$/u, /^--watch(?:=.*)?$/u];
+
+const filterBridgeExecArgv = (argv: string[]): string[] =>
+  argv.filter((arg) => !BRIDGE_EXEC_ARGV_BLOCKLIST.some((pattern) => pattern.test(arg)));
+
+const resolveCodexBridgeEntrypoint = (): { command: string; args: string[] } => {
+  const rawEntrypoint = process.argv[1]?.trim() ?? "";
+  const fallbackEntrypoint = path.join(process.cwd(), "dist/index.js");
+  const entrypoint = rawEntrypoint.length > 0 ? rawEntrypoint : fallbackEntrypoint;
+  const resolvedEntrypoint = path.isAbsolute(entrypoint) ? entrypoint : path.resolve(process.cwd(), entrypoint);
+  return {
+    command: process.execPath,
+    args: [...filterBridgeExecArgv(process.execArgv), resolvedEntrypoint],
+  };
+};
+
+class AsyncUserMessageQueue implements AsyncIterable<AgentRuntimeUserMessage> {
+  private closed = false;
+  private queue: AgentRuntimeUserMessage[] = [];
+  private waiting: Array<(result: IteratorResult<AgentRuntimeUserMessage, void>) => void> = [];
+
+  push(value: AgentRuntimeUserMessage): boolean {
     if (this.closed) {
       return false;
     }
@@ -64,7 +73,7 @@ class AsyncUserMessageQueue implements AsyncIterable<SDKUserMessage> {
     this.waiting = [];
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage, void, void> {
+  [Symbol.asyncIterator](): AsyncIterator<AgentRuntimeUserMessage, void, void> {
     return {
       next: () => {
         const value = this.queue.shift();
@@ -196,7 +205,7 @@ export class SlackThreadRunner {
 
     this.hasPrompted = true;
     const enqueued = this.promptQueue.push(
-      this.toSdkUserMessage(prompt, { isSynthetic: options?.isSynthetic ?? false }),
+      this.toRuntimeUserMessage(prompt, { isSynthetic: options?.isSynthetic ?? false }),
     );
     if (!enqueued) {
       return false;
@@ -213,16 +222,10 @@ export class SlackThreadRunner {
     return !this.ended && this.stopReason === null;
   }
 
-  private toSdkUserMessage(text: string, options: { isSynthetic: boolean }): SDKUserMessage {
+  private toRuntimeUserMessage(text: string, options: { isSynthetic: boolean }): AgentRuntimeUserMessage {
     return {
-      type: "user",
-      session_id: this.sessionId ?? "",
-      parent_tool_use_id: null,
-      ...(options.isSynthetic ? { isSynthetic: true } : {}),
-      message: {
-        role: "user",
-        content: [{ type: "text", text }],
-      },
+      text,
+      isSynthetic: options.isSynthetic,
     };
   }
 
@@ -417,95 +420,132 @@ export class SlackThreadRunner {
     await this.finalizeTurn(text);
   }
 
+  private resolveModel(): string {
+    const configured = CONFIG.AGENT_MODEL.trim();
+    if (configured.length > 0) {
+      return configured;
+    }
+    return CONFIG.AGENT_RUNTIME_MODE === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_CLAUDE_MODEL;
+  }
+
+  private buildCodexBuiltinMcpServers(options: { includeObsidian: boolean }): Record<string, McpServerEntry> {
+    const bridge = resolveCodexBridgeEntrypoint();
+    const slack: McpServerEntry = {
+      command: bridge.command,
+      args: [...bridge.args, CODEX_MCP_SERVER_ARG, "slack"],
+      env: {
+        SENA_MCP_SLACK_TEAM_ID: this.slack.teamId ?? "",
+        SENA_MCP_SLACK_CHANNEL_ID: this.slack.channelId,
+        SENA_MCP_SLACK_THREAD_TS: this.slack.threadTs ?? "",
+        SENA_MCP_SLACK_MESSAGE_TS: this.slack.messageTs,
+        SENA_MCP_SLACK_USER_ID: this.slack.slackUserId,
+      },
+    };
+
+    if (!options.includeObsidian) {
+      return { slack };
+    }
+
+    const obsidian: McpServerEntry = {
+      command: bridge.command,
+      args: [...bridge.args, CODEX_MCP_SERVER_ARG, "obsidian"],
+    };
+    return { slack, obsidian };
+  }
+
+  private async handleRuntimeEvent(event: AgentRuntimeEvent): Promise<void> {
+    if (event.type === "session.init") {
+      this.sessionId = event.sessionId;
+      this.onSessionId(event.sessionId);
+      return;
+    }
+
+    if (event.type === "assistant.stream.start") {
+      this.progress.resetStreamingAssistantBuffer();
+      return;
+    }
+
+    if (event.type === "tool.progress") {
+      this.handleToolProgress({ toolUseId: event.toolUseId, toolName: event.toolName });
+      return;
+    }
+
+    if (event.type === "tool.result") {
+      this.handleToolResults([{ toolUseId: event.toolUseId, isError: event.isError }]);
+      return;
+    }
+
+    if (event.type === "assistant.delta") {
+      this.handleAssistantDelta(event.text);
+      return;
+    }
+
+    if (event.type === "assistant.text") {
+      this.handleAssistantText(event.text);
+      return;
+    }
+
+    if (event.type === "tool.use") {
+      this.handleToolUses([{ id: event.toolUseId, name: event.toolName }]);
+      return;
+    }
+
+    if (event.type === "result") {
+      await this.handleResultText(event.text);
+    }
+  }
+
   private async runLoop(): Promise<void> {
     await fs.mkdir(CONFIG.WORKSPACE_DIR, { recursive: true });
 
     const env = {
       ...sanitizeEnv(process.env),
     };
-
-    const slackMcp = createSenaSlackMcpServer({
-      slack: this.slack,
-      getSessionId: () => this.sessionId,
-    });
-
+    const model = this.resolveModel();
     const couchdbClient = getCouchDBClient();
-    const obsidianMcp = couchdbClient ? createSenaObsidianMcpServer(couchdbClient) : null;
 
-    const stream = query({
-      prompt: this.promptQueue,
-      options: {
-        model: DEFAULT_MODEL,
-        cwd: CONFIG.WORKSPACE_DIR,
-        includePartialMessages: true,
-        permissionMode: "bypassPermissions",
-        systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_PROMPT_APPEND },
-        settingSources: ["user", "project", "local"],
-        abortController: this.abortController,
-        ...(this.resumeSessionId ? { resume: this.resumeSessionId } : {}),
-        mcpServers: {
-          ...getAgentMcpServers(),
-          slack: slackMcp,
-          ...(obsidianMcp ? { obsidian: obsidianMcp } : {}),
-          context7: { type: "http", url: "https://mcp.context7.com/mcp" },
-        },
-        env,
-      },
-    });
+    const stream =
+      CONFIG.AGENT_RUNTIME_MODE === "codex"
+        ? createAgentRuntimeStream({
+            mode: "codex",
+            prompt: this.promptQueue,
+            resumeSessionId: this.resumeSessionId,
+            model,
+            cwd: CONFIG.WORKSPACE_DIR,
+            env,
+            abortController: this.abortController,
+            apiKey: CONFIG.CODEX_API_KEY,
+            baseUrl: CONFIG.OPENAI_BASE_URL,
+            systemPromptAppend: SYSTEM_PROMPT_APPEND,
+            mcpServers: {
+              ...getAgentMcpServers(),
+              ...this.buildCodexBuiltinMcpServers({ includeObsidian: Boolean(couchdbClient) }),
+            },
+          })
+        : createAgentRuntimeStream({
+            mode: "claude",
+            prompt: this.promptQueue,
+            resumeSessionId: this.resumeSessionId,
+            model,
+            cwd: CONFIG.WORKSPACE_DIR,
+            env,
+            abortController: this.abortController,
+            systemPromptAppend: SYSTEM_PROMPT_APPEND,
+            settingSources: ["user", "project", "local"],
+            mcpServers: {
+              ...getAgentMcpServers(),
+              slack: createSenaSlackMcpServer({
+                slack: this.slack,
+                getSessionId: () => this.sessionId,
+              }),
+              ...(couchdbClient ? { obsidian: createSenaObsidianMcpServer(couchdbClient) } : {}),
+              context7: { type: "http", url: "https://mcp.context7.com/mcp" },
+            },
+          });
 
     try {
-      for await (const message of stream) {
-        const sessionId = extractSessionId(message);
-        if (sessionId) {
-          this.sessionId = sessionId;
-          this.onSessionId(sessionId);
-        }
-
-        if (isAssistantStreamMessageStart(message)) {
-          this.progress.resetStreamingAssistantBuffer();
-          continue;
-        }
-
-        const toolProgress = extractToolProgress(message);
-        if (toolProgress) {
-          this.handleToolProgress(toolProgress);
-          continue;
-        }
-
-        let shouldContinue = false;
-
-        const toolResults = extractToolResults(message);
-        if (toolResults.length > 0) {
-          this.handleToolResults(toolResults);
-          shouldContinue = true;
-        }
-
-        const streamDelta = extractStreamDeltaText(message);
-        if (streamDelta) {
-          this.handleAssistantDelta(streamDelta);
-          shouldContinue = true;
-        }
-
-        const assistantText = extractAssistantText(message);
-        if (assistantText) {
-          this.handleAssistantText(assistantText);
-          shouldContinue = true;
-        }
-
-        const toolUses = extractToolUses(message);
-        if (toolUses.length > 0) {
-          this.handleToolUses(toolUses);
-          shouldContinue = true;
-        }
-
-        if (shouldContinue) {
-          continue;
-        }
-
-        const resultText = extractResultText(message);
-        if (resultText) {
-          await this.handleResultText(resultText);
-        }
+      for await (const event of stream) {
+        await this.handleRuntimeEvent(event);
       }
     } catch (error) {
       if (this.stopReason) {

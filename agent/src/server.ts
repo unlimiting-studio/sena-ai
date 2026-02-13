@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 
 import { CONFIG } from "./config.ts";
+import { startScheduledTaskScheduler } from "./agents/scheduledTaskScheduler.ts";
 import { closeDB } from "./db/connection.ts";
 import { slackRoutes } from "./routes/slack.ts";
 
@@ -17,6 +18,7 @@ export async function startServer(): Promise<void> {
   }));
 
   await fastify.register(slackRoutes, { prefix: "/api/slack" });
+  const scheduler = startScheduledTaskScheduler(fastify.log);
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     fastify.log.info({ signal }, "Graceful shutdown signal received");
@@ -30,6 +32,7 @@ export async function startServer(): Promise<void> {
     } catch (error) {
       fastify.log.error({ error }, "Failed to close DB");
     }
+    scheduler.stop();
     process.exit(0);
   };
 
@@ -39,5 +42,5 @@ export async function startServer(): Promise<void> {
   }
 
   await fastify.listen({ port: CONFIG.PORT, host: "0.0.0.0" });
-  fastify.log.info(`agent-sdk 서버가 포트 ${CONFIG.PORT}에서 실행 중입니다.`);
+  fastify.log.info(`agent-sdk 서버가 포트 ${CONFIG.PORT}에서 실행 중입니다. (mode=${CONFIG.AGENT_RUNTIME_MODE})`);
 }

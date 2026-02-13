@@ -1,4 +1,5 @@
 import { startServer } from "./server.ts";
+import { runCodexMcpBridgeServer } from "./mcp/codexMcpBridge.ts";
 
 const formatUnknown = (value: unknown): string => {
   if (value instanceof Error) {
@@ -50,4 +51,21 @@ process.on("warning", (warning) => {
   console.warn(`[warning] ${message}`);
 });
 
-await startServer();
+const resolveCodexMcpServerNameFromArgv = (): "slack" | "obsidian" | null => {
+  const index = process.argv.indexOf("--mcp-server");
+  if (index < 0) {
+    return null;
+  }
+  const name = process.argv[index + 1]?.trim() ?? "";
+  if (name === "slack" || name === "obsidian") {
+    return name;
+  }
+  throw new Error(`Unsupported MCP server name: ${name || "(empty)"}`);
+};
+
+const codexMcpServerName = resolveCodexMcpServerNameFromArgv();
+if (codexMcpServerName) {
+  await runCodexMcpBridgeServer(codexMcpServerName);
+} else {
+  await startServer();
+}
