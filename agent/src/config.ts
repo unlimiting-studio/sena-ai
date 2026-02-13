@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { config as loadDotenv } from "dotenv";
+import { getAgentRuntimeConfig } from "./agentConfig.ts";
 
 loadDotenv();
 
@@ -20,14 +21,28 @@ const normalizeSlackVerifyMode = (value: string | undefined): "agent" | "externa
   return value.trim().toLowerCase() === "external" ? "external" : "agent";
 };
 
+const normalizeAgentRuntimeMode = (value: string | undefined): "claude" | "codex" => {
+  if (!value) {
+    return "claude";
+  }
+  return value.trim().toLowerCase() === "codex" ? "codex" : "claude";
+};
+
+const AGENT_RUNTIME_CONFIG = getAgentRuntimeConfig();
+
 export const CONFIG = {
   PORT: toInt(process.env.PORT, 22481),
   NODE_ENV: process.env.NODE_ENV || "development",
   BACKEND_URL: process.env.BACKEND_URL || "http://localhost:22481",
   DATABASE_URL: process.env.DATABASE_URL || "mysql://user:password@localhost:3306/karby_agent",
   DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY || "",
+  AGENT_RUNTIME_MODE: normalizeAgentRuntimeMode(process.env.AGENT_RUNTIME_MODE ?? AGENT_RUNTIME_CONFIG.mode ?? undefined),
+  AGENT_MODEL: process.env.AGENT_MODEL || AGENT_RUNTIME_CONFIG.model || "",
 
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "",
+  CODEX_API_KEY: process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || "",
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
 
   // Slack
   SLACK_APP_ID: process.env.SLACK_APP_ID || "",

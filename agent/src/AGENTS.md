@@ -1,6 +1,6 @@
 ## 디렉토리 개요
 
-Sena의 런타임 소스 코드 디렉토리다. Slack 이벤트 → Claude Agent SDK 실행 → Slack/GitHub/HITL 도구 제공 흐름을 포함한다.
+Sena의 런타임 소스 코드 디렉토리다. Slack 이벤트 → 런타임(Claude/Codex) 실행 → Slack/GitHub/HITL 도구 제공 흐름을 포함한다.
 
 ## 파일 작성 컨벤션
 

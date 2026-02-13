@@ -29,4 +29,4 @@ export const encrypted = customType<{
     }
     return cipherEncrypt(value);
   },
-}) as (name: string, config?: EncryptedTypeConfig) => any;
+});

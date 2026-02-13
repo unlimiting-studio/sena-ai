@@ -1,4 +1,5 @@
 import { CONFIG } from "../config.ts";
+import { createHash, randomBytes } from "node:crypto";
 
 // --- Type definitions for LiveSync CouchDB documents ---
 
@@ -155,6 +156,31 @@ export class CouchDBClient {
     }
     return map;
   }
+
+  async findNoteDocumentByPath(filepath: string): Promise<NoteEntry | ChunkedEntry | null> {
+    try {
+      const result = await this.request<{
+        docs: LiveSyncDocument[];
+      }>("_find", {
+        method: "POST",
+        body: JSON.stringify({
+          selector: {
+            path: { $eq: filepath },
+            type: { $in: ["notes", "newnote", "plain"] },
+          },
+          limit: 2,
+        }),
+      });
+
+      const doc = result.docs.find(
+        (d): d is NoteEntry | ChunkedEntry => d.type === "notes" || d.type === "newnote" || d.type === "plain",
+      );
+      return doc ?? null;
+    } catch {
+      // Some CouchDB deployments may not allow _find. Fallback to null.
+      return null;
+    }
+  }
 }
 
 // --- Content reassembly ---
@@ -203,13 +229,51 @@ export async function reassembleContent(
 
 // --- Chunk ID generation ---
 
-const generateChunkId = (): string => {
-  const chars = "0123456789abcdefghijklmnopqrstuvwxyz";
-  let id = "";
-  for (let i = 0; i < 14; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
+const generateChunkId = (content: string): string => `h:${createHash("sha1").update(content).digest("hex")}`;
+
+const isNoteEntry = (doc: LiveSyncDocument | null): doc is NoteEntry | ChunkedEntry => {
+  if (!doc) return false;
+  return doc.type === "notes" || doc.type === "newnote" || doc.type === "plain";
+};
+
+const hasUnsupportedMetadataMode = (doc: NoteEntry | ChunkedEntry): boolean => {
+  const maybeEncrypted = doc as { e_?: unknown };
+  return Boolean(doc.path?.startsWith("f:") || maybeEncrypted.e_ === true);
+};
+
+const putChunk = async (client: CouchDBClient, content: string): Promise<string> => {
+  const baseChunkId = generateChunkId(content);
+  let chunkId = baseChunkId;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await client.putDocument(chunkId, {
+        _id: chunkId,
+        data: content,
+        type: "leaf",
+      });
+      return chunkId;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes("409")) {
+        throw err;
+      }
+
+      // If the chunk already exists with the same data, reuse it.
+      try {
+        const existing = await client.getDocument(chunkId);
+        if (existing.type === "leaf" && existing.data === content) {
+          return chunkId;
+        }
+      } catch {
+        // Fall through to retry with a random suffix.
+      }
+
+      chunkId = `${baseChunkId}:${randomBytes(4).toString("hex")}`;
+    }
   }
-  return `h:${id}`;
+
+  throw new Error("leaf chunk 생성에 실패했습니다.");
 };
 
 // --- Write support ---
@@ -219,61 +283,113 @@ export async function writeNote(
   filepath: string,
   content: string,
 ): Promise<{ ok: boolean; path: string }> {
-  const docId = path2id(filepath);
+  const fallbackDocId = path2id(filepath);
   const now = Date.now();
+  const encoder = new TextEncoder();
 
-  // Check if document already exists
+  // Resolve existing document by ID first, then by exact path.
   let existingDoc: LiveSyncDocument | null = null;
+  let targetDocId = fallbackDocId;
   try {
-    existingDoc = await client.getDocument(docId);
+    existingDoc = await client.getDocument(fallbackDocId);
   } catch (err) {
     if (!(err instanceof Error && err.message.includes("404"))) {
       throw err;
     }
   }
+  if (!isNoteEntry(existingDoc)) {
+    existingDoc = await client.findNoteDocumentByPath(filepath);
+    if (existingDoc) {
+      targetDocId = existingDoc._id;
+    }
+  }
 
-  // Build new chunk
-  const chunkId = generateChunkId();
+  if (existingDoc && hasUnsupportedMetadataMode(existingDoc)) {
+    throw new Error(
+      "LiveSync의 path obfuscation/property encryption(e_)이 활성화된 DB는 직접 쓰기를 지원하지 않습니다. 안전을 위해 저장을 중단했습니다.",
+    );
+  }
 
-  // Write the leaf chunk
-  await client.putDocument(chunkId, {
-    _id: chunkId,
-    data: content,
-    type: "leaf",
-  });
+  const chunkId = await putChunk(client, content);
 
-  // Build note document
-  const noteDoc: Record<string, unknown> = {
-    _id: docId,
-    type: "plain",
-    path: filepath,
-    ctime: existingDoc && "ctime" in existingDoc ? existingDoc.ctime : now,
-    mtime: now,
-    size: new TextEncoder().encode(content).byteLength,
-    children: [chunkId],
-    eden: {},
-  };
+  // For legacy notes, keep inline format to avoid mixed-mode corruption.
+  if (existingDoc && existingDoc.type === "notes") {
+    let baseDoc: NoteEntry = existingDoc;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const noteDoc: Record<string, unknown> = {
+        _id: baseDoc._id,
+        _rev: baseDoc._rev,
+        type: "notes",
+        path: baseDoc.path,
+        data: content,
+        ctime: baseDoc.ctime || now,
+        mtime: now,
+        size: encoder.encode(content).byteLength,
+      };
 
-  if (existingDoc?._rev) {
-    noteDoc._rev = existingDoc._rev;
-
-    // Clean up old leaf chunks
-    if ("children" in existingDoc && Array.isArray(existingDoc.children)) {
-      for (const oldChunkId of existingDoc.children) {
-        try {
-          const oldChunk = await client.getDocument(oldChunkId);
-          if (oldChunk._rev) {
-            await client.deleteDocument(oldChunkId, oldChunk._rev);
-          }
-        } catch {
-          // Ignore cleanup errors
+      try {
+        await client.putDocument(baseDoc._id, noteDoc);
+        return { ok: true, path: filepath };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("409") || attempt === 2) {
+          throw err;
         }
+        const refreshed = await client.getDocument(baseDoc._id);
+        if (!isNoteEntry(refreshed) || refreshed.type !== "notes") {
+          throw new Error("노트 저장 중 문서 타입이 변경되어 중단했습니다.");
+        }
+        baseDoc = refreshed;
+      }
+    }
+    throw new Error("노트 저장에 실패했습니다.");
+  }
+
+  // Chunked format. Important: do NOT delete old chunks; chunks can be shared.
+  let baseDoc: NoteEntry | ChunkedEntry | null = existingDoc && isNoteEntry(existingDoc) ? existingDoc : null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const noteType = baseDoc && (baseDoc.type === "newnote" || baseDoc.type === "plain") ? baseDoc.type : "plain";
+
+    const noteDoc: Record<string, unknown> = {
+      ...(baseDoc ? baseDoc : {}),
+      _id: targetDocId,
+      type: noteType,
+      path: baseDoc?.path ?? filepath,
+      ctime: baseDoc && "ctime" in baseDoc ? baseDoc.ctime : now,
+      mtime: now,
+      size: encoder.encode(content).byteLength,
+      children: [chunkId],
+      // Keep latest chunk in eden to avoid temporary "missing chunk" reads during replication.
+      eden: { [chunkId]: content },
+    };
+
+    if (baseDoc?._rev) {
+      noteDoc._rev = baseDoc._rev;
+    }
+
+    try {
+      await client.putDocument(targetDocId, noteDoc);
+      return { ok: true, path: filepath };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes("409") || attempt === 2) {
+        throw err;
+      }
+      const refreshed = await client.getDocument(targetDocId);
+      if (isNoteEntry(refreshed)) {
+        if (hasUnsupportedMetadataMode(refreshed)) {
+          throw new Error(
+            "충돌 재시도 중 LiveSync 암호화 메타데이터(e_/f:)가 감지되어 저장을 중단했습니다.",
+          );
+        }
+        baseDoc = refreshed;
+      } else {
+        throw new Error("충돌 재시도 중 문서 타입이 변경되어 저장을 중단했습니다.");
       }
     }
   }
 
-  await client.putDocument(docId, noteDoc);
-  return { ok: true, path: filepath };
+  throw new Error("노트 저장에 실패했습니다.");
 }
 
 // --- Singleton-style factory ---

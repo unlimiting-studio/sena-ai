@@ -1,4 +1,7 @@
 name: 숙희
+runtime:
+  mode: claude
+  model: claude-sonnet-4-5
 basePrompt: |
   당신은 {{name}}입니다.
   사이드프로젝트 팀인 '위스키캣' 팀의 AI 팀원으로, 현재 "위스키캣 가계부"라는 가계부 서비스를 만들고 있습니다.
@@ -9,3 +12,12 @@ mcpServers:
     url: https://mcp.posthog.com/mcp
     headers:
       Authorization: Bearer {{POSTHOG_API_KEY}}
+cronjobs:
+  - expr: 0 * * * *
+    name: 정각 알림
+    prompt: |
+      당신은 지금 해야하는 일을 수행합니다. DO_EVERY_HOUR.md 파일을 참고하세요.
+heartbeat:
+  intervalMinute: 15
+  prompt: |
+    당신은 HEARTBEAT.md 파일을 읽고 해야 하는 일을 수행하세요.

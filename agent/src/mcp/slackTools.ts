@@ -1,0 +1,231 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+
+import type { Block, KnownBlock } from "@slack/types";
+import { z } from "zod";
+
+import { CONFIG } from "../config.ts";
+import { SlackSDK } from "../sdks/slack.ts";
+
+export type SlackToolsContext = {
+  channelId: string | null;
+  threadTs: string | null;
+  messageTs: string | null;
+};
+
+const textContent = (text: string) => ({ type: "text" as const, text });
+
+const toNonEmptyString = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const toArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const formatSlackMessage = (msg: unknown): string | null => {
+  if (!msg || typeof msg !== "object") {
+    return null;
+  }
+
+  const record = msg as Record<string, unknown>;
+  const ts = toNonEmptyString(record.ts) ?? "unknown";
+  const userId = toNonEmptyString(record.user);
+  const text = toNonEmptyString(record.text) ?? "";
+  const author = userId ? `<@${userId}>` : "<unknown>";
+  return `[${ts}] ${author}: ${text}`;
+};
+
+const GetMessagesSchema = z.object({
+  mode: z.enum(["thread", "channel"]).default("thread"),
+  channelId: z.string().optional().describe("기본값: 현재 Slack 컨텍스트 channelId"),
+  threadTs: z.string().optional().describe("mode=thread일 때 대상 thread ts. 기본값: 현재 컨텍스트 threadTs"),
+  limit: z.number().int().min(1).max(100).default(20),
+  latest: z.string().optional(),
+  oldest: z.string().optional(),
+});
+
+const PostMessageSchema = z.object({
+  text: z.string().optional().describe("전송할 메시지 텍스트 (옵셔널, blocks 없이 보낼 때는 필수)"),
+  blocks: z
+    .array(
+      // Codex MCP bridge needs schemas convertible to JSON Schema.
+      z.record(z.string(), z.unknown()),
+    )
+    .optional()
+    .describe("Slack blocks 배열 (옵셔널, text 없이 보낼 때는 필수)"),
+  channelId: z.string().optional().describe("대상 채널 ID (기본값: 현재 Slack 컨텍스트 channelId)"),
+  threadTs: z.string().optional().describe("대상 thread ts (옵셔널)"),
+});
+
+const DownloadFileSchema = z.object({
+  fileId: z.string().describe("Slack 파일 ID (예: F07ABCDEF12)"),
+});
+
+type GetMessagesArgs = z.infer<typeof GetMessagesSchema>;
+type PostMessageArgs = z.infer<typeof PostMessageSchema>;
+type DownloadFileArgs = z.infer<typeof DownloadFileSchema>;
+
+const GET_MESSAGES_DESCRIPTION = "Slack 채널/쓰레드 메시지를 읽어옵니다.";
+const POST_MESSAGE_DESCRIPTION =
+  "Slack 채널/쓰레드에 메시지를 남깁니다. 일상적인 '응답' 의미로는 사용하지 말고, 현재 작업과 무관한 다른 채널/스레드에 알림이나 메모를 남길 때만 사용하세요.";
+const DOWNLOAD_FILE_DESCRIPTION =
+  "Slack 파일을 다운로드합니다. 파일 ID를 받아 로컬 워크스페이스에 저장하고 경로를 반환합니다.";
+
+const handleGetMessages = async (ctx: SlackToolsContext, args: GetMessagesArgs) => {
+  const channelId = args.channelId?.trim() || ctx.channelId || "";
+  const mode = args.mode;
+  const threadTs = args.threadTs?.trim() || ctx.threadTs || ctx.messageTs || "";
+
+  if (channelId.length === 0) {
+    return {
+      content: [textContent("메시지 조회 실패: channelId를 지정해 주세요.")],
+      isError: true,
+    };
+  }
+  if (mode === "thread" && threadTs.length === 0) {
+    return {
+      content: [textContent("메시지 조회 실패: thread 모드에서는 threadTs가 필요합니다.")],
+      isError: true,
+    };
+  }
+
+  const response =
+    mode === "thread"
+      ? await SlackSDK.instance.getThreadReplies({
+          channel: channelId,
+          ts: threadTs,
+          limit: args.limit,
+          latest: args.latest,
+          oldest: args.oldest,
+        })
+      : await SlackSDK.instance.getChannelHistory({
+          channel: channelId,
+          limit: args.limit,
+          latest: args.latest,
+          oldest: args.oldest,
+        });
+
+  const messages = toArray(response.messages);
+  const lines = messages.map((message) => formatSlackMessage(message)).filter((line): line is string => Boolean(line));
+  const header = `Slack messages (${mode}). count=${lines.length}`;
+  const body = lines.length > 0 ? lines.join("\n") : "(no messages)";
+
+  return {
+    content: [textContent(`${header}\n\n${body}`)],
+  };
+};
+
+const handlePostMessage = async (ctx: SlackToolsContext, args: PostMessageArgs) => {
+  const text = args.text?.trim() ?? "";
+  const blocks = args.blocks as Array<Block | KnownBlock> | undefined;
+  const hasText = text.length > 0;
+  const hasBlocks = Array.isArray(blocks) && blocks.length > 0;
+
+  if (!hasText && !hasBlocks) {
+    return {
+      content: [textContent("메시지 전송 실패: text 또는 blocks 중 하나는 반드시 필요합니다.")],
+      isError: true,
+    };
+  }
+
+  const channel = args.channelId?.trim() || ctx.channelId;
+  if (!channel || channel.length === 0) {
+    return {
+      content: [textContent("메시지 전송 실패: channelId를 지정해 주세요.")],
+      isError: true,
+    };
+  }
+  const threadTsRaw = args.threadTs?.trim() ?? "";
+  const response = hasBlocks
+    ? await SlackSDK.instance.postMessage({
+        channel,
+        blocks,
+        ...(hasText ? { text } : {}),
+        ...(threadTsRaw.length > 0 ? { thread_ts: threadTsRaw } : {}),
+      })
+    : await SlackSDK.instance.postMessage({
+        channel,
+        text,
+        ...(threadTsRaw.length > 0 ? { thread_ts: threadTsRaw } : {}),
+      });
+
+  const messageTs = toNonEmptyString(response.ts) ?? "unknown";
+  const usedThreadTs = threadTsRaw.length > 0 ? threadTsRaw : "(none)";
+
+  return {
+    content: [
+      textContent(
+        [
+          "Slack 메시지 전송 완료",
+          `- channelId: ${channel}`,
+          `- threadTs: ${usedThreadTs}`,
+          `- messageTs: ${messageTs}`,
+        ].join("\n"),
+      ),
+    ],
+  };
+};
+
+const handleDownloadFile = async (_ctx: SlackToolsContext, args: DownloadFileArgs) => {
+  const fileInfo = await SlackSDK.instance.getFileInfo({ file: args.fileId });
+  const file = fileInfo.file;
+
+  if (!file) {
+    return {
+      content: [textContent(`파일을 찾을 수 없습니다: ${args.fileId}`)],
+    };
+  }
+
+  const downloadUrl = file.url_private_download ?? file.url_private;
+  if (!downloadUrl) {
+    return {
+      content: [textContent(`다운로드 URL이 없습니다. 파일 타입: ${file.filetype ?? "unknown"}`)],
+    };
+  }
+
+  const downloadDir = path.join(CONFIG.WORKSPACE_DIR, "slack-downloads");
+  await fs.mkdir(downloadDir, { recursive: true });
+
+  const safeName = (file.name ?? `${args.fileId}.${file.filetype ?? "bin"}`).replace(/[^a-zA-Z0-9._-]/g, "_");
+  const localPath = path.join(downloadDir, `${args.fileId}_${safeName}`);
+
+  const buffer = await SlackSDK.instance.downloadFile(downloadUrl);
+  await fs.writeFile(localPath, Buffer.from(buffer));
+
+  const sizeKB = Math.round((file.size ?? buffer.byteLength) / 1024);
+
+  return {
+    content: [
+      textContent(
+        [
+          "파일 다운로드 완료",
+          `- 이름: ${file.name ?? "unknown"}`,
+          `- 타입: ${file.filetype ?? "unknown"}`,
+          `- 크기: ${sizeKB} KB`,
+          `- 경로: ${localPath}`,
+        ].join("\n"),
+      ),
+    ],
+  };
+};
+
+export const createSlackToolset = (ctx: SlackToolsContext) => ({
+  getMessages: {
+    description: GET_MESSAGES_DESCRIPTION,
+    inputSchema: GetMessagesSchema.shape,
+    handler: (args: GetMessagesArgs) => handleGetMessages(ctx, args),
+  },
+  postMessage: {
+    description: POST_MESSAGE_DESCRIPTION,
+    inputSchema: PostMessageSchema.shape,
+    handler: (args: PostMessageArgs) => handlePostMessage(ctx, args),
+  },
+  downloadFile: {
+    description: DOWNLOAD_FILE_DESCRIPTION,
+    inputSchema: DownloadFileSchema.shape,
+    handler: (args: DownloadFileArgs) => handleDownloadFile(ctx, args),
+  },
+});

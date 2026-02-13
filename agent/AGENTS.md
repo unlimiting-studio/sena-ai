@@ -9,20 +9,20 @@
 
 ## 디렉토리 개요
 
-Claude Agent SDK(`@anthropic-ai/claude-agent-sdk`)를 중심으로 Karby의 Slack/GitHub 연동(HITL 포함)을 재구현한 실험용 서버 애플리케이션이다.
+Claude/Codex SDK 기반으로 Karby의 Slack/GitHub 연동(HITL 포함)을 재구현한 실험용 서버 애플리케이션이다.
 
 - Slack Events API/Interactivity 수신
 - Slack OAuth(search:read) 연동 및 자격증명 저장
 - GitHub OAuth 연동 및 자격증명 저장
-- Claude Agent SDK `query` 기반 세션 실행/재개(resume)
+- 런타임 모드(`AGENT_RUNTIME_MODE=claude|codex`)에 따른 세션 실행/재개(resume)
 - 커스텀 MCP 서버로 Slack/GitHub/HITL 도구를 제공
 
 ## 파일 작성 컨벤션
 
 - `src/`: 런타임 소스 코드
 - `src/server.ts`: Fastify 서버/라우팅
-- `src/agents/`: Slack 이벤트를 Claude Agent SDK 실행으로 연결하는 에이전트 런타임
-- `src/mcp/`: Claude Agent SDK에 주입할 커스텀 MCP 서버(tool) 정의
+- `src/agents/`: Slack 이벤트를 런타임 실행(Claude/Codex)으로 연결하는 에이전트 계층
+- `src/mcp/`: 런타임에서 사용할 커스텀 MCP 서버(tool) 정의
 - `src/db/`: Slack/GitHub OAuth 토큰 저장(Drizzle + MySQL)과 암호화 유틸
 
 ## 코드 작성 컨벤션
