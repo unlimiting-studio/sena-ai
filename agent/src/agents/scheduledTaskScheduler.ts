@@ -8,6 +8,7 @@ import {
   getAgentHeartbeat,
   getAgentMcpServers,
   getAgentName,
+  getAgentOpsConfig,
   type McpServerEntry,
 } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
@@ -16,7 +17,8 @@ import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { getCouchDBClient } from "../sdks/couchdb.ts";
 import { sanitizeEnv } from "../utils/env.ts";
 import { createAgentRuntimeStream, type AgentRuntimeUserMessage } from "./agentRuntime.ts";
-import { SYSTEM_PROMPT_APPEND } from "./slackPrompts.ts";
+import { buildSystemPromptAppend } from "./slackPrompts.ts";
+import { loadWorkspaceContext, normalizeHeartbeatAckText, shouldSuppressHeartbeatAck } from "./workspaceContext.ts";
 
 const SEOUL_TIME_ZONE = {
   label: "Asia/Seoul (UTC+9)",
@@ -95,7 +97,8 @@ const WEEKDAY_TO_NUMBER: Record<string, number> = {
 
 const parseSeoulDateParts = (date: Date): SeoulDateParts => {
   const tokens = SEOUL_PARTS_FORMATTER.formatToParts(date);
-  const getPart = (type: Intl.DateTimeFormatPartTypes): string => tokens.find((part) => part.type === type)?.value ?? "";
+  const getPart = (type: Intl.DateTimeFormatPartTypes): string =>
+    tokens.find((part) => part.type === type)?.value ?? "";
 
   const weekday = getPart("weekday");
   const dayOfWeek = WEEKDAY_TO_NUMBER[weekday] ?? 0;
@@ -119,10 +122,9 @@ const parseSeoulDateParts = (date: Date): SeoulDateParts => {
 const formatSeoulDateTime = (date: Date): string => SEOUL_DATETIME_FORMATTER.format(date);
 
 const toMinuteKey = (parts: SeoulDateParts): string =>
-  `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")} ${String(parts.hour).padStart(
-    2,
-    "0",
-  )}:${String(parts.minute).padStart(2, "0")}`;
+  `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")} ${String(
+    parts.hour,
+  ).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
 
 const parseCronValue = (value: string, range: CronFieldRange, options?: { normalizeDayOfWeek?: boolean }): number => {
   const parsed = Number.parseInt(value, 10);
@@ -261,18 +263,45 @@ const buildSchedulerCodexSlackMcp = (): Record<string, McpServerEntry> => {
     slack: {
       command: bridge.command,
       args: [...bridge.args, CODEX_MCP_SERVER_ARG, "slack"],
-      env: {
-        SENA_MCP_SLACK_TEAM_ID: process.env.SENA_MCP_SLACK_TEAM_ID ?? "",
-        SENA_MCP_SLACK_CHANNEL_ID: process.env.SENA_MCP_SLACK_CHANNEL_ID ?? "",
-        SENA_MCP_SLACK_THREAD_TS: process.env.SENA_MCP_SLACK_THREAD_TS ?? "",
-        SENA_MCP_SLACK_MESSAGE_TS: process.env.SENA_MCP_SLACK_MESSAGE_TS ?? "",
-        SENA_MCP_SLACK_USER_ID: process.env.SENA_MCP_SLACK_USER_ID ?? "",
-      },
     },
   };
 };
 
+const shouldSkipHeartbeatRun = async (task: ScheduledTask, logger: FastifyBaseLogger): Promise<boolean> => {
+  if (task.kind !== "heartbeat") {
+    return false;
+  }
+
+  const agentOps = getAgentOpsConfig();
+  if (!agentOps.heartbeat.skipWhenInstructionEmpty) {
+    return false;
+  }
+
+  const snapshot = await loadWorkspaceContext({
+    agentOps,
+  });
+  if (!snapshot.heartbeatInstructionEmpty) {
+    return false;
+  }
+
+  logger.info(
+    {
+      schedulerTaskId: task.id,
+      schedulerTaskName: task.name,
+      schedulerTaskKind: task.kind,
+      heartbeatInstructionFile: snapshot.heartbeatInstructionFile.absolutePath,
+      skipWhenInstructionEmpty: true,
+    },
+    "Skipping heartbeat: HEARTBEAT instruction file is empty or missing",
+  );
+  return true;
+};
+
 const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger): Promise<void> => {
+  if (await shouldSkipHeartbeatRun(task, logger)) {
+    return;
+  }
+
   await fs.mkdir(CONFIG.WORKSPACE_DIR, { recursive: true });
 
   const env = {
@@ -290,6 +319,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
   const couchdbClient = getCouchDBClient();
   const abortController = new AbortController();
   const prompt = buildSchedulerPrompt(task);
+  const systemPromptAppend = await buildSystemPromptAppend();
 
   const stream =
     CONFIG.AGENT_RUNTIME_MODE === "codex"
@@ -303,7 +333,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
           abortController,
           apiKey: CONFIG.CODEX_API_KEY,
           baseUrl: CONFIG.OPENAI_BASE_URL,
-          systemPromptAppend: SYSTEM_PROMPT_APPEND,
+          systemPromptAppend,
           mcpServers: {
             ...getAgentMcpServers(),
             ...buildSchedulerCodexSlackMcp(),
@@ -317,7 +347,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
           cwd: CONFIG.WORKSPACE_DIR,
           env,
           abortController,
-          systemPromptAppend: SYSTEM_PROMPT_APPEND,
+          systemPromptAppend,
           settingSources: ["user", "project", "local"],
           mcpServers: {
             ...getAgentMcpServers(),
@@ -341,6 +371,21 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
     if (event.type === "result") {
       finalText = event.text.trim() || finalText;
     }
+  }
+
+  if (task.kind === "heartbeat" && shouldSuppressHeartbeatAck(finalText, getAgentOpsConfig().heartbeat)) {
+    const heartbeatResult = normalizeHeartbeatAckText(finalText);
+    logger.info(
+      {
+        schedulerTaskId: task.id,
+        schedulerTaskName: task.name,
+        schedulerTaskKind: task.kind,
+        heartbeatResult,
+        suppressedExternalForwarding: true,
+      },
+      "Heartbeat completed with low-noise ack",
+    );
+    return;
   }
 
   logger.info(
@@ -504,9 +549,7 @@ export const startScheduledTaskScheduler = (logger: FastifyBaseLogger): Schedule
         const shouldTrigger =
           task.kind === "cronjob"
             ? Boolean(task.expr && isCronMatched(task.expr, parts))
-            : Boolean(
-                task.heartbeatIntervalMinute && shouldRunHeartbeatAtMinute(parts, task.heartbeatIntervalMinute),
-              );
+            : Boolean(task.heartbeatIntervalMinute && shouldRunHeartbeatAtMinute(parts, task.heartbeatIntervalMinute));
 
         if (!shouldTrigger) {
           continue;

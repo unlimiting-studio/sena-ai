@@ -2,6 +2,7 @@ import * as path from "node:path";
 
 import { CONFIG } from "../config.ts";
 import { SlackSDK } from "../sdks/slack.ts";
+import { resolveSlackUserName } from "../utils/slackUser.ts";
 import { buildThreadKey, resolveThreadTs, type SlackContext } from "./slackContext.ts";
 import { SlackThreadRunner } from "./slackThreadRunner.ts";
 import { SlackThreadSessionStore } from "./threadSessionStore.ts";
@@ -13,8 +14,9 @@ export class SlackClaudeAgent {
 
   private threadSessions = new Map<string, string>();
   private threadRunners = new Map<string, SlackThreadRunner>();
+  private sessionStoreDir = process.cwd();
   private threadSessionStore = new SlackThreadSessionStore({
-    filePath: path.join(CONFIG.WORKSPACE_DIR, `slack-thread-sessions-${CONFIG.AGENT_RUNTIME_MODE}.json`),
+    filePath: path.join(this.sessionStoreDir, `slack-thread-sessions-${CONFIG.AGENT_RUNTIME_MODE}.json`),
   });
 
   private heartbeatInterval: NodeJS.Timeout | null = null;
@@ -50,6 +52,7 @@ export class SlackClaudeAgent {
       });
       return;
     }
+    const slackUserName = await resolveSlackUserName(slackUserId);
 
     const resolvedMessageTs = messageTs?.trim() || threadTs?.trim() || null;
     if (!resolvedMessageTs) {
@@ -79,6 +82,7 @@ export class SlackClaudeAgent {
         threadTs: resolvedThreadTs,
         messageTs: resolvedMessageTs,
         slackUserId,
+        slackUserName,
       },
       resumeSessionId,
     });
@@ -93,6 +97,7 @@ export class SlackClaudeAgent {
           threadTs: resolvedThreadTs,
           messageTs: resolvedMessageTs,
           slackUserId,
+          slackUserName,
         },
         resumeSessionId,
         forceNew: true,

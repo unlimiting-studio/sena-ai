@@ -8,7 +8,7 @@ import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { getCouchDBClient } from "../sdks/couchdb.ts";
 import { sanitizeEnv } from "../utils/env.ts";
 import { createAgentRuntimeStream, type AgentRuntimeUserMessage, type AgentRuntimeEvent } from "./agentRuntime.ts";
-import { buildBootstrapPrompt, buildFollowupPrompt, SYSTEM_PROMPT_APPEND } from "./slackPrompts.ts";
+import { buildBootstrapPrompt, buildFollowupPrompt, buildSystemPromptAppend } from "./slackPrompts.ts";
 import type { SlackContext } from "./slackContext.ts";
 import { SlackThreadOutput } from "./slackThreadOutput.ts";
 import { SlackThreadProgress } from "./slackThreadProgress.ts";
@@ -144,6 +144,7 @@ export class SlackThreadRunner {
     this.slack.threadTs = next.threadTs;
     this.slack.messageTs = next.messageTs;
     this.slack.slackUserId = next.slackUserId;
+    this.slack.slackUserName = next.slackUserName;
     this.output.updateSlackContext(this.slack);
   }
 
@@ -433,13 +434,6 @@ export class SlackThreadRunner {
     const slack: McpServerEntry = {
       command: bridge.command,
       args: [...bridge.args, CODEX_MCP_SERVER_ARG, "slack"],
-      env: {
-        SENA_MCP_SLACK_TEAM_ID: this.slack.teamId ?? "",
-        SENA_MCP_SLACK_CHANNEL_ID: this.slack.channelId,
-        SENA_MCP_SLACK_THREAD_TS: this.slack.threadTs ?? "",
-        SENA_MCP_SLACK_MESSAGE_TS: this.slack.messageTs,
-        SENA_MCP_SLACK_USER_ID: this.slack.slackUserId,
-      },
     };
 
     if (!options.includeObsidian) {
@@ -503,6 +497,7 @@ export class SlackThreadRunner {
     };
     const model = this.resolveModel();
     const couchdbClient = getCouchDBClient();
+    const systemPromptAppend = await buildSystemPromptAppend();
 
     const stream =
       CONFIG.AGENT_RUNTIME_MODE === "codex"
@@ -516,7 +511,7 @@ export class SlackThreadRunner {
             abortController: this.abortController,
             apiKey: CONFIG.CODEX_API_KEY,
             baseUrl: CONFIG.OPENAI_BASE_URL,
-            systemPromptAppend: SYSTEM_PROMPT_APPEND,
+            systemPromptAppend,
             mcpServers: {
               ...getAgentMcpServers(),
               ...this.buildCodexBuiltinMcpServers({ includeObsidian: Boolean(couchdbClient) }),
@@ -530,7 +525,7 @@ export class SlackThreadRunner {
             cwd: CONFIG.WORKSPACE_DIR,
             env,
             abortController: this.abortController,
-            systemPromptAppend: SYSTEM_PROMPT_APPEND,
+            systemPromptAppend,
             settingSources: ["user", "project", "local"],
             mcpServers: {
               ...getAgentMcpServers(),

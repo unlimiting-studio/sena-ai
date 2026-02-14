@@ -96,10 +96,7 @@ export class CouchDBClient {
     return this.request<LiveSyncDocument>(encodeURIComponent(docId));
   }
 
-  async listNoteDocuments(
-    prefix?: string,
-    limit = 200,
-  ): Promise<Array<NoteEntry | ChunkedEntry>> {
+  async listNoteDocuments(prefix?: string, limit = 200): Promise<Array<NoteEntry | ChunkedEntry>> {
     const params = new URLSearchParams({ include_docs: "true", limit: String(limit) });
     if (prefix) {
       const prefixId = path2id(prefix);
@@ -185,10 +182,7 @@ export class CouchDBClient {
 
 // --- Content reassembly ---
 
-export async function reassembleContent(
-  entry: NoteEntry | ChunkedEntry,
-  client: CouchDBClient,
-): Promise<string> {
+export async function reassembleContent(entry: NoteEntry | ChunkedEntry, client: CouchDBClient): Promise<string> {
   // Legacy format: data is inline
   if (entry.type === "notes") {
     return entry.data;
@@ -378,9 +372,7 @@ export async function writeNote(
       const refreshed = await client.getDocument(targetDocId);
       if (isNoteEntry(refreshed)) {
         if (hasUnsupportedMetadataMode(refreshed)) {
-          throw new Error(
-            "충돌 재시도 중 LiveSync 암호화 메타데이터(e_/f:)가 감지되어 저장을 중단했습니다.",
-          );
+          throw new Error("충돌 재시도 중 LiveSync 암호화 메타데이터(e_/f:)가 감지되어 저장을 중단했습니다.");
         }
         baseDoc = refreshed;
       } else {

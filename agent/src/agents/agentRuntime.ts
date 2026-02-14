@@ -316,12 +316,15 @@ const runCodexRuntime = async function* (options: CodexRuntimeOptions): AsyncGen
     yield { type: "session.init", sessionId: sessionState.emittedSessionId };
   }
 
+  console.log(options.systemPromptAppend);
+
   const codex = new Codex({
     ...(options.baseUrl.trim().length > 0 ? { baseUrl: options.baseUrl } : {}),
     ...(options.apiKey.trim().length > 0 ? { apiKey: options.apiKey } : {}),
     config: {
-      instructions: options.systemPromptAppend,
+      developer_instructions: options.systemPromptAppend,
       mcp_servers: buildCodexMcpServersConfig(options.mcpServers),
+      personality: "friendly",
     },
     env: options.env,
   });
@@ -336,7 +339,9 @@ const runCodexRuntime = async function* (options: CodexRuntimeOptions): AsyncGen
     modelReasoningEffort: "medium",
   };
 
-  const thread = resumeSessionId ? codex.resumeThread(resumeSessionId, threadOptions) : codex.startThread(threadOptions);
+  const thread = resumeSessionId
+    ? codex.resumeThread(resumeSessionId, threadOptions)
+    : codex.startThread(threadOptions);
 
   const startupSessionEvent = buildSessionInitEvent(thread.id, sessionState);
   if (startupSessionEvent) {

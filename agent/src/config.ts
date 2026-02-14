@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { config as loadDotenv } from "dotenv";
-import { getAgentRuntimeConfig } from "./agentConfig.ts";
+import { getAgentConfigBaseDir, getAgentRuntimeConfig } from "./agentConfig.ts";
 
 loadDotenv();
 
@@ -28,7 +28,32 @@ const normalizeAgentRuntimeMode = (value: string | undefined): "claude" | "codex
   return value.trim().toLowerCase() === "codex" ? "codex" : "claude";
 };
 
+const expandHomePath = (candidatePath: string): string => {
+  if (candidatePath === "~") {
+    return os.homedir();
+  }
+  if (candidatePath.startsWith("~/")) {
+    return path.join(os.homedir(), candidatePath.slice(2));
+  }
+  return candidatePath;
+};
+
+const resolveWorkspaceDir = (value: string | null): string => {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed.length === 0) {
+    return path.join(fs.realpathSync(os.tmpdir()), "sena-workspaces");
+  }
+
+  const expanded = expandHomePath(trimmed);
+  if (path.isAbsolute(expanded)) {
+    return expanded;
+  }
+
+  return path.resolve(getAgentConfigBaseDir(), expanded);
+};
+
 const AGENT_RUNTIME_CONFIG = getAgentRuntimeConfig();
+const RESOLVED_WORKSPACE_DIR = resolveWorkspaceDir(AGENT_RUNTIME_CONFIG.workspaceDir);
 
 export const CONFIG = {
   PORT: toInt(process.env.PORT, 22481),
@@ -36,7 +61,9 @@ export const CONFIG = {
   BACKEND_URL: process.env.BACKEND_URL || "http://localhost:22481",
   DATABASE_URL: process.env.DATABASE_URL || "mysql://user:password@localhost:3306/karby_agent",
   DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY || "",
-  AGENT_RUNTIME_MODE: normalizeAgentRuntimeMode(process.env.AGENT_RUNTIME_MODE ?? AGENT_RUNTIME_CONFIG.mode ?? undefined),
+  AGENT_RUNTIME_MODE: normalizeAgentRuntimeMode(
+    process.env.AGENT_RUNTIME_MODE ?? AGENT_RUNTIME_CONFIG.mode ?? undefined,
+  ),
   AGENT_MODEL: process.env.AGENT_MODEL || AGENT_RUNTIME_CONFIG.model || "",
 
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
@@ -64,7 +91,7 @@ export const CONFIG = {
   COUCHDB_PASSWORD: process.env.COUCHDB_PASSWORD || "",
 
   // Workdir
-  WORKSPACE_DIR: process.env.WORKSPACE_DIR || path.join(fs.realpathSync(os.tmpdir()), "sena-workspaces"),
+  WORKSPACE_DIR: RESOLVED_WORKSPACE_DIR,
 };
 
 export const isProduction = (): boolean => CONFIG.NODE_ENV === "production";

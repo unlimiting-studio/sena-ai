@@ -45,7 +45,9 @@ pnpm dev
 
 - `runtime.mode`에 `claude` 또는 `codex`를 넣어 기본 런타임 모드를 설정할 수 있습니다.
 - `runtime.model`로 기본 모델을 설정할 수 있습니다.
-- 동일 값이 환경 변수(`AGENT_RUNTIME_MODE`, `AGENT_MODEL`)에 있으면 환경 변수가 우선합니다.
+- `runtime.workspaceDir`로 에이전트 기본 작업 디렉토리를 설정할 수 있습니다. (`~` 지원)
+- `runtime.workspaceDir`는 `sena.yaml` 값이 기준이며 환경 변수로 덮어쓰지 않습니다.
+- `runtime.mode`, `runtime.model`은 동일 값이 환경 변수(`AGENT_RUNTIME_MODE`, `AGENT_MODEL`)에 있으면 환경 변수가 우선합니다.
 
 ## `sena.yaml` 스케줄 설정(옵셔널)
 
@@ -59,9 +61,9 @@ cronjobs:
   - expr: 0 * * * *
     name: 정각 알림
     prompt: |
-      당신은 지금 해야하는 일을 수행합니다. DO_EVERY_HOUR.md 파일을 참고하세요
+      당신은 지금 해야하는 일을 수행합니다. .sena/DO_EVERY_HOUR.md 파일을 참고하세요
 heartbeat:
   intervalMinute: 15
   prompt: |
-    당신은 HEARTBEAT.md 파일을 읽고 해야 하는 일을 수행하세요
+    당신은 .sena/HEARTBEAT.md 파일을 읽고 해야 하는 일을 수행하세요
 ```
