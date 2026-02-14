@@ -4,6 +4,7 @@ export type SlackContext = {
   threadTs: string | null;
   messageTs: string;
   slackUserId: string;
+  slackUserName: string | null;
 };
 
 export const buildThreadKey = (channelId: string, threadTs: string): string => `${channelId}:${threadTs}`;

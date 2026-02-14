@@ -7,37 +7,12 @@ import { createSlackToolset } from "./slackTools.ts";
 
 type CodexBridgeServerName = "slack" | "obsidian";
 
-type SlackBridgeContext = {
-  teamId: string | null;
-  channelId: string | null;
-  threadTs: string | null;
-  messageTs: string | null;
-  slackUserId: string | null;
-};
-
-const toOptionalNonEmptyString = (value: string | undefined): string | null => {
-  const trimmed = value?.trim() ?? "";
-  return trimmed.length > 0 ? trimmed : null;
-};
-
-const loadSlackContextFromEnv = (): SlackBridgeContext => ({
-  teamId: toOptionalNonEmptyString(process.env.SENA_MCP_SLACK_TEAM_ID),
-  channelId: toOptionalNonEmptyString(process.env.SENA_MCP_SLACK_CHANNEL_ID),
-  threadTs: toOptionalNonEmptyString(process.env.SENA_MCP_SLACK_THREAD_TS),
-  messageTs: toOptionalNonEmptyString(process.env.SENA_MCP_SLACK_MESSAGE_TS),
-  slackUserId: toOptionalNonEmptyString(process.env.SENA_MCP_SLACK_USER_ID),
-});
-
-const createSlackBridgeServer = (ctx: SlackBridgeContext): McpServer => {
+const createSlackBridgeServer = (): McpServer => {
   const server = new McpServer({
     name: "sena-slack-codex-bridge",
     version: "0.0.1",
   });
-  const slackTools = createSlackToolset({
-    channelId: ctx.channelId,
-    threadTs: ctx.threadTs,
-    messageTs: ctx.messageTs,
-  });
+  const slackTools = createSlackToolset();
 
   server.registerTool(
     "get_messages",
@@ -121,7 +96,7 @@ const createObsidianBridgeServer = (): McpServer => {
 };
 
 export const runCodexMcpBridgeServer = async (serverName: CodexBridgeServerName): Promise<void> => {
-  const server = serverName === "slack" ? createSlackBridgeServer(loadSlackContextFromEnv()) : createObsidianBridgeServer();
+  const server = serverName === "slack" ? createSlackBridgeServer() : createObsidianBridgeServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 };

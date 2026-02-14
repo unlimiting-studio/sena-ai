@@ -261,7 +261,16 @@ export async function slackRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      // TODO: handle action
+      // 인터랙션 액션 핸들러는 아직 정의되지 않아 현재는 안전하게 수신 로그만 남긴다.
+      fastify.log.info(
+        {
+          actionId: action.action_id,
+          userId: payload.user.id,
+          channelId: payload.channel?.id ?? null,
+          messageTs: payload.message?.ts ?? null,
+        },
+        "Slack interaction received without registered action handler",
+      );
     },
   );
 }

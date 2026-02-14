@@ -11,6 +11,14 @@ const DEFAULT_BASE_PROMPT = [
   "당신은 {{name}}입니다. Slack 멘션으로 호출되어 요청된 작업을 수행하는 사내 다기능 코딩 에이전트입니다.",
   "특히 코딩/리포지토리 분석/문서 조사에 강하며, Slack 동료에게 따뜻하고 친절한 동료처럼 응답합니다.",
 ].join("\n");
+const DEFAULT_AGENT_OPS_MEMORY_INCLUDE_FILES = [
+  "AGENTS.md",
+  "SOUL.md",
+  "IDENTITY.md",
+  "USER.md",
+  "TOOLS.md",
+  "HEARTBEAT.md",
+] as const;
 
 const BasePromptSchema = z.union([z.string(), z.array(z.string())]);
 
@@ -32,6 +40,7 @@ const RuntimeModeSchema = z.enum(["claude", "codex"]);
 const RuntimeConfigSchema = z.object({
   mode: RuntimeModeSchema.optional(),
   model: z.string().min(1).optional(),
+  workspaceDir: z.string().min(1).optional(),
 });
 const CronjobSchema = z.object({
   expr: z.string().min(1),
@@ -42,6 +51,25 @@ const HeartbeatSchema = z.object({
   intervalMinute: z.number().int().positive(),
   prompt: z.string().min(1),
 });
+const AgentOpsMemorySchema = z.object({
+  enabled: z.boolean().optional(),
+  longTermFile: z.string().min(1).optional(),
+  dailyDir: z.string().min(1).optional(),
+  recentDays: z.number().int().nonnegative().optional(),
+  maxCharsPerFile: z.number().int().positive().optional(),
+  includeFiles: z.array(z.string().min(1)).optional(),
+});
+const AgentOpsHeartbeatSchema = z.object({
+  okToken: z.string().min(1).optional(),
+  ackMaxChars: z.number().int().positive().optional(),
+  instructionFile: z.string().min(1).optional(),
+  skipWhenInstructionEmpty: z.boolean().optional(),
+});
+const AgentOpsSchema = z.object({
+  contextDir: z.string().min(1).optional(),
+  memory: AgentOpsMemorySchema.optional(),
+  heartbeat: AgentOpsHeartbeatSchema.optional(),
+});
 
 const AgentConfigSchema = z.object({
   name: z.string().min(1).optional(),
@@ -50,6 +78,7 @@ const AgentConfigSchema = z.object({
   runtime: RuntimeConfigSchema.optional(),
   cronjobs: z.array(CronjobSchema).optional(),
   heartbeat: HeartbeatSchema.optional(),
+  agentOps: AgentOpsSchema.optional(),
 });
 
 export type McpServerEntry = z.infer<typeof McpServerEntrySchema>;
@@ -58,6 +87,7 @@ export type AgentRuntimeMode = z.infer<typeof RuntimeModeSchema>;
 type AgentRuntimeConfig = {
   mode: AgentRuntimeMode | null;
   model: string | null;
+  workspaceDir: string | null;
 };
 
 type AgentCronjob = {
@@ -71,6 +101,28 @@ type AgentHeartbeat = {
   prompt: string;
 };
 
+type AgentOpsMemoryConfig = {
+  enabled: boolean;
+  longTermFile: string;
+  dailyDir: string;
+  recentDays: number;
+  maxCharsPerFile: number;
+  includeFiles: string[];
+};
+
+type AgentOpsHeartbeatConfig = {
+  okToken: string;
+  ackMaxChars: number;
+  instructionFile: string;
+  skipWhenInstructionEmpty: boolean;
+};
+
+export type AgentOpsConfig = {
+  contextDir: string;
+  memory: AgentOpsMemoryConfig;
+  heartbeat: AgentOpsHeartbeatConfig;
+};
+
 type AgentConfig = {
   name: string;
   basePrompt: string;
@@ -78,6 +130,7 @@ type AgentConfig = {
   runtime: AgentRuntimeConfig;
   cronjobs: AgentCronjob[];
   heartbeat: AgentHeartbeat | null;
+  agentOps: AgentOpsConfig;
 };
 
 type ConfigFormat = "yaml" | "jsonc";
@@ -151,8 +204,6 @@ const buildConfigCandidates = (): ConfigCandidate[] => {
   pushConfigDir(process.cwd());
   pushConfigDir(entrypointDir);
   pushConfigDir(entrypointParentDir);
-  pushConfigDir(process.env.WORKSPACE_DIR);
-  pushConfigDir(path.join(os.homedir(), "agents", "sena"));
   pushConfigDir(os.homedir());
 
   return candidates;
@@ -175,9 +226,11 @@ const normalizeBasePrompt = (value: string | string[] | undefined, name: string)
 const normalizeRuntimeConfig = (raw: z.infer<typeof RuntimeConfigSchema> | undefined): AgentRuntimeConfig => {
   const mode = raw?.mode ?? null;
   const trimmedModel = raw?.model?.trim() ?? "";
+  const trimmedWorkspaceDir = substituteEnvVars(raw?.workspaceDir ?? "").trim();
   return {
     mode,
     model: trimmedModel.length > 0 ? trimmedModel : null,
+    workspaceDir: trimmedWorkspaceDir.length > 0 ? trimmedWorkspaceDir : null,
   };
 };
 
@@ -211,6 +264,91 @@ const normalizeHeartbeat = (raw: z.infer<typeof HeartbeatSchema> | undefined): A
   return {
     intervalMinute: raw.intervalMinute,
     prompt,
+  };
+};
+
+const DEFAULT_AGENT_OPS_CONFIG: AgentOpsConfig = {
+  contextDir: ".sena",
+  memory: {
+    enabled: true,
+    longTermFile: "MEMORY.md",
+    dailyDir: "memory",
+    recentDays: 2,
+    maxCharsPerFile: 8000,
+    includeFiles: [...DEFAULT_AGENT_OPS_MEMORY_INCLUDE_FILES],
+  },
+  heartbeat: {
+    okToken: "HEARTBEAT_OK",
+    ackMaxChars: 300,
+    instructionFile: "HEARTBEAT.md",
+    skipWhenInstructionEmpty: true,
+  },
+};
+
+const cloneAgentOpsConfig = (config: AgentOpsConfig): AgentOpsConfig => ({
+  contextDir: config.contextDir,
+  memory: {
+    enabled: config.memory.enabled,
+    longTermFile: config.memory.longTermFile,
+    dailyDir: config.memory.dailyDir,
+    recentDays: config.memory.recentDays,
+    maxCharsPerFile: config.memory.maxCharsPerFile,
+    includeFiles: [...config.memory.includeFiles],
+  },
+  heartbeat: {
+    okToken: config.heartbeat.okToken,
+    ackMaxChars: config.heartbeat.ackMaxChars,
+    instructionFile: config.heartbeat.instructionFile,
+    skipWhenInstructionEmpty: config.heartbeat.skipWhenInstructionEmpty,
+  },
+});
+
+const normalizeConfiguredPathLikeString = (value: string | undefined, fallback: string): string => {
+  const substituted = substituteEnvVars(value ?? "").trim();
+  return substituted.length > 0 ? substituted : fallback;
+};
+
+const normalizeConfiguredIncludeFiles = (raw: string[] | undefined): string[] => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  const source = raw ?? [...DEFAULT_AGENT_OPS_MEMORY_INCLUDE_FILES];
+
+  for (const entry of source) {
+    const substituted = substituteEnvVars(entry).trim();
+    if (substituted.length === 0 || seen.has(substituted)) {
+      continue;
+    }
+    seen.add(substituted);
+    normalized.push(substituted);
+  }
+
+  return normalized.length > 0 ? normalized : [...DEFAULT_AGENT_OPS_MEMORY_INCLUDE_FILES];
+};
+
+const normalizeAgentOpsConfig = (raw: z.infer<typeof AgentOpsSchema> | undefined): AgentOpsConfig => {
+  const defaults = DEFAULT_AGENT_OPS_CONFIG;
+  const memory = raw?.memory;
+  const heartbeat = raw?.heartbeat;
+
+  return {
+    contextDir: normalizeConfiguredPathLikeString(raw?.contextDir, defaults.contextDir),
+    memory: {
+      enabled: memory?.enabled ?? defaults.memory.enabled,
+      longTermFile: normalizeConfiguredPathLikeString(memory?.longTermFile, defaults.memory.longTermFile),
+      dailyDir: normalizeConfiguredPathLikeString(memory?.dailyDir, defaults.memory.dailyDir),
+      recentDays: memory?.recentDays ?? defaults.memory.recentDays,
+      maxCharsPerFile: memory?.maxCharsPerFile ?? defaults.memory.maxCharsPerFile,
+      includeFiles: normalizeConfiguredIncludeFiles(memory?.includeFiles),
+    },
+    heartbeat: {
+      okToken: normalizeConfiguredPathLikeString(heartbeat?.okToken, defaults.heartbeat.okToken),
+      ackMaxChars: heartbeat?.ackMaxChars ?? defaults.heartbeat.ackMaxChars,
+      instructionFile: normalizeConfiguredPathLikeString(
+        heartbeat?.instructionFile,
+        defaults.heartbeat.instructionFile,
+      ),
+      skipWhenInstructionEmpty: heartbeat?.skipWhenInstructionEmpty ?? defaults.heartbeat.skipWhenInstructionEmpty,
+    },
   };
 };
 
@@ -251,10 +389,42 @@ const buildDefaultConfig = (): AgentConfig => ({
   name: DEFAULT_AGENT_NAME,
   basePrompt: applyNameTemplate(DEFAULT_BASE_PROMPT, DEFAULT_AGENT_NAME),
   mcpServers: {},
-  runtime: { mode: null, model: null },
+  runtime: { mode: null, model: null, workspaceDir: null },
   cronjobs: [],
   heartbeat: null,
+  agentOps: cloneAgentOpsConfig(DEFAULT_AGENT_OPS_CONFIG),
 });
+
+const buildNormalizedConfig = (raw: z.infer<typeof AgentConfigSchema>): AgentConfig => {
+  const name = normalizeName(raw.name);
+  const basePrompt = normalizeBasePrompt(raw.basePrompt, name);
+  const mcpServers = normalizeMcpServers(raw.mcpServers);
+  const runtime = normalizeRuntimeConfig(raw.runtime);
+  const cronjobs = normalizeCronjobs(raw.cronjobs);
+  const heartbeat = normalizeHeartbeat(raw.heartbeat);
+  const agentOps = normalizeAgentOpsConfig(raw.agentOps);
+  return { name, basePrompt, mcpServers, runtime, cronjobs, heartbeat, agentOps };
+};
+
+const logLoadedAgentConfig = (source: string, config: AgentConfig): AgentConfig => {
+  console.info(`[agent-config] loaded config source: ${source}`);
+  console.info(`[agent-config] name-transformed system prompt:\n${config.basePrompt}`);
+  if (config.runtime.workspaceDir) {
+    console.info(`[agent-config] configured workspaceDir: ${config.runtime.workspaceDir}`);
+  }
+  return config;
+};
+
+const fallbackToDefaultConfig = (reason: string): AgentConfig => {
+  console.info(`[agent-config] ${reason}`);
+  return logLoadedAgentConfig("default", buildDefaultConfig());
+};
+
+let loadedAgentConfigBaseDir = process.cwd();
+
+const setLoadedAgentConfigBaseDirFromPath = (configPath: string): void => {
+  loadedAgentConfigBaseDir = path.dirname(resolvePathFromCwd(configPath));
+};
 
 const parseConfig = (raw: string, format: ConfigFormat): unknown => {
   const normalized = raw.replace(/^\uFEFF/, "");
@@ -270,28 +440,28 @@ const loadAgentConfigFromEnv = (): AgentConfig | null => {
     return null;
   }
 
+  const explicitConfigPath = toOptionalNonEmptyString(process.env.SENA_CONFIG_PATH);
+  if (explicitConfigPath) {
+    setLoadedAgentConfigBaseDirFromPath(explicitConfigPath);
+  }
+
   let parsed: unknown;
   try {
     parsed = parseConfig(raw, "yaml");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.warn(`Failed to parse SENA_YAML: ${message}`);
-    return buildDefaultConfig();
+    return fallbackToDefaultConfig("failed to parse SENA_YAML; using defaults.");
   }
 
   const result = AgentConfigSchema.safeParse(parsed);
   if (!result.success) {
     console.warn("Invalid SENA_YAML format; falling back to defaults.");
-    return buildDefaultConfig();
+    return fallbackToDefaultConfig("invalid SENA_YAML schema; using defaults.");
   }
 
-  const name = normalizeName(result.data.name);
-  const basePrompt = normalizeBasePrompt(result.data.basePrompt, name);
-  const mcpServers = normalizeMcpServers(result.data.mcpServers);
-  const runtime = normalizeRuntimeConfig(result.data.runtime);
-  const cronjobs = normalizeCronjobs(result.data.cronjobs);
-  const heartbeat = normalizeHeartbeat(result.data.heartbeat);
-  return { name, basePrompt, mcpServers, runtime, cronjobs, heartbeat };
+  const source = explicitConfigPath ? resolvePathFromCwd(explicitConfigPath) : "SENA_YAML";
+  return logLoadedAgentConfig(source, buildNormalizedConfig(result.data));
 };
 
 const loadAgentConfig = (): AgentConfig => {
@@ -312,25 +482,23 @@ const loadAgentConfig = (): AgentConfig => {
     } catch (error) {
       const message = error instanceof Error ? error.message : "알 수 없는 오류";
       console.warn(`에이전트 설정 파일을 읽는 중 오류가 발생했습니다: ${candidate.path} (${message})`);
-      return buildDefaultConfig();
+      return fallbackToDefaultConfig("failed to read config file; using defaults.");
     }
 
     const result = AgentConfigSchema.safeParse(parsed);
     if (!result.success) {
       console.warn(`에이전트 설정 파일 형식이 올바르지 않습니다: ${candidate.path}`);
-      return buildDefaultConfig();
+      return fallbackToDefaultConfig("invalid config schema; using defaults.");
     }
 
-    const name = normalizeName(result.data.name);
-    const basePrompt = normalizeBasePrompt(result.data.basePrompt, name);
-    const mcpServers = normalizeMcpServers(result.data.mcpServers);
-    const runtime = normalizeRuntimeConfig(result.data.runtime);
-    const cronjobs = normalizeCronjobs(result.data.cronjobs);
-    const heartbeat = normalizeHeartbeat(result.data.heartbeat);
-    return { name, basePrompt, mcpServers, runtime, cronjobs, heartbeat };
+    const config = buildNormalizedConfig(result.data);
+    setLoadedAgentConfigBaseDirFromPath(candidate.path);
+    return logLoadedAgentConfig(candidate.path, config);
   }
 
-  return buildDefaultConfig();
+  const defaultConfig = buildDefaultConfig();
+  console.info("[agent-config] sena.yaml/sena.yml/sena.jsonc not found; using defaults.");
+  return logLoadedAgentConfig("default", defaultConfig);
 };
 
 const AGENT_CONFIG = loadAgentConfig();
@@ -355,7 +523,10 @@ export const getAgentName = (): string => AGENT_CONFIG.name;
 export const getAgentBasePrompt = (): string => AGENT_CONFIG.basePrompt;
 export const getAgentMcpServers = (): Record<string, McpServerEntry> => AGENT_CONFIG.mcpServers;
 export const getAgentRuntimeConfig = (): AgentRuntimeConfig => AGENT_CONFIG.runtime;
+export const getAgentWorkspaceDir = (): string | null => AGENT_CONFIG.runtime.workspaceDir;
 export const getAgentCronjobs = (): AgentCronjob[] => AGENT_CONFIG.cronjobs;
 export const getAgentHeartbeat = (): AgentHeartbeat | null => AGENT_CONFIG.heartbeat;
+export const getAgentOpsConfig = (): AgentOpsConfig => cloneAgentOpsConfig(AGENT_CONFIG.agentOps);
+export const getAgentConfigBaseDir = (): string => loadedAgentConfigBaseDir;
 export const getAgentSubject = (): string => withJosa(getAgentName(), "이", "가");
 export const formatAgentNameWithSuffix = (suffix: string): string => `${getAgentName()}${suffix}`;

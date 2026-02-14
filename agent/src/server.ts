@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 
+import { loadWorkspaceContext } from "./agents/workspaceContext.ts";
 import { CONFIG } from "./config.ts";
 import { startScheduledTaskScheduler } from "./agents/scheduledTaskScheduler.ts";
 import { closeDB } from "./db/connection.ts";
@@ -18,6 +19,13 @@ export async function startServer(): Promise<void> {
   }));
 
   await fastify.register(slackRoutes, { prefix: "/api/slack" });
+
+  try {
+    await loadWorkspaceContext();
+  } catch (error) {
+    fastify.log.warn({ error }, "Failed to preload workspace context");
+  }
+
   const scheduler = startScheduledTaskScheduler(fastify.log);
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
