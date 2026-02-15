@@ -53,7 +53,7 @@ const resolveWorkspaceDir = (value: string | null): string => {
 };
 
 const AGENT_RUNTIME_CONFIG = getAgentRuntimeConfig();
-const RESOLVED_WORKSPACE_DIR = resolveWorkspaceDir(AGENT_RUNTIME_CONFIG.cwd);
+const RESOLVED_CWD = resolveWorkspaceDir(AGENT_RUNTIME_CONFIG.cwd);
 
 export const CONFIG = {
   PORT: toInt(process.env.PORT, 22481),
@@ -91,7 +91,7 @@ export const CONFIG = {
   COUCHDB_PASSWORD: process.env.COUCHDB_PASSWORD || "",
 
   // Workdir
-  WORKSPACE_DIR: RESOLVED_WORKSPACE_DIR,
+  CWD: RESOLVED_CWD,
 };
 
 export const isProduction = (): boolean => CONFIG.NODE_ENV === "production";

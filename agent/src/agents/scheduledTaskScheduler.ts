@@ -302,7 +302,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
     return;
   }
 
-  await fs.mkdir(CONFIG.WORKSPACE_DIR, { recursive: true });
+  await fs.mkdir(CONFIG.CWD, { recursive: true });
 
   const env = {
     ...sanitizeEnv(process.env),
@@ -328,7 +328,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
           prompt: singlePrompt(prompt),
           resumeSessionId: null,
           model,
-          cwd: CONFIG.WORKSPACE_DIR,
+          cwd: CONFIG.CWD,
           env,
           abortController,
           apiKey: CONFIG.CODEX_API_KEY,
@@ -344,7 +344,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
           prompt: singlePrompt(prompt),
           resumeSessionId: null,
           model,
-          cwd: CONFIG.WORKSPACE_DIR,
+          cwd: CONFIG.CWD,
           env,
           abortController,
           systemPromptAppend,
@@ -441,7 +441,7 @@ const toHeartbeatTask = async (logger: FastifyBaseLogger): Promise<ScheduledTask
     return null;
   }
 
-  const promptFilePath = path.resolve(CONFIG.WORKSPACE_DIR, heartbeat.promptFile);
+  const promptFilePath = path.resolve(CONFIG.CWD, heartbeat.promptFile);
   let prompt: string;
   try {
     prompt = await fs.readFile(promptFilePath, "utf8");
