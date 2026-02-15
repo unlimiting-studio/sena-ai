@@ -7,10 +7,6 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 const DEFAULT_AGENT_NAME = "세나";
-const DEFAULT_BASE_PROMPT = [
-  "당신은 {{name}}입니다. Slack 멘션으로 호출되어 요청된 작업을 수행하는 사내 다기능 코딩 에이전트입니다.",
-  "특히 코딩/리포지토리 분석/문서 조사에 강하며, Slack 동료에게 따뜻하고 친절한 동료처럼 응답합니다.",
-].join("\n");
 const DEFAULT_AGENT_OPS_MEMORY_INCLUDE_FILES = [
   "AGENTS.md",
   "SOUL.md",
@@ -104,7 +100,6 @@ export type AgentOpsConfig = {
 
 type AgentConfig = {
   name: string;
-  basePrompt: string;
   contexts: string[];
   contextDir: string | null;
   mcpServers: Record<string, McpServerEntry>;
@@ -189,8 +184,6 @@ const buildConfigCandidates = (): ConfigCandidate[] => {
 
   return candidates;
 };
-
-const applyNameTemplate = (value: string, name: string): string => value.replaceAll("{{name}}", name);
 
 const normalizeName = (value: string | undefined): string => {
   const trimmed = value?.trim() ?? "";
@@ -312,7 +305,6 @@ const normalizeMcpServers = (raw: Record<string, McpServerEntry> | undefined): R
 
 const buildDefaultConfig = (): AgentConfig => ({
   name: DEFAULT_AGENT_NAME,
-  basePrompt: applyNameTemplate(DEFAULT_BASE_PROMPT, DEFAULT_AGENT_NAME),
   contexts: [],
   contextDir: null,
   mcpServers: {},
@@ -324,7 +316,6 @@ const buildDefaultConfig = (): AgentConfig => ({
 
 const buildNormalizedConfig = (raw: z.infer<typeof AgentConfigSchema>): AgentConfig => {
   const name = normalizeName(raw.name);
-  const basePrompt = DEFAULT_BASE_PROMPT;
   const contexts = raw.contexts ?? [];
   const contextDir = raw.contextDir ? substituteEnvVars(raw.contextDir).trim() || null : null;
   const mcpServers = normalizeMcpServers(raw.mcpServers);
@@ -343,12 +334,11 @@ const buildNormalizedConfig = (raw: z.infer<typeof AgentConfigSchema>): AgentCon
     heartbeat: DEFAULT_AGENT_OPS_CONFIG.heartbeat,
   };
 
-  return { name, basePrompt, contexts, contextDir, mcpServers, runtime, cronjobs, heartbeat, agentOps };
+  return { name, contexts, contextDir, mcpServers, runtime, cronjobs, heartbeat, agentOps };
 };
 
 const logLoadedAgentConfig = (source: string, config: AgentConfig): AgentConfig => {
   console.info(`[agent-config] loaded config source: ${source}`);
-  console.info(`[agent-config] name-transformed system prompt:\n${config.basePrompt}`);
   if (config.runtime.cwd) {
     console.info(`[agent-config] configured cwd: ${config.runtime.cwd}`);
   }
@@ -460,7 +450,6 @@ const withJosa = (value: string, consonant: string, vowel: string): string =>
 
 export const getAgentConfig = (): AgentConfig => AGENT_CONFIG;
 export const getAgentName = (): string => AGENT_CONFIG.name;
-export const getAgentBasePrompt = (): string => AGENT_CONFIG.basePrompt;
 export const getAgentContexts = (): string[] => AGENT_CONFIG.contexts;
 export const getAgentContextDir = (): string | null => AGENT_CONFIG.contextDir;
 export const getAgentMcpServers = (): Record<string, McpServerEntry> => AGENT_CONFIG.mcpServers;
