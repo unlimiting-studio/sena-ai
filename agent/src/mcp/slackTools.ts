@@ -303,7 +303,7 @@ const handleDownloadFile = async (_ctx: SlackToolsContext, args: DownloadFileArg
     };
   }
 
-  const downloadDir = path.join(CONFIG.WORKSPACE_DIR, "slack-downloads");
+  const downloadDir = path.join(CONFIG.CWD, "slack-downloads");
   await fs.mkdir(downloadDir, { recursive: true });
 
   const safeName = (file.name ?? `${args.fileId}.${file.filetype ?? "bin"}`).replace(/[^a-zA-Z0-9._-]/g, "_");

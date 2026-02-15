@@ -26,7 +26,7 @@ export async function startServer(): Promise<void> {
     fastify.log.warn({ error }, "Failed to preload workspace context");
   }
 
-  const scheduler = startScheduledTaskScheduler(fastify.log);
+  const scheduler = await startScheduledTaskScheduler(fastify.log);
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     fastify.log.info({ signal }, "Graceful shutdown signal received");
