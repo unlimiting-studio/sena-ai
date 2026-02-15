@@ -53,7 +53,7 @@ const resolveWorkspaceDir = (value: string | null): string => {
 };
 
 const AGENT_RUNTIME_CONFIG = getAgentRuntimeConfig();
-const RESOLVED_WORKSPACE_DIR = resolveWorkspaceDir(AGENT_RUNTIME_CONFIG.workspaceDir);
+const RESOLVED_WORKSPACE_DIR = resolveWorkspaceDir(AGENT_RUNTIME_CONFIG.cwd);
 
 export const CONFIG = {
   PORT: toInt(process.env.PORT, 22481),

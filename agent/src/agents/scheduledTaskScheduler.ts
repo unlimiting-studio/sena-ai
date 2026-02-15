@@ -442,24 +442,18 @@ const toHeartbeatTask = async (logger: FastifyBaseLogger): Promise<ScheduledTask
     return null;
   }
 
+  const workspaceDir = getAgentWorkspaceDir();
+  if (!workspaceDir) {
+    logger.warn("heartbeat.promptFile specified but no workspaceDir configured");
+    return null;
+  }
+
+  const promptFilePath = path.resolve(workspaceDir, heartbeat.promptFile);
   let prompt: string;
-  if (heartbeat.prompt) {
-    prompt = heartbeat.prompt;
-  } else if (heartbeat.promptFile) {
-    const workspaceDir = getAgentWorkspaceDir();
-    if (!workspaceDir) {
-      logger.warn("heartbeat.promptFile specified but no workspaceDir configured");
-      return null;
-    }
-    const promptFilePath = path.resolve(workspaceDir, heartbeat.promptFile);
-    try {
-      prompt = await fs.readFile(promptFilePath, "utf8");
-    } catch (error) {
-      logger.warn({ promptFile: heartbeat.promptFile, error }, "Failed to read heartbeat promptFile");
-      return null;
-    }
-  } else {
-    logger.warn("heartbeat has neither prompt nor promptFile");
+  try {
+    prompt = await fs.readFile(promptFilePath, "utf8");
+  } catch (error) {
+    logger.warn({ promptFile: heartbeat.promptFile, error }, "Failed to read heartbeat promptFile");
     return null;
   }
 
