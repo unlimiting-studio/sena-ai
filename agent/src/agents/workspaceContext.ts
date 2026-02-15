@@ -185,8 +185,6 @@ const normalizeHeartbeatInstructionText = (value: string | null | undefined): st
   return meaningfulLines.join("\n").trim();
 };
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-
 const resolveHeartbeatJudgeConfig = (
   options: HeartbeatAckJudgeOptions | undefined,
 ): { okToken: string; ackMaxChars: number } => {
@@ -300,14 +298,15 @@ export const shouldSuppressHeartbeatAck = (
     return false;
   }
 
+  // Suppress only *pure* acknowledgements (e.g. `HEARTBEAT_OK` alone).
+  // If the heartbeat includes any additional content, it must be forwarded.
   const normalizedToken = normalizeHeartbeatOkToken(judgeConfig.okToken);
   const normalizedAckTokenStream = normalizeHeartbeatOkToken(normalizedAck);
   if (normalizedToken.length === 0 || normalizedAckTokenStream.length === 0) {
     return false;
   }
 
-  const tokenBoundaryPattern = new RegExp(`(?:^|_)${escapeRegExp(normalizedToken)}(?:_|$)`, "u");
-  return tokenBoundaryPattern.test(normalizedAckTokenStream);
+  return normalizedAckTokenStream === normalizedToken;
 };
 
 export const shouldSuppressHeartbeatAckText = shouldSuppressHeartbeatAck;
