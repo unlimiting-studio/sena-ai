@@ -24,6 +24,15 @@ const createSlackBridgeServer = (): McpServer => {
   );
 
   server.registerTool(
+    "list_channels",
+    {
+      description: slackTools.listChannels.description,
+      inputSchema: slackTools.listChannels.inputSchema,
+    },
+    slackTools.listChannels.handler,
+  );
+
+  server.registerTool(
     "post_message",
     {
       description: slackTools.postMessage.description,
