@@ -9,7 +9,6 @@ import {
   getAgentMcpServers,
   getAgentName,
   getAgentOpsConfig,
-  getAgentWorkspaceDir,
   type McpServerEntry,
 } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
@@ -442,13 +441,7 @@ const toHeartbeatTask = async (logger: FastifyBaseLogger): Promise<ScheduledTask
     return null;
   }
 
-  const workspaceDir = getAgentWorkspaceDir();
-  if (!workspaceDir) {
-    logger.warn("heartbeat.promptFile specified but no workspaceDir configured");
-    return null;
-  }
-
-  const promptFilePath = path.resolve(workspaceDir, heartbeat.promptFile);
+  const promptFilePath = path.resolve(CONFIG.WORKSPACE_DIR, heartbeat.promptFile);
   let prompt: string;
   try {
     prompt = await fs.readFile(promptFilePath, "utf8");
