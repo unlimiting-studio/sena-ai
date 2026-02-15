@@ -13,6 +13,7 @@ type ChatStartStreamArgs = Parameters<WebClient["chat"]["startStream"]>[0];
 type ChatAppendStreamArgs = Parameters<WebClient["chat"]["appendStream"]>[0];
 type ChatStopStreamArgs = Parameters<WebClient["chat"]["stopStream"]>[0];
 type FilesInfoArgs = Parameters<WebClient["files"]["info"]>[0];
+type ConversationsListArgs = Parameters<WebClient["conversations"]["list"]>[0];
 
 type ThreadRepliesArgs = {
   channel: string;
@@ -77,6 +78,10 @@ export class SlackSDK {
 
   async getChannelHistory(args: ChannelHistoryArgs) {
     return this.client.conversations.history(args);
+  }
+
+  async listConversations(args: ConversationsListArgs) {
+    return this.client.conversations.list(args);
   }
 
   async searchMessages(args: SearchMessagesArgs) {

@@ -178,11 +178,7 @@ export class SlackThreadProgress {
       durationMs: Math.max(0, Date.now() - entry.startedAt),
     });
 
-    let changed = true;
-
-    if (params.isError && entry.name === "mcp__sena-slack__search_messages") {
-      changed = this.markAwaitingUserAction() || changed;
-    }
+    const changed = true;
 
     return changed;
   }

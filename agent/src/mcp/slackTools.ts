@@ -45,6 +45,17 @@ const GetMessagesSchema = z.object({
   oldest: z.string().optional(),
 });
 
+const ListChannelsSchema = z.object({
+  types: z
+    .string()
+    .default("public_channel,private_channel")
+    .describe("conversations.list types (CSV). 예: public_channel,private_channel / public_channel / private_channel"),
+  excludeArchived: z.boolean().default(true).describe("아카이브 채널 제외 여부"),
+  limit: z.number().int().min(1).max(1000).default(200).describe("페이지당 최대 채널 수"),
+  cursor: z.string().optional().describe("페이지네이션 커서(옵셔널)"),
+  maxPages: z.number().int().min(1).max(20).default(5).describe("최대 페이지 수(안전장치)"),
+});
+
 const PostMessageSchema = z.object({
   text: z.string().optional().describe("전송할 메시지 텍스트 (옵셔널, blocks 없이 보낼 때는 필수)"),
   blocks: z
@@ -63,10 +74,12 @@ const DownloadFileSchema = z.object({
 });
 
 type GetMessagesArgs = z.infer<typeof GetMessagesSchema>;
+type ListChannelsArgs = z.infer<typeof ListChannelsSchema>;
 type PostMessageArgs = z.infer<typeof PostMessageSchema>;
 type DownloadFileArgs = z.infer<typeof DownloadFileSchema>;
 
 const GET_MESSAGES_DESCRIPTION = "Slack 채널/쓰레드 메시지를 읽어옵니다.";
+const LIST_CHANNELS_DESCRIPTION = "Slack 채널 목록을 조회합니다.";
 const POST_MESSAGE_DESCRIPTION =
   "Slack 채널/쓰레드에 메시지를 남깁니다. 일상적인 '응답' 의미로는 사용하지 말고, 현재 작업과 무관한 다른 채널/스레드에 알림이나 메모를 남길 때만 사용하세요.";
 const DOWNLOAD_FILE_DESCRIPTION =
@@ -120,6 +133,111 @@ const handleGetMessages = async (args: GetMessagesArgs) => {
   return {
     content: [textContent(`${header}\n\n${body}`)],
   };
+};
+
+const extractNextCursor = (responseMetadata: unknown): string | null => {
+  if (!responseMetadata || typeof responseMetadata !== "object") {
+    return null;
+  }
+  const record = responseMetadata as Record<string, unknown>;
+  return toNonEmptyString(record.next_cursor);
+};
+
+const formatChannelLine = (channel: unknown): string | null => {
+  if (!channel || typeof channel !== "object") {
+    return null;
+  }
+
+  const record = channel as Record<string, unknown>;
+  const id = toNonEmptyString(record.id);
+  const name = toNonEmptyString(record.name);
+  const isPrivate = typeof record.is_private === "boolean" ? record.is_private : null;
+  const isMember = typeof record.is_member === "boolean" ? record.is_member : null;
+  const numMembers = typeof record.num_members === "number" ? record.num_members : null;
+
+  const topicValue =
+    record.topic && typeof record.topic === "object"
+      ? toNonEmptyString((record.topic as Record<string, unknown>).value)
+      : null;
+
+  if (!id) {
+    return null;
+  }
+
+  const namePart = name ? `#${name}` : "(no-name)";
+  const privacyPart = isPrivate === null ? "unknown" : isPrivate ? "private" : "public";
+  const memberPart = isMember === null ? "?" : isMember ? "member" : "not-member";
+  const membersPart = numMembers === null ? "" : ` members=${numMembers}`;
+  const topicPart = topicValue ? ` topic=${topicValue}` : "";
+
+  return `- ${id} ${namePart} (${privacyPart}, ${memberPart})${membersPart}${topicPart}`;
+};
+
+const handleListChannels = async (args: ListChannelsArgs) => {
+  const types = args.types.trim();
+  const cursorRaw = args.cursor?.trim() ?? "";
+  const maxPages = args.maxPages;
+
+  if (types.length === 0) {
+    return {
+      content: [textContent("채널 목록 조회 실패: types를 지정해 주세요.")],
+      isError: true,
+    };
+  }
+
+  try {
+    let cursor = cursorRaw;
+    let nextCursor: string | null = null;
+    const channels: unknown[] = [];
+
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      const response = await SlackSDK.instance.listConversations({
+        types,
+        exclude_archived: args.excludeArchived,
+        limit: args.limit,
+        ...(cursor.length > 0 ? { cursor } : {}),
+      });
+
+      channels.push(...toArray(response.channels));
+
+      const responseMetadata: unknown = (response as { response_metadata?: unknown }).response_metadata;
+      nextCursor = extractNextCursor(responseMetadata);
+      if (!nextCursor) {
+        cursor = "";
+        break;
+      }
+      cursor = nextCursor;
+    }
+
+    const lines: string[] = [];
+    for (const channel of channels) {
+      const line = formatChannelLine(channel);
+      if (line) {
+        lines.push(line);
+      }
+    }
+
+    const headerParts = [
+      "Slack channels",
+      `- types: ${types}`,
+      `- excludeArchived: ${args.excludeArchived}`,
+      `- fetched: ${lines.length}`,
+      ...(nextCursor ? [`- nextCursor: ${nextCursor}`] : []),
+    ];
+    const body = lines.length > 0 ? lines.join("\n") : "(no channels)";
+
+    return {
+      content: [textContent(`${headerParts.join("\n")}\n\n${body}`)],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류";
+    const hint =
+      "채널 목록 조회(conversations.list)에 실패했어요. 봇 토큰 권한(conversations:read)과 봇이 접근 가능한 채널 범위를 확인해 주세요.";
+    return {
+      content: [textContent(`채널 목록 조회 실패: ${message}\n\n${hint}`)],
+      isError: true,
+    };
+  }
 };
 
 const handlePostMessage = async (args: PostMessageArgs) => {
@@ -216,6 +334,11 @@ export const createSlackToolset = (_ctx: SlackToolsContext = {}) => ({
     description: GET_MESSAGES_DESCRIPTION,
     inputSchema: GetMessagesSchema.shape,
     handler: (args: GetMessagesArgs) => handleGetMessages(args),
+  },
+  listChannels: {
+    description: LIST_CHANNELS_DESCRIPTION,
+    inputSchema: ListChannelsSchema.shape,
+    handler: (args: ListChannelsArgs) => handleListChannels(args),
   },
   postMessage: {
     description: POST_MESSAGE_DESCRIPTION,
