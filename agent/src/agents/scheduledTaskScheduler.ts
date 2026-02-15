@@ -302,7 +302,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
     return;
   }
 
-  await fs.mkdir(CONFIG.WORKSPACE_DIR, { recursive: true });
+  await fs.mkdir(CONFIG.CWD, { recursive: true });
 
   const env = {
     ...sanitizeEnv(process.env),
@@ -328,7 +328,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
           prompt: singlePrompt(prompt),
           resumeSessionId: null,
           model,
-          cwd: CONFIG.WORKSPACE_DIR,
+          cwd: CONFIG.CWD,
           env,
           abortController,
           apiKey: CONFIG.CODEX_API_KEY,
@@ -344,7 +344,7 @@ const runScheduledPrompt = async (task: ScheduledTask, logger: FastifyBaseLogger
           prompt: singlePrompt(prompt),
           resumeSessionId: null,
           model,
-          cwd: CONFIG.WORKSPACE_DIR,
+          cwd: CONFIG.CWD,
           env,
           abortController,
           systemPromptAppend,
@@ -430,7 +430,7 @@ const toCronjobTasks = (logger: FastifyBaseLogger): ScheduledTask[] => {
   return tasks;
 };
 
-const toHeartbeatTask = (logger: FastifyBaseLogger): ScheduledTask | null => {
+const toHeartbeatTask = async (logger: FastifyBaseLogger): Promise<ScheduledTask | null> => {
   const heartbeat = getAgentHeartbeat();
   if (!heartbeat) {
     return null;
@@ -441,10 +441,19 @@ const toHeartbeatTask = (logger: FastifyBaseLogger): ScheduledTask | null => {
     return null;
   }
 
+  const promptFilePath = path.resolve(CONFIG.CWD, heartbeat.promptFile);
+  let prompt: string;
+  try {
+    prompt = await fs.readFile(promptFilePath, "utf8");
+  } catch (error) {
+    logger.warn({ promptFile: heartbeat.promptFile, error }, "Failed to read heartbeat promptFile");
+    return null;
+  }
+
   return {
     id: "heartbeat:1",
     name: "heartbeat",
-    prompt: heartbeat.prompt,
+    prompt,
     kind: "heartbeat",
     heartbeatIntervalMinute: heartbeat.intervalMinute,
   };
@@ -457,9 +466,9 @@ const shouldRunHeartbeatAtMinute = (parts: SeoulDateParts, intervalMinute: numbe
 
 const buildRuntimeMcpServerNames = (servers: Record<string, McpServerEntry>): string[] => Object.keys(servers).sort();
 
-export const startScheduledTaskScheduler = (logger: FastifyBaseLogger): SchedulerHandle => {
+export const startScheduledTaskScheduler = async (logger: FastifyBaseLogger): Promise<SchedulerHandle> => {
   const cronjobTasks = toCronjobTasks(logger);
-  const heartbeatTask = toHeartbeatTask(logger);
+  const heartbeatTask = await toHeartbeatTask(logger);
   const tasks = heartbeatTask ? [...cronjobTasks, heartbeatTask] : cronjobTasks;
 
   if (tasks.length === 0) {

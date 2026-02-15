@@ -1,4 +1,3 @@
-import { getAgentBasePrompt } from "../agentConfig.ts";
 import { formatSlackUserReference } from "../utils/slackUser.ts";
 import { loadWorkspaceContext, type WorkspaceContextSnapshot } from "./workspaceContext.ts";
 import type { SlackContext } from "./slackContext.ts";
@@ -64,8 +63,6 @@ export const buildSystemPromptAppend = async (): Promise<string> => {
   const workspaceContextBlock = await loadWorkspaceContextBlock();
 
   return [
-    getAgentBasePrompt(),
-    "",
     "# 작동 컨텍스트",
     "- 이 대화는 *Slack 스레드*에서 진행됩니다. 항상 스레드 맥락을 우선으로 파악하고 답하세요.",
     "- 사용자가 준 한 문장만으로 추측하지 말고, 필요하면 먼저 Slack 히스토리를 확인하세요.",
