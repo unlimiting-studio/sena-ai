@@ -490,7 +490,7 @@ export class SlackThreadRunner {
   }
 
   private async runLoop(): Promise<void> {
-    await fs.mkdir(CONFIG.WORKSPACE_DIR, { recursive: true });
+    await fs.mkdir(CONFIG.CWD, { recursive: true });
 
     const env = {
       ...sanitizeEnv(process.env),
@@ -506,7 +506,7 @@ export class SlackThreadRunner {
             prompt: this.promptQueue,
             resumeSessionId: this.resumeSessionId,
             model,
-            cwd: CONFIG.WORKSPACE_DIR,
+            cwd: CONFIG.CWD,
             env,
             abortController: this.abortController,
             apiKey: CONFIG.CODEX_API_KEY,
@@ -522,7 +522,7 @@ export class SlackThreadRunner {
             prompt: this.promptQueue,
             resumeSessionId: this.resumeSessionId,
             model,
-            cwd: CONFIG.WORKSPACE_DIR,
+            cwd: CONFIG.CWD,
             env,
             abortController: this.abortController,
             systemPromptAppend,
