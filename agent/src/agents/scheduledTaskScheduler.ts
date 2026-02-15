@@ -9,6 +9,7 @@ import {
   getAgentMcpServers,
   getAgentName,
   getAgentOpsConfig,
+  getAgentWorkspaceDir,
   type McpServerEntry,
 } from "../agentConfig.ts";
 import { CONFIG } from "../config.ts";
@@ -430,7 +431,7 @@ const toCronjobTasks = (logger: FastifyBaseLogger): ScheduledTask[] => {
   return tasks;
 };
 
-const toHeartbeatTask = (logger: FastifyBaseLogger): ScheduledTask | null => {
+const toHeartbeatTask = async (logger: FastifyBaseLogger): Promise<ScheduledTask | null> => {
   const heartbeat = getAgentHeartbeat();
   if (!heartbeat) {
     return null;
@@ -441,10 +442,31 @@ const toHeartbeatTask = (logger: FastifyBaseLogger): ScheduledTask | null => {
     return null;
   }
 
+  let prompt: string;
+  if (heartbeat.prompt) {
+    prompt = heartbeat.prompt;
+  } else if (heartbeat.promptFile) {
+    const workspaceDir = getAgentWorkspaceDir();
+    if (!workspaceDir) {
+      logger.warn("heartbeat.promptFile specified but no workspaceDir configured");
+      return null;
+    }
+    const promptFilePath = path.resolve(workspaceDir, heartbeat.promptFile);
+    try {
+      prompt = await fs.readFile(promptFilePath, "utf8");
+    } catch (error) {
+      logger.warn({ promptFile: heartbeat.promptFile, error }, "Failed to read heartbeat promptFile");
+      return null;
+    }
+  } else {
+    logger.warn("heartbeat has neither prompt nor promptFile");
+    return null;
+  }
+
   return {
     id: "heartbeat:1",
     name: "heartbeat",
-    prompt: heartbeat.prompt,
+    prompt,
     kind: "heartbeat",
     heartbeatIntervalMinute: heartbeat.intervalMinute,
   };
@@ -457,9 +479,9 @@ const shouldRunHeartbeatAtMinute = (parts: SeoulDateParts, intervalMinute: numbe
 
 const buildRuntimeMcpServerNames = (servers: Record<string, McpServerEntry>): string[] => Object.keys(servers).sort();
 
-export const startScheduledTaskScheduler = (logger: FastifyBaseLogger): SchedulerHandle => {
+export const startScheduledTaskScheduler = async (logger: FastifyBaseLogger): Promise<SchedulerHandle> => {
   const cronjobTasks = toCronjobTasks(logger);
-  const heartbeatTask = toHeartbeatTask(logger);
+  const heartbeatTask = await toHeartbeatTask(logger);
   const tasks = heartbeatTask ? [...cronjobTasks, heartbeatTask] : cronjobTasks;
 
   if (tasks.length === 0) {

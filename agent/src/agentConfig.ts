@@ -40,6 +40,7 @@ const RuntimeModeSchema = z.enum(["claude", "codex"]);
 const RuntimeConfigSchema = z.object({
   mode: RuntimeModeSchema.optional(),
   model: z.string().min(1).optional(),
+  cwd: z.string().min(1).optional(),
   workspaceDir: z.string().min(1).optional(),
 });
 const CronjobSchema = z.object({
@@ -49,7 +50,8 @@ const CronjobSchema = z.object({
 });
 const HeartbeatSchema = z.object({
   intervalMinute: z.number().int().positive(),
-  prompt: z.string().min(1),
+  prompt: z.string().min(1).optional(),
+  promptFile: z.string().min(1).optional(),
 });
 const AgentOpsMemorySchema = z.object({
   enabled: z.boolean().optional(),
@@ -74,6 +76,8 @@ const AgentOpsSchema = z.object({
 const AgentConfigSchema = z.object({
   name: z.string().min(1).optional(),
   basePrompt: BasePromptSchema.optional(),
+  contexts: z.array(z.string().min(1)).optional(),
+  contextDir: z.string().min(1).optional(),
   mcpServers: z.record(z.string(), McpServerEntrySchema).optional(),
   runtime: RuntimeConfigSchema.optional(),
   cronjobs: z.array(CronjobSchema).optional(),
@@ -87,6 +91,7 @@ export type AgentRuntimeMode = z.infer<typeof RuntimeModeSchema>;
 type AgentRuntimeConfig = {
   mode: AgentRuntimeMode | null;
   model: string | null;
+  cwd: string | null;
   workspaceDir: string | null;
 };
 
@@ -98,7 +103,8 @@ type AgentCronjob = {
 
 type AgentHeartbeat = {
   intervalMinute: number;
-  prompt: string;
+  prompt: string | null;
+  promptFile: string | null;
 };
 
 type AgentOpsMemoryConfig = {
@@ -126,6 +132,8 @@ export type AgentOpsConfig = {
 type AgentConfig = {
   name: string;
   basePrompt: string;
+  contexts: string[];
+  contextDir: string | null;
   mcpServers: Record<string, McpServerEntry>;
   runtime: AgentRuntimeConfig;
   cronjobs: AgentCronjob[];
@@ -226,10 +234,12 @@ const normalizeBasePrompt = (value: string | string[] | undefined, name: string)
 const normalizeRuntimeConfig = (raw: z.infer<typeof RuntimeConfigSchema> | undefined): AgentRuntimeConfig => {
   const mode = raw?.mode ?? null;
   const trimmedModel = raw?.model?.trim() ?? "";
+  const trimmedCwd = substituteEnvVars(raw?.cwd ?? "").trim();
   const trimmedWorkspaceDir = substituteEnvVars(raw?.workspaceDir ?? "").trim();
   return {
     mode,
     model: trimmedModel.length > 0 ? trimmedModel : null,
+    cwd: trimmedCwd.length > 0 ? trimmedCwd : null,
     workspaceDir: trimmedWorkspaceDir.length > 0 ? trimmedWorkspaceDir : null,
   };
 };
@@ -257,13 +267,15 @@ const normalizeHeartbeat = (raw: z.infer<typeof HeartbeatSchema> | undefined): A
   if (!raw) {
     return null;
   }
-  const prompt = substituteEnvVars(raw.prompt).trim();
-  if (prompt.length === 0) {
+  const prompt = substituteEnvVars(raw.prompt ?? "").trim();
+  const promptFile = substituteEnvVars(raw.promptFile ?? "").trim();
+  if (prompt.length === 0 && promptFile.length === 0) {
     return null;
   }
   return {
     intervalMinute: raw.intervalMinute,
-    prompt,
+    prompt: prompt.length > 0 ? prompt : null,
+    promptFile: promptFile.length > 0 ? promptFile : null,
   };
 };
 
@@ -388,8 +400,10 @@ const normalizeMcpServers = (raw: Record<string, McpServerEntry> | undefined): R
 const buildDefaultConfig = (): AgentConfig => ({
   name: DEFAULT_AGENT_NAME,
   basePrompt: applyNameTemplate(DEFAULT_BASE_PROMPT, DEFAULT_AGENT_NAME),
+  contexts: [],
+  contextDir: null,
   mcpServers: {},
-  runtime: { mode: null, model: null, workspaceDir: null },
+  runtime: { mode: null, model: null, cwd: null, workspaceDir: null },
   cronjobs: [],
   heartbeat: null,
   agentOps: cloneAgentOpsConfig(DEFAULT_AGENT_OPS_CONFIG),
@@ -398,12 +412,14 @@ const buildDefaultConfig = (): AgentConfig => ({
 const buildNormalizedConfig = (raw: z.infer<typeof AgentConfigSchema>): AgentConfig => {
   const name = normalizeName(raw.name);
   const basePrompt = normalizeBasePrompt(raw.basePrompt, name);
+  const contexts = raw.contexts ?? [];
+  const contextDir = raw.contextDir ? substituteEnvVars(raw.contextDir).trim() || null : null;
   const mcpServers = normalizeMcpServers(raw.mcpServers);
   const runtime = normalizeRuntimeConfig(raw.runtime);
   const cronjobs = normalizeCronjobs(raw.cronjobs);
   const heartbeat = normalizeHeartbeat(raw.heartbeat);
   const agentOps = normalizeAgentOpsConfig(raw.agentOps);
-  return { name, basePrompt, mcpServers, runtime, cronjobs, heartbeat, agentOps };
+  return { name, basePrompt, contexts, contextDir, mcpServers, runtime, cronjobs, heartbeat, agentOps };
 };
 
 const logLoadedAgentConfig = (source: string, config: AgentConfig): AgentConfig => {
@@ -521,9 +537,11 @@ const withJosa = (value: string, consonant: string, vowel: string): string =>
 export const getAgentConfig = (): AgentConfig => AGENT_CONFIG;
 export const getAgentName = (): string => AGENT_CONFIG.name;
 export const getAgentBasePrompt = (): string => AGENT_CONFIG.basePrompt;
+export const getAgentContexts = (): string[] => AGENT_CONFIG.contexts;
+export const getAgentContextDir = (): string | null => AGENT_CONFIG.contextDir;
 export const getAgentMcpServers = (): Record<string, McpServerEntry> => AGENT_CONFIG.mcpServers;
 export const getAgentRuntimeConfig = (): AgentRuntimeConfig => AGENT_CONFIG.runtime;
-export const getAgentWorkspaceDir = (): string | null => AGENT_CONFIG.runtime.workspaceDir;
+export const getAgentWorkspaceDir = (): string | null => AGENT_CONFIG.runtime.workspaceDir ?? AGENT_CONFIG.runtime.cwd;
 export const getAgentCronjobs = (): AgentCronjob[] => AGENT_CONFIG.cronjobs;
 export const getAgentHeartbeat = (): AgentHeartbeat | null => AGENT_CONFIG.heartbeat;
 export const getAgentOpsConfig = (): AgentOpsConfig => cloneAgentOpsConfig(AGENT_CONFIG.agentOps);
