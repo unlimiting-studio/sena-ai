@@ -26,6 +26,12 @@ export const createSenaSlackMcpServer = (_ctx: KarbySlackMcpContext) => {
         slackTools.getMessages.handler,
       ),
       tool(
+        "list_channels",
+        slackTools.listChannels.description,
+        slackTools.listChannels.inputSchema,
+        slackTools.listChannels.handler,
+      ),
+      tool(
         "post_message",
         slackTools.postMessage.description,
         slackTools.postMessage.inputSchema,

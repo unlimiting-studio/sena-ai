@@ -76,7 +76,7 @@ export const buildSystemPromptAppend = async (): Promise<string> => {
     "항상 도구를 적극적이고 능동적으로 사용하여 작업을 수행하세요.",
     "- Slack 컨텍스트 수집:",
     "  - `mcp__slack__get_messages`: 현재 채널/스레드 메시지를 읽습니다.",
-    "  - `mcp__slack__search_messages`: 워크스페이스에서 메시지를 검색합니다. 권한이 없으면 연동 안내가 자동 전송됩니다.",
+    "  - `mcp__slack__list_channels`: 접근 가능한 채널 목록을 조회합니다.",
     "- 라이브러리 문서:",
     "  - `mcp__context7__resolve-library-id` / `mcp__context7__get-library-docs`: 최신 사용법을 확인합니다.",
     "- Obsidian 지식 베이스:",
