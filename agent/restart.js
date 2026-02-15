@@ -10,8 +10,10 @@ const MODULE_FILE_PATH = fileURLToPath(import.meta.url);
 const INVOKED_SCRIPT_PATH = path.resolve(process.argv[1] || MODULE_FILE_PATH);
 const AGENT_DIR = path.dirname(INVOKED_SCRIPT_PATH);
 const RESTART_SCRIPT_PATH = INVOKED_SCRIPT_PATH;
-const AGENT_ENTRY_PATH = path.join(AGENT_DIR, "sena.js");
+const DEFAULT_AGENT_ENTRY_PATH = path.join(AGENT_DIR, "sena.js");
+const FALLBACK_AGENT_ENTRY_PATH = path.join(AGENT_DIR, "dist", "index.js");
 const AGENT_LOG_PATH = path.join(AGENT_DIR, "nohup.out");
+const AGENT_PID_PATH = path.join(AGENT_DIR, "sena.pid");
 const DETACH_GUARD_ENV_KEY = "SENA_RESTART_DETACHED";
 const DETACH_GUARD_VALUE = "1";
 const STOP_WAIT_RETRY_COUNT = 50;
@@ -34,6 +36,50 @@ function isPidAlive(pid) {
   } catch {
     return false;
   }
+}
+
+function parsePid(text) {
+  const normalized = String(text || "").trim();
+  if (!/^\d+$/u.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function getPidFromPidFile(pidFilePath) {
+  try {
+    const pid = parsePid(fs.readFileSync(pidFilePath, "utf8"));
+    if (!pid) {
+      return null;
+    }
+    if (!isPidAlive(pid)) {
+      return null;
+    }
+    return pid;
+  } catch {
+    return null;
+  }
+}
+
+function findListeningPidByPort(port) {
+  const normalizedPort = String(port || "").trim();
+  if (!/^\d+$/u.test(normalizedPort)) {
+    return null;
+  }
+
+  const result = runCommandSync("lsof", ["-t", `-iTCP:${normalizedPort}`, "-sTCP:LISTEN", "-n", "-P"]);
+  if (result.status !== 0 || !result.stdout) {
+    return null;
+  }
+
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const pid = parsePid(line);
+    if (pid) {
+      return pid;
+    }
+  }
+
+  return null;
 }
 
 async function stopProcessGracefully(pid, reason) {
@@ -63,19 +109,36 @@ async function stopProcessGracefully(pid, reason) {
   }
 }
 
-function escapeRegexLiteral(value) {
-  return value.replace(/[()[\]{}.^$*+?|\\/]/g, "\\$&");
-}
-
-function findPidsByPattern(pattern) {
-  const result = runCommandSync("pgrep", ["-f", "--", pattern]);
-  if (!result.stdout) {
+function findPidsByCommandSubstring(substring) {
+  const result = runCommandSync("ps", ["ax", "-o", "pid=,command="]);
+  const output = result.stdout || "";
+  if (!output) {
     return [];
   }
-  return result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => /^\d+$/.test(line));
+
+  const normalizedNeedle = substring.trim();
+  if (normalizedNeedle.length === 0) {
+    return [];
+  }
+
+  const pids = [];
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const match = line.match(/^(\d+)\s+(.*)$/);
+    if (!match) {
+      continue;
+    }
+    const pid = match[1];
+    const command = match[2] || "";
+    if (command.includes(normalizedNeedle)) {
+      pids.push(pid);
+    }
+  }
+
+  return pids;
 }
 
 function printLogTail(logPath, lineCount) {
@@ -90,6 +153,24 @@ function printLogTail(logPath, lineCount) {
   } catch {
     // no-op
   }
+}
+
+function resolveAgentEntrypoint() {
+  const envEntrypoint = (process.env.SENA_RESTART_ENTRY || "").trim();
+  const candidates = [
+    envEntrypoint.length > 0 ? envEntrypoint : null,
+    DEFAULT_AGENT_ENTRY_PATH,
+    FALLBACK_AGENT_ENTRY_PATH,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(AGENT_DIR, candidate);
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+
+  return null;
 }
 
 async function restartAgent() {
@@ -112,15 +193,38 @@ async function restartAgent() {
     process.exit(0);
   }
 
-  if (!fs.existsSync(AGENT_ENTRY_PATH)) {
-    console.error(`entry_not_found: ${AGENT_ENTRY_PATH}`);
+  const AGENT_ENTRY_PATH = resolveAgentEntrypoint();
+  if (!AGENT_ENTRY_PATH) {
+    console.error(`entry_not_found: ${DEFAULT_AGENT_ENTRY_PATH}`);
     process.exit(1);
   }
 
-  const escapedEntryPath = escapeRegexLiteral(AGENT_ENTRY_PATH);
-  const nodeProcessPattern = `node([[:space:]].*)?[[:space:]]${escapedEntryPath}([[:space:]]|$)`;
+  const matchedPidSet = new Set();
 
-  const matchedPids = findPidsByPattern(nodeProcessPattern);
+  const pidFromFile = getPidFromPidFile(AGENT_PID_PATH);
+  if (pidFromFile) {
+    matchedPidSet.add(pidFromFile);
+  }
+
+  const pidFromPort = findListeningPidByPort(process.env.PORT);
+  if (pidFromPort) {
+    matchedPidSet.add(pidFromPort);
+  }
+
+  const entrypointCandidates = new Set([AGENT_ENTRY_PATH]);
+  try {
+    entrypointCandidates.add(fs.realpathSync(AGENT_ENTRY_PATH));
+  } catch {
+    // no-op
+  }
+
+  for (const candidate of entrypointCandidates) {
+    for (const pid of findPidsByCommandSubstring(candidate)) {
+      matchedPidSet.add(pid);
+    }
+  }
+
+  const matchedPids = Array.from(matchedPidSet);
   if (matchedPids.length > 0) {
     console.log(`stopping_pattern_matched_pids: ${matchedPids.join(" ")}`);
     for (const pid of matchedPids) {
@@ -152,6 +256,12 @@ async function restartAgent() {
     console.error("failed_to_start_process");
     printLogTail(AGENT_LOG_PATH, 50);
     process.exit(1);
+  }
+
+  try {
+    fs.writeFileSync(AGENT_PID_PATH, `${startedPid}\n`, "utf8");
+  } catch {
+    // no-op
   }
 
   console.log(`started_pid=${startedPid}`);
