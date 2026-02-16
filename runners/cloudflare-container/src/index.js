@@ -145,7 +145,6 @@ const loadAgentConfig = async (agentId, env) => {
     )
     .bind(agentId)
     .first();
-  console.log("row", row);
   if (!row) {
     return { error: "agent_not_found" };
   }
