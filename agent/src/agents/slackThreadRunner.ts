@@ -31,11 +31,22 @@ const BRIDGE_EXEC_ARGV_BLOCKLIST = [/^--inspect(?:-brk)?(?:=.*)?$/u, /^--watch(?
 const filterBridgeExecArgv = (argv: string[]): string[] =>
   argv.filter((arg) => !BRIDGE_EXEC_ARGV_BLOCKLIST.some((pattern) => pattern.test(arg)));
 
+const resolveWorkerEntrypointForBridge = (): string => {
+  const envEntrypoint = CONFIG.WORKER_ENTRYPOINT.trim();
+  if (envEntrypoint.length > 0) {
+    return path.isAbsolute(envEntrypoint) ? envEntrypoint : path.resolve(process.cwd(), envEntrypoint);
+  }
+
+  const argvEntrypoint = process.argv[1]?.trim() ?? "";
+  if (argvEntrypoint.length > 0) {
+    return path.isAbsolute(argvEntrypoint) ? argvEntrypoint : path.resolve(process.cwd(), argvEntrypoint);
+  }
+
+  return path.join(process.cwd(), "dist/worker/index.js");
+};
+
 const resolveCodexBridgeEntrypoint = (): { command: string; args: string[] } => {
-  const rawEntrypoint = process.argv[1]?.trim() ?? "";
-  const fallbackEntrypoint = path.join(process.cwd(), "dist/index.js");
-  const entrypoint = rawEntrypoint.length > 0 ? rawEntrypoint : fallbackEntrypoint;
-  const resolvedEntrypoint = path.isAbsolute(entrypoint) ? entrypoint : path.resolve(process.cwd(), entrypoint);
+  const resolvedEntrypoint = resolveWorkerEntrypointForBridge();
   return {
     command: process.execPath,
     args: [...filterBridgeExecArgv(process.execArgv), resolvedEntrypoint],

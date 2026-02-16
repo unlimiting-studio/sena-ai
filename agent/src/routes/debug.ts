@@ -85,4 +85,3 @@ export async function debugRoutes(fastify: FastifyInstance): Promise<void> {
     });
   });
 }
-

@@ -14,6 +14,14 @@ const toInt = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const toOptionalInt = (value: string | undefined): number | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const normalizeSlackVerifyMode = (value: string | undefined): "agent" | "external" => {
   if (!value) {
     return "agent";
@@ -26,6 +34,13 @@ const normalizeAgentRuntimeMode = (value: string | undefined): "claude" | "codex
     return "claude";
   }
   return value.trim().toLowerCase() === "codex" ? "codex" : "claude";
+};
+
+const normalizeProcessRole = (value: string | undefined): "orchestrator" | "worker" => {
+  if (!value) {
+    return "orchestrator";
+  }
+  return value.trim().toLowerCase() === "worker" ? "worker" : "orchestrator";
 };
 
 const expandHomePath = (candidatePath: string): string => {
@@ -52,13 +67,21 @@ const resolveWorkspaceDir = (value: string | null): string => {
   return path.resolve(getAgentConfigBaseDir(), expanded);
 };
 
+const resolveRuntimeFilePath = (value: string | undefined, fallbackPath: string): string => {
+  const trimmed = value?.trim() ?? "";
+  const candidate = trimmed.length > 0 ? trimmed : fallbackPath;
+  const expanded = expandHomePath(candidate);
+  return path.isAbsolute(expanded) ? expanded : path.resolve(process.cwd(), expanded);
+};
+
 const AGENT_RUNTIME_CONFIG = getAgentRuntimeConfig();
 const RESOLVED_CWD = resolveWorkspaceDir(AGENT_RUNTIME_CONFIG.cwd);
+const PORT_FROM_ENV_FILE = toOptionalInt(process.env.PORT);
 
 export const CONFIG = {
-  PORT: toInt(process.env.PORT, 22481),
+  PORT: toInt(process.env.PORT, 3101),
   NODE_ENV: process.env.NODE_ENV || "development",
-  BACKEND_URL: process.env.BACKEND_URL || "http://localhost:22481",
+  BACKEND_URL: process.env.BACKEND_URL || "http://localhost:3101",
   DATABASE_URL: process.env.DATABASE_URL || "mysql://user:password@localhost:3306/karby_agent",
   DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY || "",
   INTERNAL_DEBUG_TOKEN: process.env.SENA_INTERNAL_DEBUG_TOKEN || "",
@@ -93,6 +116,18 @@ export const CONFIG = {
 
   // Workdir
   CWD: RESOLVED_CWD,
+  PROCESS_ROLE: normalizeProcessRole(process.env.SENA_PROCESS_ROLE),
+  WORKER_BASE_PORT: toInt(process.env.SENA_WORKER_BASE_PORT, 13101),
+  WORKER_READY_TIMEOUT_MS: toInt(process.env.SENA_WORKER_READY_TIMEOUT_MS, 30000),
+  WORKER_DRAIN_TIMEOUT_MS: toInt(process.env.SENA_WORKER_DRAIN_TIMEOUT_MS, 10000),
+  ORCHESTRATOR_STATE_FILE: resolveRuntimeFilePath(
+    process.env.SENA_ORCHESTRATOR_STATE_FILE,
+    "./sena.orchestrator.state.json",
+  ),
+  ORCHESTRATOR_PID_FILE: resolveRuntimeFilePath(process.env.SENA_ORCHESTRATOR_PID_FILE, "./sena.orchestrator.pid"),
+  WORKER_PID_FILE: resolveRuntimeFilePath(process.env.SENA_WORKER_PID_FILE, "./sena.worker.pid"),
+  WORKER_ENTRYPOINT: process.env.SENA_WORKER_ENTRYPOINT?.trim() ?? "",
+  PORT_FROM_ENV_FILE,
 };
 
 export const isProduction = (): boolean => CONFIG.NODE_ENV === "production";
