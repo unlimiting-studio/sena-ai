@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.14.0",
   "scripts": {
     "dev": "tsx --watch src/index.ts",
-    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --target=node22 --format=esm --packages=external",
+    "build": "esbuild src/index.ts src/worker/index.ts --bundle --outdir=dist --platform=node --target=node22 --format=esm --packages=external",
     "check": "pnpm check:lint && pnpm check:type",
     "check:lint": "biome lint",
     "check:type": "tsc --noEmit",
