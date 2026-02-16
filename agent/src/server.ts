@@ -4,6 +4,7 @@ import { loadWorkspaceContext } from "./agents/workspaceContext.ts";
 import { CONFIG } from "./config.ts";
 import { startScheduledTaskScheduler } from "./agents/scheduledTaskScheduler.ts";
 import { closeDB } from "./db/connection.ts";
+import { debugRoutes } from "./routes/debug.ts";
 import { slackRoutes } from "./routes/slack.ts";
 
 export async function startServer(): Promise<void> {
@@ -18,6 +19,7 @@ export async function startServer(): Promise<void> {
     timestamp: new Date().toISOString(),
   }));
 
+  await fastify.register(debugRoutes, { prefix: "/api/debug" });
   await fastify.register(slackRoutes, { prefix: "/api/slack" });
 
   try {

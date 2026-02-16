@@ -61,6 +61,7 @@ export const CONFIG = {
   BACKEND_URL: process.env.BACKEND_URL || "http://localhost:22481",
   DATABASE_URL: process.env.DATABASE_URL || "mysql://user:password@localhost:3306/karby_agent",
   DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY || "",
+  INTERNAL_DEBUG_TOKEN: process.env.SENA_INTERNAL_DEBUG_TOKEN || "",
   AGENT_RUNTIME_MODE: normalizeAgentRuntimeMode(
     process.env.AGENT_RUNTIME_MODE ?? AGENT_RUNTIME_CONFIG.mode ?? undefined,
   ),
