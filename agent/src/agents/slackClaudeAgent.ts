@@ -9,6 +9,51 @@ import { SlackThreadSessionStore } from "./threadSessionStore.ts";
 
 export type { SlackContext } from "./slackContext.ts";
 
+type SlackMentionFile = {
+  id: string;
+  name?: string;
+  mimetype?: string;
+  filetype?: string;
+  size?: number;
+  permalink?: string;
+  url_private?: string;
+  url_private_download?: string;
+};
+
+type PreparedImageMetadata = {
+  summaryLines: string[];
+};
+
+const MAX_IMAGE_METADATA_PER_MESSAGE = 10;
+
+const toNonEmptyTrimmed = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const isImageSlackFile = (file: SlackMentionFile): boolean => {
+  const mimetype = toNonEmptyTrimmed(file.mimetype)?.toLowerCase();
+  if (mimetype?.startsWith("image/")) {
+    return true;
+  }
+
+  const filetype = toNonEmptyTrimmed(file.filetype)?.toLowerCase();
+  return filetype === "jpg" || filetype === "jpeg" || filetype === "png" || filetype === "gif" || filetype === "webp";
+};
+
+const formatImageMetadataLine = (file: SlackMentionFile, index: number): string => {
+  const fileId = toNonEmptyTrimmed(file.id) ?? "(missing)";
+  const fileName = toNonEmptyTrimmed(file.name) ?? "(no-name)";
+  const mimeType = toNonEmptyTrimmed(file.mimetype) ?? "unknown";
+  const fileType = toNonEmptyTrimmed(file.filetype) ?? "unknown";
+  const sizePart =
+    typeof file.size === "number" && file.size > 0 ? `${Math.max(1, Math.round(file.size / 1024))}KB` : "unknown";
+  const permalink = toNonEmptyTrimmed(file.permalink);
+  const permalinkPart = permalink ? `, permalink=${permalink}` : "";
+
+  return `- 이미지 ${index + 1}: fileId=${fileId}, name=${fileName}, mimetype=${mimeType}, filetype=${fileType}, size=${sizePart}${permalinkPart}`;
+};
+
 export class SlackClaudeAgent {
   private static _instance: SlackClaudeAgent | null = null;
 
@@ -34,14 +79,19 @@ export class SlackClaudeAgent {
     channelId: string;
     userId: string | null;
     text: string;
+    files: SlackMentionFile[];
     threadTs: string | null;
     messageTs: string | null;
   }): Promise<void> {
-    const { teamId, channelId, userId, text, threadTs, messageTs } = _params;
+    const { teamId, channelId, userId, text, files, threadTs, messageTs } = _params;
     const normalizedText = text.replace(/^<@[A-Z0-9]+>\s*/u, "").trim();
-    if (normalizedText.length === 0) {
+    const preparedMetadata = this.prepareImageMetadata(files);
+
+    if (normalizedText.length === 0 && preparedMetadata.summaryLines.length === 0) {
       return;
     }
+
+    const userInputText = this.buildUserInputText(normalizedText, preparedMetadata.summaryLines);
 
     const slackUserId = userId?.trim() || null;
     if (!slackUserId) {
@@ -87,7 +137,7 @@ export class SlackClaudeAgent {
       resumeSessionId,
     });
 
-    const accepted = runner.enqueueUserInput(normalizedText);
+    const accepted = runner.enqueueUserInput(userInputText);
     if (!accepted) {
       this.getOrCreateRunner({
         threadKey,
@@ -101,7 +151,7 @@ export class SlackClaudeAgent {
         },
         resumeSessionId,
         forceNew: true,
-      }).enqueueUserInput(normalizedText);
+      }).enqueueUserInput(userInputText);
     }
   }
 
@@ -189,6 +239,42 @@ export class SlackClaudeAgent {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
+  }
+
+  private buildUserInputText(text: string, imageSummaryLines: string[]): string {
+    const normalizedText = text.trim();
+    const baseText =
+      normalizedText.length > 0
+        ? normalizedText
+        : "이미지를 첨부했어요. 아래 fileId 메타데이터를 참고해서 필요하면 `mcp__slack__download_file`로 파일을 내려받아 확인해 주세요.";
+
+    if (imageSummaryLines.length === 0) {
+      return baseText;
+    }
+
+    return [
+      baseText,
+      "",
+      "[첨부 이미지 메타데이터]",
+      "- 이미지 내용을 확인해야 하면 `mcp__slack__download_file`를 사용하세요.",
+      ...imageSummaryLines,
+    ].join("\n");
+  }
+
+  private prepareImageMetadata(files: SlackMentionFile[]): PreparedImageMetadata {
+    const imageFiles = files.filter((file) => isImageSlackFile(file));
+    if (imageFiles.length === 0) {
+      return { summaryLines: [] };
+    }
+
+    const selectedFiles = imageFiles.slice(0, MAX_IMAGE_METADATA_PER_MESSAGE);
+    const summaryLines = selectedFiles.map((file, index) => formatImageMetadataLine(file, index));
+
+    if (imageFiles.length > selectedFiles.length) {
+      summaryLines.push(`- 추가 이미지 ${imageFiles.length - selectedFiles.length}개는 이번 턴에서 생략됨`);
+    }
+
+    return { summaryLines };
   }
 
   private getOrCreateRunner(params: {

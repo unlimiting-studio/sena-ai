@@ -50,6 +50,15 @@ const createSlackBridgeServer = (): McpServer => {
     slackTools.downloadFile.handler,
   );
 
+  server.registerTool(
+    "upload_file",
+    {
+      description: slackTools.uploadFile.description,
+      inputSchema: slackTools.uploadFile.inputSchema,
+    },
+    slackTools.uploadFile.handler,
+  );
+
   return server;
 };
 
