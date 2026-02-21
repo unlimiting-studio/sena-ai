@@ -23,6 +23,29 @@ const toNonEmptyString = (value: unknown): string | null => {
 
 const toArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
+const formatSlackMessageFile = (file: unknown, index: number): string | null => {
+  if (!file || typeof file !== "object") {
+    return null;
+  }
+
+  const record = file as Record<string, unknown>;
+  const fileId = toNonEmptyString(record.id);
+  if (!fileId) {
+    return null;
+  }
+
+  const fileName = toNonEmptyString(record.name) ?? "(no-name)";
+  const mimeType = toNonEmptyString(record.mimetype);
+  const fileType = toNonEmptyString(record.filetype);
+  const permalink = toNonEmptyString(record.permalink);
+  const sizeText =
+    typeof record.size === "number" && record.size > 0 ? `${Math.max(1, Math.round(record.size / 1024))}KB` : "unknown";
+
+  const typeText = fileType ?? mimeType ?? "unknown";
+  const permalinkPart = permalink ? `, permalink=${permalink}` : "";
+  return `file[${index + 1}] id=${fileId}, name=${fileName}, type=${typeText}, size=${sizeText}${permalinkPart}`;
+};
+
 const formatSlackMessage = async (msg: unknown): Promise<string | null> => {
   if (!msg || typeof msg !== "object") {
     return null;
@@ -34,7 +57,18 @@ const formatSlackMessage = async (msg: unknown): Promise<string | null> => {
   const text = toNonEmptyString(record.text) ?? "";
   const userName = userId ? await resolveSlackUserName(userId) : null;
   const author = userId ? formatSlackUserReference(userId, userName) : "<unknown>";
-  return `[${ts}] ${author}: ${text}`;
+  const messageLine = `[${ts}] ${author}: ${text.length > 0 ? text : "(no text)"}`;
+
+  const files = toArray(record.files);
+  const fileLines = files
+    .map((file, index) => formatSlackMessageFile(file, index))
+    .filter((line): line is string => line !== null);
+
+  if (fileLines.length === 0) {
+    return messageLine;
+  }
+
+  return [messageLine, ...fileLines.map((line) => `  ${line}`)].join("\n");
 };
 
 const GetMessagesSchema = z.object({
