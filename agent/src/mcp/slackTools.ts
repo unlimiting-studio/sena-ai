@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import * as path from "node:path";
 
 import type { Block, KnownBlock } from "@slack/types";
@@ -73,10 +74,28 @@ const DownloadFileSchema = z.object({
   fileId: z.string().describe("Slack 파일 ID (예: F07ABCDEF12)"),
 });
 
+const UploadFileSchema = z.object({
+  channelId: z.string().min(1).describe("업로드 후 공유할 대상 채널 ID (필수)"),
+  threadTs: z.string().optional().describe("대상 thread ts (옵셔널)"),
+  filePath: z.string().optional().describe("로컬 파일 경로. `content`와 동시에 사용할 수 없습니다."),
+  content: z.string().optional().describe("업로드할 텍스트 콘텐츠. `filePath`와 동시에 사용할 수 없습니다."),
+  filename: z
+    .string()
+    .optional()
+    .describe(
+      "Slack에 표시할 파일명. `content` 업로드 시 필수, `filePath` 업로드 시 생략하면 경로의 파일명을 사용합니다.",
+    ),
+  title: z.string().optional().describe("Slack 파일 title (옵셔널)"),
+  initialComment: z.string().optional().describe("업로드 메시지에 포함할 코멘트 (옵셔널)"),
+  snippetType: z.string().optional().describe("코드 스니펫 타입(예: typescript, bash)"),
+});
+
 type GetMessagesArgs = z.infer<typeof GetMessagesSchema>;
 type ListChannelsArgs = z.infer<typeof ListChannelsSchema>;
 type PostMessageArgs = z.infer<typeof PostMessageSchema>;
 type DownloadFileArgs = z.infer<typeof DownloadFileSchema>;
+type UploadFileArgs = z.infer<typeof UploadFileSchema>;
+type UploadFileResponse = Awaited<ReturnType<SlackSDK["uploadFileV2"]>>;
 
 const GET_MESSAGES_DESCRIPTION = "Slack 채널/쓰레드 메시지를 읽어옵니다.";
 const LIST_CHANNELS_DESCRIPTION = "Slack 채널 목록을 조회합니다.";
@@ -84,6 +103,8 @@ const POST_MESSAGE_DESCRIPTION =
   "Slack 채널/쓰레드에 메시지를 남깁니다. 일상적인 '응답' 의미로는 사용하지 말고, 현재 작업과 무관한 다른 채널/스레드에 알림이나 메모를 남길 때만 사용하세요.";
 const DOWNLOAD_FILE_DESCRIPTION =
   "Slack 파일을 다운로드합니다. 파일 ID를 받아 로컬 워크스페이스에 저장하고 경로를 반환합니다.";
+const UPLOAD_FILE_DESCRIPTION =
+  "로컬 파일 또는 텍스트 콘텐츠를 Slack 채널/스레드에 업로드합니다. filePath 또는 content 중 하나만 지정하세요.";
 
 const handleGetMessages = async (args: GetMessagesArgs) => {
   const channelId = args.channelId.trim();
@@ -286,6 +307,141 @@ const handlePostMessage = async (args: PostMessageArgs) => {
   };
 };
 
+const formatUploadedFileLine = (uploadedFile: unknown, index: number): string | null => {
+  if (!uploadedFile || typeof uploadedFile !== "object") {
+    return null;
+  }
+
+  const record = uploadedFile as Record<string, unknown>;
+  const fileId = toNonEmptyString(record.id) ?? `unknown-${index + 1}`;
+  const fileName = toNonEmptyString(record.name) ?? "(no-name)";
+  const fileType = toNonEmptyString(record.filetype) ?? "unknown";
+  const permalink = toNonEmptyString(record.permalink);
+  const fileSizeKB = typeof record.size === "number" ? `${Math.round(record.size / 1024)} KB` : "unknown";
+
+  const permalinkPart = permalink ? `, permalink=${permalink}` : "";
+  return `- [${index + 1}] id=${fileId}, name=${fileName}, type=${fileType}, size=${fileSizeKB}${permalinkPart}`;
+};
+
+const handleUploadFile = async (args: UploadFileArgs) => {
+  const channel = args.channelId.trim();
+  const threadTsRaw = args.threadTs?.trim() ?? "";
+  const filePathRaw = args.filePath?.trim() ?? "";
+  const content = args.content ?? "";
+  const filenameRaw = args.filename?.trim() ?? "";
+  const titleRaw = args.title?.trim() ?? "";
+  const initialCommentRaw = args.initialComment?.trim() ?? "";
+  const snippetTypeRaw = args.snippetType?.trim() ?? "";
+
+  const hasFilePath = filePathRaw.length > 0;
+  const hasContent = content.length > 0;
+
+  if (channel.length === 0) {
+    return {
+      content: [textContent("파일 업로드 실패: channelId를 지정해 주세요.")],
+      isError: true,
+    };
+  }
+
+  if (hasFilePath === hasContent) {
+    return {
+      content: [textContent("파일 업로드 실패: filePath 또는 content 중 하나만 지정해 주세요.")],
+      isError: true,
+    };
+  }
+
+  if (hasContent && filenameRaw.length === 0) {
+    return {
+      content: [textContent("파일 업로드 실패: content 업로드 시 filename은 필수입니다.")],
+      isError: true,
+    };
+  }
+
+  const uploadOptionsBase = {
+    channel_id: channel,
+    ...(titleRaw.length > 0 ? { title: titleRaw } : {}),
+    ...(initialCommentRaw.length > 0 ? { initial_comment: initialCommentRaw } : {}),
+    ...(snippetTypeRaw.length > 0 ? { snippet_type: snippetTypeRaw } : {}),
+  };
+
+  try {
+    let response: UploadFileResponse;
+    let sourcePath: string | null = null;
+
+    if (hasFilePath) {
+      const resolvedPath = path.isAbsolute(filePathRaw) ? filePathRaw : path.resolve(CONFIG.CWD, filePathRaw);
+      const fileStat = await fs.stat(resolvedPath);
+      if (!fileStat.isFile()) {
+        return {
+          content: [textContent(`파일 업로드 실패: 파일 경로가 아닙니다. (${resolvedPath})`)],
+          isError: true,
+        };
+      }
+
+      const filename = filenameRaw.length > 0 ? filenameRaw : path.basename(resolvedPath);
+      sourcePath = resolvedPath;
+      response =
+        threadTsRaw.length > 0
+          ? await SlackSDK.instance.uploadFileV2({
+              ...uploadOptionsBase,
+              thread_ts: threadTsRaw,
+              file: createReadStream(resolvedPath),
+              filename,
+            })
+          : await SlackSDK.instance.uploadFileV2({
+              ...uploadOptionsBase,
+              file: createReadStream(resolvedPath),
+              filename,
+            });
+    } else {
+      response =
+        threadTsRaw.length > 0
+          ? await SlackSDK.instance.uploadFileV2({
+              ...uploadOptionsBase,
+              thread_ts: threadTsRaw,
+              content,
+              filename: filenameRaw,
+            })
+          : await SlackSDK.instance.uploadFileV2({
+              ...uploadOptionsBase,
+              content,
+              filename: filenameRaw,
+            });
+    }
+
+    const uploadedFiles = toArray(response.files);
+    const fileLines = uploadedFiles
+      .map((uploadedFile, index) => formatUploadedFileLine(uploadedFile, index))
+      .filter((line): line is string => line !== null);
+
+    const usedThreadTs = threadTsRaw.length > 0 ? threadTsRaw : "(none)";
+    const sourceLine = sourcePath ? `- sourcePath: ${sourcePath}` : "- source: inline-content";
+    const filesBody = fileLines.length > 0 ? fileLines.join("\n") : "- (metadata unavailable)";
+
+    return {
+      content: [
+        textContent(
+          [
+            "Slack 파일 업로드 완료",
+            `- channelId: ${channel}`,
+            `- threadTs: ${usedThreadTs}`,
+            sourceLine,
+            "업로드 결과:",
+            filesBody,
+          ].join("\n"),
+        ),
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류";
+    const hint = "업로드 실패 시 봇 토큰 권한(files:write)과 채널 접근 권한, 파일 경로를 확인해 주세요.";
+    return {
+      content: [textContent(`파일 업로드 실패: ${message}\n\n${hint}`)],
+      isError: true,
+    };
+  }
+};
+
 const handleDownloadFile = async (_ctx: SlackToolsContext, args: DownloadFileArgs) => {
   const fileInfo = await SlackSDK.instance.getFileInfo({ file: args.fileId });
   const file = fileInfo.file;
@@ -349,5 +505,10 @@ export const createSlackToolset = (_ctx: SlackToolsContext = {}) => ({
     description: DOWNLOAD_FILE_DESCRIPTION,
     inputSchema: DownloadFileSchema.shape,
     handler: (args: DownloadFileArgs) => handleDownloadFile(_ctx, args),
+  },
+  uploadFile: {
+    description: UPLOAD_FILE_DESCRIPTION,
+    inputSchema: UploadFileSchema.shape,
+    handler: (args: UploadFileArgs) => handleUploadFile(args),
   },
 });

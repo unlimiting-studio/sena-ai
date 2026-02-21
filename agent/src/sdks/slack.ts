@@ -13,6 +13,7 @@ type ChatStartStreamArgs = Parameters<WebClient["chat"]["startStream"]>[0];
 type ChatAppendStreamArgs = Parameters<WebClient["chat"]["appendStream"]>[0];
 type ChatStopStreamArgs = Parameters<WebClient["chat"]["stopStream"]>[0];
 type FilesInfoArgs = Parameters<WebClient["files"]["info"]>[0];
+type FilesUploadV2Args = Parameters<WebClient["filesUploadV2"]>[0];
 type ConversationsListArgs = Parameters<WebClient["conversations"]["list"]>[0];
 
 type ThreadRepliesArgs = {
@@ -124,6 +125,10 @@ export class SlackSDK {
 
   async getFileInfo(args: FilesInfoArgs) {
     return this.client.files.info(args);
+  }
+
+  async uploadFileV2(args: FilesUploadV2Args) {
+    return this.client.filesUploadV2(args);
   }
 
   async downloadFile(url: string): Promise<ArrayBuffer> {

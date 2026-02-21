@@ -11,6 +11,17 @@ import { CONFIG } from "../config.ts";
 
 const slackVerificationEnabled = CONFIG.SLACK_VERIFY_MODE !== "external";
 
+const SlackEventFileSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  mimetype: z.string().optional(),
+  filetype: z.string().optional(),
+  size: z.number().optional(),
+  permalink: z.string().optional(),
+  url_private: z.string().optional(),
+  url_private_download: z.string().optional(),
+});
+
 const SlackEventSchema = z.object({
   type: z.string(),
   challenge: z.string().optional(),
@@ -25,6 +36,7 @@ const SlackEventSchema = z.object({
       bot_id: z.string().optional(),
       app_id: z.string().optional(),
       subtype: z.string().optional(),
+      files: z.array(SlackEventFileSchema).optional(),
     })
     .optional(),
   team_id: z.string().optional(),
@@ -117,7 +129,7 @@ const shouldIgnoreSlackEvent = (event: z.infer<typeof SlackEventSchema>["event"]
     return true;
   }
   const subtype = event.subtype?.trim();
-  if (subtype && subtype !== "thread_broadcast") {
+  if (subtype && subtype !== "thread_broadcast" && subtype !== "file_share") {
     return true;
   }
   if (!event.type) {
@@ -186,8 +198,14 @@ export async function slackRoutes(fastify: FastifyInstance) {
       }
 
       const channelId = body.event.channel;
-      const text = body.event.text;
-      if (!channelId || !text) {
+      const text = body.event.text ?? "";
+      const files = body.event.files ?? [];
+      if (!channelId) {
+        reply.code(200).send({ ok: true });
+        return;
+      }
+
+      if (text.trim().length === 0 && files.length === 0) {
         reply.code(200).send({ ok: true });
         return;
       }
@@ -200,6 +218,7 @@ export async function slackRoutes(fastify: FastifyInstance) {
         channelId,
         userId: body.event.user ?? null,
         text,
+        files,
         threadTs: body.event.thread_ts ?? null,
         messageTs: body.event.ts ?? null,
       });

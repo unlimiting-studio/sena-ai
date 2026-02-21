@@ -7,7 +7,7 @@ import { createSenaObsidianMcpServer } from "../mcp/obsidianMcp.ts";
 import { createSenaSlackMcpServer } from "../mcp/slackMcp.ts";
 import { getCouchDBClient } from "../sdks/couchdb.ts";
 import { sanitizeEnv } from "../utils/env.ts";
-import { createAgentRuntimeStream, type AgentRuntimeUserMessage, type AgentRuntimeEvent } from "./agentRuntime.ts";
+import { createAgentRuntimeStream, type AgentRuntimeEvent, type AgentRuntimeUserMessage } from "./agentRuntime.ts";
 import { buildBootstrapPrompt, buildFollowupPrompt, buildSystemPromptAppend } from "./slackPrompts.ts";
 import type { SlackContext } from "./slackContext.ts";
 import { SlackThreadOutput } from "./slackThreadOutput.ts";

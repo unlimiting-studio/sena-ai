@@ -43,6 +43,12 @@ export const createSenaSlackMcpServer = (_ctx: KarbySlackMcpContext) => {
         slackTools.downloadFile.inputSchema,
         slackTools.downloadFile.handler,
       ),
+      tool(
+        "upload_file",
+        slackTools.uploadFile.description,
+        slackTools.uploadFile.inputSchema,
+        slackTools.uploadFile.handler,
+      ),
     ],
   });
 };
