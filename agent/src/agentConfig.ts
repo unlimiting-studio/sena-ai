@@ -337,16 +337,20 @@ const buildNormalizedConfig = (raw: z.infer<typeof AgentConfigSchema>): AgentCon
   return { name, contexts, contextDir, mcpServers, runtime, cronjobs, heartbeat, agentOps };
 };
 
+const logAgentConfigInfo = (message: string): void => {
+  process.stderr.write(`[agent-config] ${message}\n`);
+};
+
 const logLoadedAgentConfig = (source: string, config: AgentConfig): AgentConfig => {
-  console.info(`[agent-config] loaded config source: ${source}`);
+  logAgentConfigInfo(`loaded config source: ${source}`);
   if (config.runtime.cwd) {
-    console.info(`[agent-config] configured cwd: ${config.runtime.cwd}`);
+    logAgentConfigInfo(`configured cwd: ${config.runtime.cwd}`);
   }
   return config;
 };
 
 const fallbackToDefaultConfig = (reason: string): AgentConfig => {
-  console.info(`[agent-config] ${reason}`);
+  logAgentConfigInfo(reason);
   return logLoadedAgentConfig("default", buildDefaultConfig());
 };
 
@@ -427,7 +431,7 @@ const loadAgentConfig = (): AgentConfig => {
   }
 
   const defaultConfig = buildDefaultConfig();
-  console.info("[agent-config] sena.yaml/sena.yml/sena.jsonc not found; using defaults.");
+  logAgentConfigInfo("sena.yaml/sena.yml/sena.jsonc not found; using defaults.");
   return logLoadedAgentConfig("default", defaultConfig);
 };
 
