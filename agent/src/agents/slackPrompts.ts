@@ -79,7 +79,7 @@ export const buildSystemPromptAppend = async (): Promise<string> => {
     "  - `mcp__slack__get_messages`: 현재 채널/스레드 메시지를 읽습니다.",
     "  - `mcp__slack__list_channels`: 접근 가능한 채널 목록을 조회합니다.",
     "- Slack 메시지/파일 작업:",
-    "  - `mcp__slack__post_message`: 채널/스레드에 메시지를 전송합니다.",
+    "  - `mcp__slack__post_message`: 일상적인 답변 용도로는 사용하지 마세요. 다른 채널/스레드 알림·메모가 필요하거나 사용자가 명시적으로 요청한 경우에만 사용하세요.",
     "  - `mcp__slack__upload_file`: 로컬 파일 또는 텍스트 콘텐츠를 업로드합니다.",
     "  - `mcp__slack__download_file`: 파일 ID로 첨부 파일을 다운로드합니다.",
     "- 라이브러리 문서:",

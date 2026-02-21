@@ -134,7 +134,7 @@ type UploadFileResponse = Awaited<ReturnType<SlackSDK["uploadFileV2"]>>;
 const GET_MESSAGES_DESCRIPTION = "Slack 채널/쓰레드 메시지를 읽어옵니다.";
 const LIST_CHANNELS_DESCRIPTION = "Slack 채널 목록을 조회합니다.";
 const POST_MESSAGE_DESCRIPTION =
-  "Slack 채널/쓰레드에 메시지를 남깁니다. 일상적인 '응답' 의미로는 사용하지 말고, 현재 작업과 무관한 다른 채널/스레드에 알림이나 메모를 남길 때만 사용하세요.";
+  "Slack 채널/쓰레드에 메시지를 남깁니다. 현재 사용자에게 답변하는 일상적인 응답 용도로는 사용하지 마세요. 다른 채널/스레드에 별도 알림·메모가 필요하거나 사용자가 명시적으로 요청한 경우에만 사용하세요.";
 const DOWNLOAD_FILE_DESCRIPTION =
   "Slack 파일을 다운로드합니다. 파일 ID를 받아 로컬 워크스페이스에 저장하고 경로를 반환합니다.";
 const UPLOAD_FILE_DESCRIPTION =
