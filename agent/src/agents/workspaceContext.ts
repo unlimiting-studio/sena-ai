@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-import { getAgentOpsConfig, type AgentOpsConfig } from "../agentConfig.ts";
+import { getAgentHeartbeat, getAgentOpsConfig, type AgentOpsConfig } from "../agentConfig.ts";
 
 const FILE_MISSING_MARKER_PREFIX = "[파일 누락]";
 const FILE_TRUNCATED_MARKER_PREFIX = "[내용 잘림]";
@@ -317,10 +317,14 @@ export const loadWorkspaceContext = async (
   const agentOps = options?.agentOps ?? getAgentOpsConfig();
   const contextBaseDir = options?.baseDir ?? options?.workspaceDir ?? process.cwd();
   const now = options?.now ?? new Date();
+  const includeHeartbeatInstruction = getAgentHeartbeat() !== null;
 
   const contextDirAbsolutePath = resolveContextDirAbsolutePath(contextBaseDir, agentOps.contextDir);
 
-  const contextFilePaths = uniquePaths([...agentOps.memory.includeFiles, agentOps.heartbeat.instructionFile]);
+  const contextFilePaths = uniquePaths([
+    ...agentOps.memory.includeFiles,
+    ...(includeHeartbeatInstruction ? [agentOps.heartbeat.instructionFile] : []),
+  ]);
   const contextFiles = await Promise.all(
     contextFilePaths.map((relativePath) =>
       readWorkspaceFile(contextDirAbsolutePath, relativePath, agentOps.memory.maxCharsPerFile),
@@ -331,35 +335,49 @@ export const loadWorkspaceContext = async (
   let heartbeatInstructionFile = contextFiles.find(
     (file) => normalizePathKey(file.relativePath) === heartbeatInstructionKey,
   );
-  if (!heartbeatInstructionFile) {
+  if (includeHeartbeatInstruction && !heartbeatInstructionFile) {
     heartbeatInstructionFile = await readWorkspaceFile(
       contextDirAbsolutePath,
       agentOps.heartbeat.instructionFile,
       agentOps.memory.maxCharsPerFile,
     );
   }
+  if (!heartbeatInstructionFile) {
+    heartbeatInstructionFile = {
+      relativePath: agentOps.heartbeat.instructionFile,
+      absolutePath: resolveContextFileAbsolutePath(contextDirAbsolutePath, agentOps.heartbeat.instructionFile),
+      content: "",
+      rawContent: "",
+      missing: false,
+      truncated: false,
+    };
+  }
 
   let memoryLongTermFile: WorkspaceContextFile | null = null;
   let memoryDailyFiles: WorkspaceContextFile[] = [];
   if (agentOps.memory.enabled) {
-    memoryLongTermFile = await readWorkspaceFile(
+    const candidateMemoryLongTermFile = await readWorkspaceFile(
       contextDirAbsolutePath,
       agentOps.memory.longTermFile,
       agentOps.memory.maxCharsPerFile,
     );
+    memoryLongTermFile = candidateMemoryLongTermFile.missing ? null : candidateMemoryLongTermFile;
 
     const dailyPaths = buildRecentDailyMemoryPaths(agentOps.memory.dailyDir, agentOps.memory.recentDays, now);
-    memoryDailyFiles = await Promise.all(
+    const candidateDailyFiles = await Promise.all(
       dailyPaths.map((relativePath) =>
         readWorkspaceFile(contextDirAbsolutePath, relativePath, agentOps.memory.maxCharsPerFile),
       ),
     );
+    memoryDailyFiles = candidateDailyFiles.filter((file) => !file.missing);
   }
 
   const files = mergeWorkspaceFiles(contextFiles, memoryLongTermFile, memoryDailyFiles);
-  const heartbeatInstructionEmpty = heartbeatInstructionFile.missing
-    ? true
-    : isHeartbeatInstructionEffectivelyEmpty(heartbeatInstructionFile.rawContent);
+  const heartbeatInstructionEmpty = includeHeartbeatInstruction
+    ? heartbeatInstructionFile.missing
+      ? true
+      : isHeartbeatInstructionEffectivelyEmpty(heartbeatInstructionFile.rawContent)
+    : true;
 
   logWorkspaceContextResolution({
     contextBaseDir,

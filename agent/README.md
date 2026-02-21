@@ -45,8 +45,8 @@ pnpm dev
 
 - `runtime.mode`에 `claude` 또는 `codex`를 넣어 기본 런타임 모드를 설정할 수 있습니다.
 - `runtime.model`로 기본 모델을 설정할 수 있습니다.
-- `runtime.workspaceDir`로 에이전트 기본 작업 디렉토리를 설정할 수 있습니다. (`~` 지원)
-- `runtime.workspaceDir`는 `sena.yaml` 값이 기준이며 환경 변수로 덮어쓰지 않습니다.
+- `runtime.cwd`로 에이전트 기본 작업 디렉토리를 설정할 수 있습니다. (`~` 지원)
+- `runtime.cwd`를 비우면 `sena.yaml`(또는 `sena.yml`/`sena.jsonc`)이 위치한 디렉토리가 기본값으로 사용됩니다.
 - `runtime.mode`, `runtime.model`은 동일 값이 환경 변수(`AGENT_RUNTIME_MODE`, `AGENT_MODEL`)에 있으면 환경 변수가 우선합니다.
 
 ## `sena.yaml` 스케줄 설정(옵셔널)
