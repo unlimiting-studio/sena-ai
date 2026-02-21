@@ -3,6 +3,7 @@ import { isRecord } from "./object.ts";
 
 const cachedUserNames = new Map<string, string | null>();
 const inflightUserNameRequests = new Map<string, Promise<string | null>>();
+const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]+$/;
 
 const toNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") {
@@ -74,6 +75,10 @@ export const formatSlackUserReference = (userId: string, userName: string | null
   }
 
   const normalizedUserName = userName?.trim() ?? "";
+  if (!SLACK_USER_ID_PATTERN.test(normalizedUserId)) {
+    return normalizedUserName.length > 0 ? `${normalizedUserId}(${normalizedUserName})` : normalizedUserId;
+  }
+
   if (normalizedUserName.length === 0) {
     return `<@${normalizedUserId}>`;
   }
