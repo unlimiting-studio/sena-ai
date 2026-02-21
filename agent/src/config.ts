@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { config as loadDotenv } from "dotenv";
@@ -54,9 +53,10 @@ const expandHomePath = (candidatePath: string): string => {
 };
 
 const resolveWorkspaceDir = (value: string | null): string => {
+  const configBaseDir = getAgentConfigBaseDir();
   const trimmed = value?.trim() ?? "";
   if (trimmed.length === 0) {
-    return path.join(fs.realpathSync(os.tmpdir()), "sena-workspaces");
+    return configBaseDir;
   }
 
   const expanded = expandHomePath(trimmed);
