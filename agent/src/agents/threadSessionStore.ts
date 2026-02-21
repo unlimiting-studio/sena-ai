@@ -3,7 +3,9 @@ import * as path from "node:path";
 
 import { z } from "zod";
 
-const STORE_VERSION = 1;
+// Bump when runtime-level tool wiring/behavior changes and old resumed sessions
+// may keep stale capabilities.
+const STORE_VERSION = 2;
 
 const PersistedThreadSessionSchema = z.object({
   sessionId: z.string().min(1),
