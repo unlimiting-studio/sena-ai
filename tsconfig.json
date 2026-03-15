@@ -20,6 +20,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/hooks" },
-    { "path": "packages/runtime-claude" }
+    { "path": "packages/runtime-claude" },
+    { "path": "packages/runtime-codex" }
   ]
 }

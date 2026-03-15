@@ -47,6 +47,16 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/runtime-codex:
+    dependencies:
+      '@sena-ai/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
 packages:
 
   '@anthropic-ai/claude-agent-sdk@0.2.76':
