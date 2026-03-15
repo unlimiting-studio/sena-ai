@@ -12,7 +12,7 @@ export type WorkerOptions = {
  * Creates and starts a Worker that runs connectors, hooks, runtime, and scheduler.
  */
 export function createWorker(options: WorkerOptions) {
-  const { config, port = parseInt(process.env.SENA_WORKER_PORT ?? '3101', 10) } = options
+  const { config, port = parseInt(process.env.SENA_WORKER_PORT ?? '0', 10) } = options
   let server: Server | null = null
 
   const engine = createTurnEngine({
@@ -106,9 +106,10 @@ export function createWorker(options: WorkerOptions) {
     })
 
     server.listen(port, () => {
-      // Notify orchestrator that we're ready
+      const actualPort = (server!.address() as any)?.port ?? port
+      // Notify orchestrator that we're ready, include actual port (important when port=0)
       if (process.send) {
-        process.send({ type: 'ready' })
+        process.send({ type: 'ready', port: actualPort })
       }
     })
   }
