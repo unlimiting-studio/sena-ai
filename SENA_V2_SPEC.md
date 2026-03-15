@@ -500,14 +500,40 @@ codexRuntime({
 - **스레드 고급 조작**: `thread/fork`, `thread/rollback`, `thread/compact` 등 대화 히스토리 관리
 - **MCP 네이티브**: `mcpToolCall` 아이템 타입으로 외부 도구 통합
 
-**프로토콜 상세 (통합 테스트로 검증된 사항):**
+**프로토콜 상세 (`codex app-server generate-ts` 공식 스키마 기준):**
 
-`initialize` 단계에서 반드시 `experimentalApi: true` capability를 선언해야 `persistExtendedHistory` 기능을 사용할 수 있다.
+`initialize` 단계에서 반드시 `experimentalApi: true` capability를 선언해야 `persistExtendedHistory` 기능을 사용할 수 있다. `InitializeCapabilities`에는 `optOutNotificationMethods` 필드도 있어 특정 알림을 억제할 수 있다.
 
 `thread/start` 응답은 `{ thread: { id: string } }` 형태이다 (플랫 `{ threadId }` 아님).
 `turn/start` 응답은 `{ turn: { id: string } }` 형태이다.
 
-sandbox mode 값은 kebab-case 그대로 전달한다: `'read-only'`, `'workspace-write'`, `'danger-full-access'`.
+**SandboxPolicy**는 tagged union 객체이다 (단순 문자열이 아님):
+- `{ type: "danger-full-access" }`
+- `{ type: "read-only", access?, network_access? }`
+- `{ type: "workspace-write", writable_roots?, read_only_access?, network_access, exclude_tmpdir_env_var, exclude_slash_tmp }`
+- `{ type: "external-sandbox", network_access }`
+
+**ServerNotification 메서드 (주요):**
+- `"error"` — `ErrorNotification { error: TurnError, willRetry, threadId, turnId }`
+- `"turn/completed"` — `TurnCompletedNotification { threadId, turn: Turn }`
+- `"turn/started"`, `"item/started"`, `"item/completed"`
+- `"item/agentMessage/delta"` — `AgentMessageDeltaNotification { threadId, turnId, itemId, delta }`
+- `"item/plan/delta"`, `"item/reasoning/textDelta"`, `"item/commandExecution/outputDelta"`, `"item/fileChange/outputDelta"`
+- 기타 44종 이상 (`codex app-server generate-ts`로 전체 확인 가능)
+
+**ServerRequest 메서드 (승인/입력 요청):**
+- `"item/commandExecution/requestApproval"` → 응답: `CommandExecutionApprovalDecision` (`"accept" | "acceptForSession" | "decline" | "cancel" | ...`)
+- `"item/fileChange/requestApproval"` → 응답: `FileChangeApprovalDecision` (`"accept" | "acceptForSession" | "decline" | "cancel"`)
+- `"item/permissions/requestApproval"`, `"applyPatchApproval"`, `"execCommandApproval"`, `"item/tool/requestUserInput"`, `"item/tool/call"`
+
+**Turn 구조:** `{ id, items: ThreadItem[], status: TurnStatus, error: TurnError | null }`
+- `TurnStatus`: `"completed" | "interrupted" | "failed" | "inProgress"`
+- `items`는 `thread/resume` 또는 `thread/fork`에서만 채워지며, 일반 `turn/completed`에서는 비어있다.
+- 따라서 `item/agentMessage/delta`로 누적한 텍스트를 fallback으로 사용해야 한다.
+
+**ThreadItem 종류 (공식):** userMessage, agentMessage, plan, reasoning, commandExecution, fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall, webSearch, imageView, imageGeneration, enteredReviewMode, exitedReviewMode, contextCompaction
+
+**레거시 호환:** 실제 테스트에서 `turn/ended`, `codex/event/error` 같은 비공식 메서드도 관찰되었다. 공식 스키마에는 없지만 방어적 fallback으로 처리한다.
 
 **내부 동작:**
 1. `codex app-server` 프로세스를 stdio로 spawn
@@ -516,9 +542,9 @@ sandbox mode 값은 kebab-case 그대로 전달한다: `'read-only'`, `'workspac
 4. `turn/start` → 메시지 전송, 서버가 노티피케이션 스트리밍 시작
 5. `item/agentMessage/delta` → `RuntimeEvent.progress.delta`로 변환 (토큰 누적)
 6. `item/started`/`item/completed` (commandExecution/fileChange) → `RuntimeEvent.tool.start/end`로 변환
-7. `turn/completed` 또는 `turn/ended` → `RuntimeEvent.result`로 변환. 단, `turn.items`가 비어있을 수 있으므로 누적된 `progress.delta` 텍스트를 fallback으로 사용한다.
-8. `codex/event/error` → `RuntimeEvent.error`로 변환 (주의: Node.js의 `'error'` EventEmitter 이벤트와 충돌하므로 `'notification'` 이벤트로 통합 처리)
-9. 승인 요청(`requestApproval`) → `approvalPolicy`에 따라 자동 처리
+7. `turn/completed` → `RuntimeEvent.result`로 변환. `turn.items`가 비어있을 수 있으므로 누적된 `progress.delta` 텍스트를 fallback으로 사용
+8. `error` → `RuntimeEvent.error`로 변환 (Node.js의 `'error'` EventEmitter 이벤트와 충돌 방지를 위해 `'notification'` 이벤트로 통합 처리)
+9. 승인 요청 → 메서드별 명시적 매칭으로 `approvalPolicy`에 따라 자동 처리
 
 **세션 매핑:** Codex의 `thread.id`를 Sena의 `sessionId`로 사용한다. `SessionStore`에 `conversationId → threadId` 매핑을 저장하고, 이후 턴에서 `thread/resume`로 대화를 이어간다.
 

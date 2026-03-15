@@ -108,7 +108,7 @@ export class CodexAppServerClient extends EventEmitter {
     model?: string
     cwd?: string
     approvalPolicy?: string
-    sandbox?: string
+    sandbox?: Record<string, unknown>
     baseInstructions?: string
   }): Promise<{ threadId: string }> {
     const result = await this.request('thread/start', {
