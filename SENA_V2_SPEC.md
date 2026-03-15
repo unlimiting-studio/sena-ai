@@ -11,6 +11,7 @@
 3. **런타임 교체 가능**: Claude Code, Codex 등 런타임을 설정 한 줄로 교체할 수 있다. 런타임마다 다른 SDK 특성은 내부에 캡슐화된다.
 4. **TypeScript 설정**: `sena.config.ts`가 설정의 단일 진실 원천이다. 타입 안전성, IDE 자동완성, 조건 로직을 지원한다.
 5. **스케줄 핫리로드**: 스케줄 설정은 서버 재시작 없이 반영된다.
+6. **모노레포 패키지 구조**: 기능별로 독립 패키지를 분리하여, 사용자가 필요한 것만 설치한다. `@sena-ai` npm 스코프를 사용한다.
 
 ---
 
@@ -25,6 +26,54 @@
 | **Runtime** | LLM 실행 엔진 추상화 | Claude Agent SDK, Codex SDK |
 | **Tool Port** | 에이전트가 사용할 수 있는 MCP 도구 | Slack MCP, Obsidian MCP, 외부 MCP |
 | **Scheduler** | 시간 기반 트리거로 턴을 자동 실행 | cron, heartbeat |
+
+## 모노레포 패키지 구조
+
+`@sena-ai` npm 스코프 아래 기능별 패키지로 분리한다.
+
+| 패키지 | 역할 | 주요 export |
+|--------|------|-------------|
+| `@sena-ai/core` | 프레임워크 코어. 설정, 타입, 턴 엔진 | `defineConfig`, `env`, `createAgent`, `TurnEngine` |
+| `@sena-ai/hooks` | 기본 제공 훅 | `fileContext`, `traceLogger`, `cronSchedule`, `heartbeat` |
+| `@sena-ai/tools` | 외부 MCP 서버 연결 헬퍼 | `mcpServer` |
+| `@sena-ai/tools-slack` | Slack MCP 도구 | `slackTools` |
+| `@sena-ai/tools-obsidian` | Obsidian MCP 도구 | `obsidianTools` |
+| `@sena-ai/connector-slack` | Slack 커넥터 | `slackConnector` |
+| `@sena-ai/runtime-claude` | Claude Agent SDK 런타임 | `claudeRuntime` |
+| `@sena-ai/runtime-codex` | Codex SDK 런타임 | `codexRuntime` |
+
+### 의존 관계
+
+```
+@sena-ai/core (독립, 외부 의존 최소)
+  ↑
+  ├── @sena-ai/hooks (core의 타입만 사용)
+  ├── @sena-ai/tools (core의 타입만 사용)
+  ├── @sena-ai/tools-slack (core + @slack/web-api)
+  ├── @sena-ai/tools-obsidian (core + nano/couchdb)
+  ├── @sena-ai/connector-slack (core + @slack/web-api)
+  ├── @sena-ai/runtime-claude (core + @anthropic-ai/claude-agent-sdk)
+  └── @sena-ai/runtime-codex (core + @openai/codex-sdk)
+```
+
+### 디렉터리 레이아웃
+
+```
+sena/
+├── packages/
+│   ├── core/
+│   ├── hooks/
+│   ├── tools/
+│   ├── tools-slack/
+│   ├── tools-obsidian/
+│   ├── connector-slack/
+│   ├── runtime-claude/
+│   └── runtime-codex/
+├── docs/
+├── package.json          (워크스페이스 루트)
+├── pnpm-workspace.yaml
+└── tsconfig.json         (프로젝트 레퍼런스)
+```
 
 ## 실행 모델
 
@@ -65,13 +114,13 @@ sena.config.ts
 ## 전체 예시
 
 ```ts
-import { defineConfig, env } from 'sena'
-import { claudeRuntime } from 'sena/runtimes/claude'
-import { slackConnector } from 'sena/connectors/slack'
-import { slackTools } from 'sena/tools/slack'
-import { obsidianTools } from 'sena/tools/obsidian'
-import { mcpServer } from 'sena/tools'
-import { fileContext, traceLogger, cronSchedule, heartbeat } from 'sena/hooks'
+import { defineConfig, env } from '@sena-ai/core'
+import { claudeRuntime } from '@sena-ai/runtime-claude'
+import { slackConnector } from '@sena-ai/connector-slack'
+import { slackTools } from '@sena-ai/tools-slack'
+import { obsidianTools } from '@sena-ai/tools-obsidian'
+import { mcpServer } from '@sena-ai/tools'
+import { fileContext, traceLogger, cronSchedule, heartbeat } from '@sena-ai/hooks'
 
 export default defineConfig({
   name: '숙희',
@@ -598,6 +647,10 @@ test('시스템 프롬프트에 soul과 memory가 포함된다', async () => {
 ## 커넥터 없이 로컬 실행
 
 ```ts
+import { createAgent, env } from '@sena-ai/core'
+import { claudeRuntime } from '@sena-ai/runtime-claude'
+import { fileContext } from '@sena-ai/hooks'
+
 const agent = await createAgent({
   name: 'test',
   runtime: claudeRuntime({ model: 'claude-haiku-4-5', apiKey: env('ANTHROPIC_API_KEY') }),
