@@ -52,13 +52,11 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         const event = mapCodexNotification(msg.method, msg.params)
         if (event) pushEvent(event)
 
-        // Official: 'turn/completed'. Legacy/observed: 'turn/ended'.
-        if (msg.method === 'turn/completed' || msg.method === 'turn/ended') {
+        if (msg.method === 'turn/completed') {
           turnDone = true
           resolveWait?.()
         }
-        // Official: 'error'. Legacy/observed: 'codex/event/error'.
-        if (msg.method === 'error' || msg.method === 'codex/event/error') {
+        if (msg.method === 'error') {
           turnDone = true
           resolveWait?.()
         }
