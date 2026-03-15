@@ -15,7 +15,7 @@ export type WorkerInfo = {
 }
 
 export function createOrchestrator(options: OrchestratorOptions) {
-  const { port, workerScript, workerPort = port + 1 } = options
+  const { port, workerScript, workerPort = 0 } = options
 
   let currentWorker: WorkerInfo | null = null
   let generation = 0
@@ -47,6 +47,10 @@ export function createOrchestrator(options: OrchestratorOptions) {
     child.on('message', (msg: any) => {
       if (msg?.type === 'ready') {
         worker.ready = true
+        // Worker reports actual port (important when spawned with port=0)
+        if (typeof msg.port === 'number') {
+          worker.port = msg.port
+        }
       }
     })
 
