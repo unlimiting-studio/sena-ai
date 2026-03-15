@@ -9,13 +9,15 @@
     }
   },
   "files": ["dist"],
+  "bin": {
+    "sena-obsidian-mcp": "./dist/mcp-server.js"
+  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch"
   },
   "dependencies": {
-    "@sena-ai/core": "workspace:*",
-    "nano": "^10.0.0"
+    "@sena-ai/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.0"
