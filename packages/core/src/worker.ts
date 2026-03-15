@@ -1,11 +1,22 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { ResolvedSenaConfig } from './config.js'
-import type { Connector, HttpServer, InboundEvent, TurnEngine } from './types.js'
+import type { Connector, HttpServer, InboundEvent, SessionStore, TurnEngine } from './types.js'
 import { createTurnEngine } from './engine.js'
 
 export type WorkerOptions = {
   config: ResolvedSenaConfig
   port?: number
+  sessionStore?: SessionStore
+}
+
+/** Simple in-memory session store (conversationId → SDK sessionId) */
+function createInMemorySessionStore(): SessionStore {
+  const map = new Map<string, string>()
+  return {
+    async get(conversationId) { return map.get(conversationId) ?? null },
+    async set(conversationId, sessionId) { map.set(conversationId, sessionId) },
+    async delete(conversationId) { map.delete(conversationId) },
+  }
 }
 
 /**
@@ -13,6 +24,7 @@ export type WorkerOptions = {
  */
 export function createWorker(options: WorkerOptions) {
   const { config, port = parseInt(process.env.SENA_WORKER_PORT ?? '0', 10) } = options
+  const sessionStore = options.sessionStore ?? createInMemorySessionStore()
   let server: Server | null = null
 
   const engine = createTurnEngine({
@@ -42,9 +54,16 @@ export function createWorker(options: WorkerOptions) {
       })
 
       try {
+        // Look up existing session for this conversation
+        const existingSessionId = await sessionStore.get(event.conversationId)
+        if (existingSessionId) {
+          console.log(`[worker] resuming session ${existingSessionId.slice(0, 8)} for ${event.conversationId}`)
+        }
+
         const trace = await engine.processTurn({
           input: event.text,
           trigger: 'connector',
+          sessionId: existingSessionId,
           connector: {
             name: event.connector,
             conversationId: event.conversationId,
@@ -59,6 +78,12 @@ export function createWorker(options: WorkerOptions) {
             }
           } : undefined,
         })
+
+        // Save session ID for future turns in this conversation
+        if (trace.result?.sessionId) {
+          await sessionStore.set(event.conversationId, trace.result.sessionId)
+          console.log(`[worker] saved session ${trace.result.sessionId.slice(0, 8)} for ${event.conversationId}`)
+        }
 
         // Send result or error to the connector
         if (trace.result) {
