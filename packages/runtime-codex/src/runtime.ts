@@ -52,24 +52,35 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         const event = mapCodexNotification(msg.method, msg.params)
         if (event) pushEvent(event)
 
+        // Official: 'turn/completed'. Legacy/observed: 'turn/ended'.
         if (msg.method === 'turn/completed' || msg.method === 'turn/ended') {
           turnDone = true
           resolveWait?.()
         }
-        // Codex error events also terminate the turn
-        if (msg.method === 'codex/event/error') {
+        // Official: 'error'. Legacy/observed: 'codex/event/error'.
+        if (msg.method === 'error' || msg.method === 'codex/event/error') {
           turnDone = true
           resolveWait?.()
         }
       })
 
+      // Server requests requiring client response (approval, input, etc.)
       client.on('server-request', (msg: { id: number; method: string; params: unknown }) => {
-        if (msg.method.includes('requestApproval')) {
-          if (approvalPolicy === 'never') {
-            client.respond(msg.id, { decision: 'acceptForSession' })
-          } else {
-            client.respond(msg.id, { decision: 'accept' })
+        switch (msg.method) {
+          // Official approval request methods per ServerRequest.ts
+          case 'item/commandExecution/requestApproval':
+          case 'item/fileChange/requestApproval':
+          case 'item/permissions/requestApproval':
+          case 'applyPatchApproval':
+          case 'execCommandApproval': {
+            const decision = approvalPolicy === 'never' ? 'acceptForSession' : 'accept'
+            client.respond(msg.id, { decision })
+            break
           }
+          default:
+            // Unknown server request — accept to avoid blocking
+            client.respond(msg.id, { decision: 'accept' })
+            break
         }
       })
 
@@ -144,8 +155,20 @@ function buildBaseInstructions(fragments: ContextFragment[]): string {
   return parts.join('\n\n')
 }
 
-function sandboxModeToCodex(mode: string): string {
-  // Codex app-server expects the original kebab-case format as-is
-  const valid = ['read-only', 'workspace-write', 'danger-full-access']
-  return valid.includes(mode) ? mode : 'workspace-write'
+/**
+ * Convert a simple sandbox mode string to the tagged-union SandboxPolicy
+ * format required by the Codex App Server protocol.
+ * @see SandboxPolicy.ts from `codex app-server generate-ts`
+ */
+function sandboxModeToCodex(mode: string): Record<string, unknown> {
+  switch (mode) {
+    case 'danger-full-access':
+      return { type: 'danger-full-access' }
+    case 'read-only':
+      return { type: 'read-only' }
+    case 'workspace-write':
+      return { type: 'workspace-write', network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false }
+    default:
+      return { type: 'workspace-write', network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false }
+  }
 }
