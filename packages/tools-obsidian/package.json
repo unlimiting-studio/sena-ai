@@ -1,0 +1,23 @@
+{
+  "name": "@sena-ai/tools-obsidian",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch"
+  },
+  "dependencies": {
+    "@sena-ai/core": "workspace:*",
+    "nano": "^10.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
