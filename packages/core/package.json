@@ -1,0 +1,19 @@
+{
+  "name": "@sena-ai/core",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
