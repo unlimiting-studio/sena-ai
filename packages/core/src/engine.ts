@@ -44,6 +44,8 @@ export function createTurnEngine(config: TurnEngineConfig) {
     const trigger = options.trigger ?? 'programmatic'
     const startTime = performance.now()
 
+    console.log(`[engine] turn ${turnId.slice(0, 8)} start — trigger:${trigger}, input:"${options.input.slice(0, 80)}"`)
+
     const context: TurnContext = {
       turnId,
       agentName: name,
@@ -96,6 +98,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
       context.sessionId = runtimeResult.sessionId
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
+      console.error(`[engine] turn ${turnId.slice(0, 8)} error:`, error)
 
       for (const hook of hooks.onError ?? []) {
         const hookStart = performance.now()
@@ -126,6 +129,9 @@ export function createTurnEngine(config: TurnEngineConfig) {
         })
       }
     }
+
+    const duration = Math.round(performance.now() - startTime)
+    console.log(`[engine] turn ${turnId.slice(0, 8)} done — ${duration}ms, result:${result ? result.text.length + 'ch' : 'null'}, error:${error ?? 'none'}`)
 
     return {
       turnId,

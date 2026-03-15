@@ -23,20 +23,64 @@ export function createWorker(options: WorkerOptions) {
   })
 
   // Build a TurnEngine adapter that connectors use
+  const connectorMap = new Map<string, Connector>()
+  for (const c of config.connectors ?? []) {
+    connectorMap.set(c.name, c)
+  }
+
   const turnEngine: TurnEngine = {
     async submitTurn(event: InboundEvent): Promise<void> {
-      await engine.processTurn({
-        input: event.text,
-        trigger: 'connector',
-        connector: {
-          name: event.connector,
-          conversationId: event.conversationId,
-          userId: event.userId,
-          userName: event.userName,
-          files: event.files,
-          raw: event.raw,
-        },
+      // Create output for the originating connector
+      const connector = connectorMap.get(event.connector)
+      if (!connector) {
+        console.error(`[worker] connector not found: "${event.connector}" (registered: ${[...connectorMap.keys()].join(', ')})`)
+        return
+      }
+      const output = connector.createOutput({
+        conversationId: event.conversationId,
+        connector: event.connector,
       })
+
+      try {
+        const trace = await engine.processTurn({
+          input: event.text,
+          trigger: 'connector',
+          connector: {
+            name: event.connector,
+            conversationId: event.conversationId,
+            userId: event.userId,
+            userName: event.userName,
+            files: event.files,
+            raw: event.raw,
+          },
+          onEvent: output ? (evt) => {
+            if (evt.type === 'progress' || evt.type === 'progress.delta') {
+              output.showProgress(evt.text).catch(() => {})
+            }
+          } : undefined,
+        })
+
+        // Send result or error to the connector
+        if (trace.result) {
+          console.log(`[worker] sending result to ${event.connector} (${trace.result.text.length}ch)`)
+          await output.sendResult(trace.result.text)
+          console.log(`[worker] result sent`)
+        } else if (trace.error) {
+          console.log(`[worker] sending error to ${event.connector}: ${trace.error}`)
+          await output.sendError(trace.error)
+        } else {
+          console.warn(`[worker] turn finished but no result and no error`)
+        }
+      } catch (err) {
+        console.error(`[worker] submitTurn error:`, err)
+        try {
+          await output.sendError(err instanceof Error ? err.message : String(err))
+        } catch (sendErr) {
+          console.error(`[worker] sendError also failed:`, sendErr)
+        }
+      } finally {
+        await output.dispose()
+      }
     },
   }
 
