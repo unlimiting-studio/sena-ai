@@ -1,0 +1,17 @@
+{
+  "name": "sena",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  }
+}
