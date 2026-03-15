@@ -35,7 +35,7 @@ export class CodexAppServerClient extends EventEmitter {
     this.rl = createInterface({ input: this.child.stdout! })
     this.rl.on('line', (line) => this.onLine(line))
 
-    this.child.on('error', (err) => this.emit('error', err))
+    this.child.on('error', (err) => this.emit('spawn-error', err))
     this.child.on('exit', (code) => this.emit('exit', code))
   }
 
@@ -68,7 +68,8 @@ export class CodexAppServerClient extends EventEmitter {
 
     // Server notification (no id)
     if (msg.method) {
-      this.emit(msg.method, msg.params)
+      // Avoid emitting raw method names that start with 'error' — Node.js
+      // treats unhandled 'error' events as fatal. Use 'notification' only.
       this.emit('notification', msg)
     }
   }
@@ -97,7 +98,7 @@ export class CodexAppServerClient extends EventEmitter {
   async initialize(clientName = 'sena-runtime', version = '0.1.0'): Promise<unknown> {
     const result = await this.request('initialize', {
       clientInfo: { name: clientName, version },
-      capabilities: { experimentalApi: false },
+      capabilities: { experimentalApi: true },
     })
     this.notify('initialized')
     return result
@@ -110,11 +111,11 @@ export class CodexAppServerClient extends EventEmitter {
     sandbox?: string
     baseInstructions?: string
   }): Promise<{ threadId: string }> {
-    return this.request('thread/start', {
+    const result = await this.request('thread/start', {
       ...params,
-      experimentalRawEvents: false,
       persistExtendedHistory: true,
-    }) as Promise<{ threadId: string }>
+    }) as { thread: { id: string } }
+    return { threadId: result.thread.id }
   }
 
   async threadResume(threadId: string, params: object = {}): Promise<unknown> {
@@ -126,13 +127,14 @@ export class CodexAppServerClient extends EventEmitter {
     })
   }
 
-  async turnStart(threadId: string, text: string, params: object = {}): Promise<unknown> {
-    return this.request('turn/start', {
+  async turnStart(threadId: string, text: string, params: object = {}): Promise<{ turnId: string }> {
+    const result = await this.request('turn/start', {
       threadId,
       input: [{ type: 'text', text }],
       persistExtendedHistory: true,
       ...params,
-    })
+    }) as { turn: { id: string } }
+    return { turnId: result.turn.id }
   }
 
   close(): void {

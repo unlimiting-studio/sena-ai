@@ -39,7 +39,9 @@ export function mapCodexNotification(method: string, params: any): RuntimeEvent 
       return null
     }
 
-    case 'turn/completed': {
+    // Codex app-server sends both turn/completed and turn/ended
+    case 'turn/completed':
+    case 'turn/ended': {
       const turn = params.turn
       if (!turn) return null
       if (turn.status === 'completed') {
@@ -57,8 +59,9 @@ export function mapCodexNotification(method: string, params: any): RuntimeEvent 
       return { type: 'error', message: 'Turn interrupted' }
     }
 
-    case 'error':
-      return { type: 'error', message: params.error?.message ?? 'Unknown error' }
+    // Codex event-style error notifications
+    case 'codex/event/error':
+      return { type: 'error', message: params.msg?.message ?? params.error?.message ?? 'Unknown error' }
 
     default:
       return null
