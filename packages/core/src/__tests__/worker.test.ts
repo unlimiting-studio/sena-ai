@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createWorker } from '../worker.js'
 import { defineConfig } from '../config.js'
-import type { Runtime, RuntimeEvent } from '../types.js'
+import type { Runtime, RuntimeEvent, Connector, HttpServer, TurnEngine, InboundEvent } from '../types.js'
 
 const mockRuntime: Runtime = {
   name: 'mock',
@@ -11,15 +11,165 @@ const mockRuntime: Runtime = {
   },
 }
 
-describe('createWorker', () => {
-  it('creates a worker with engine', () => {
-    const config = defineConfig({
-      name: 'test-worker',
-      runtime: mockRuntime,
-    })
+// Helper to make HTTP requests to the worker
+async function request(port: number, path: string, options: { method?: string; body?: unknown } = {}) {
+  const { method = 'GET', body } = options
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const text = await res.text()
+  let json: unknown = undefined
+  try { json = JSON.parse(text) } catch {}
+  return { status: res.status, text, json }
+}
 
+describe('createWorker', () => {
+  let stopFn: (() => Promise<void>) | null = null
+  let originalProcessSend: typeof process.send
+
+  beforeEach(() => {
+    // Stub process.send to prevent vitest IPC conflicts
+    originalProcessSend = process.send!
+    process.send = (() => true) as any
+  })
+
+  afterEach(async () => {
+    if (stopFn) {
+      await stopFn()
+      stopFn = null
+    }
+    process.send = originalProcessSend
+  })
+
+  it('creates a worker with engine', () => {
+    const config = defineConfig({ name: 'test-worker', runtime: mockRuntime })
     const worker = createWorker({ config, port: 0 })
     expect(worker).toBeDefined()
     expect(worker.engine).toBeDefined()
+  })
+
+  it('serves /health endpoint', async () => {
+    const config = defineConfig({ name: 'test-worker', runtime: mockRuntime })
+    const port = 19876 + Math.floor(Math.random() * 1000)
+    const worker = createWorker({ config, port })
+    await worker.start()
+    stopFn = () => worker.stop()
+
+    // Wait for server to be ready
+    await new Promise(r => setTimeout(r, 100))
+
+    const res = await request(port, '/health')
+    expect(res.status).toBe(200)
+    expect(res.text).toBe('ok')
+  })
+
+  it('returns 404 for unknown routes', async () => {
+    const config = defineConfig({ name: 'test-worker', runtime: mockRuntime })
+    const port = 19876 + Math.floor(Math.random() * 1000)
+    const worker = createWorker({ config, port })
+    await worker.start()
+    stopFn = () => worker.stop()
+
+    await new Promise(r => setTimeout(r, 100))
+
+    const res = await request(port, '/nonexistent')
+    expect(res.status).toBe(404)
+  })
+
+  it('registers connector routes and handles POST', async () => {
+    const receivedEvents: InboundEvent[] = []
+
+    const testConnector: Connector = {
+      name: 'test-connector',
+      registerRoutes(server: HttpServer, engine: TurnEngine) {
+        server.post('/test/events', (req: any, res: any) => {
+          const body = req.body
+          // Simulate processing
+          engine.submitTurn({
+            connector: 'test-connector',
+            conversationId: body.conversationId ?? 'conv-1',
+            userId: body.userId ?? 'user-1',
+            userName: body.userName ?? 'testuser',
+            text: body.text ?? 'hello',
+            raw: body,
+          }).then(() => {
+            res.status(200).json({ ok: true })
+          }).catch((err: Error) => {
+            res.status(500).json({ error: err.message })
+          })
+        })
+      },
+      createOutput() {
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const config = defineConfig({
+      name: 'test-worker',
+      runtime: mockRuntime,
+      connectors: [testConnector],
+    })
+    const port = 19876 + Math.floor(Math.random() * 1000)
+    const worker = createWorker({ config, port })
+    await worker.start()
+    stopFn = () => worker.stop()
+
+    await new Promise(r => setTimeout(r, 100))
+
+    const res = await request(port, '/test/events', {
+      method: 'POST',
+      body: { text: 'test message', conversationId: 'c1', userId: 'u1', userName: 'tester' },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.json).toEqual({ ok: true })
+  })
+
+  it('parses POST body as JSON', async () => {
+    let receivedBody: unknown = null
+
+    const bodyCapture: Connector = {
+      name: 'body-capture',
+      registerRoutes(server: HttpServer) {
+        server.post('/capture', (req: any, res: any) => {
+          receivedBody = req.body
+          res.status(200).json({ captured: true })
+        })
+      },
+      createOutput() {
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const config = defineConfig({
+      name: 'test-worker',
+      runtime: mockRuntime,
+      connectors: [bodyCapture],
+    })
+    const port = 19876 + Math.floor(Math.random() * 1000)
+    const worker = createWorker({ config, port })
+    await worker.start()
+    stopFn = () => worker.stop()
+
+    await new Promise(r => setTimeout(r, 100))
+
+    await request(port, '/capture', {
+      method: 'POST',
+      body: { key: 'value', nested: { a: 1 } },
+    })
+
+    expect(receivedBody).toEqual({ key: 'value', nested: { a: 1 } })
   })
 })

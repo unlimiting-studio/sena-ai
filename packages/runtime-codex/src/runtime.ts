@@ -16,7 +16,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
     model,
     apiKey,
     reasoningEffort = 'medium',
-    sandboxMode = 'workspace-write',
+    sandboxMode = 'danger-full-access',
     approvalPolicy = 'never',
     codexBin = 'codex',
   } = options
