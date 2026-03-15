@@ -21,6 +21,7 @@
     { "path": "packages/core" },
     { "path": "packages/hooks" },
     { "path": "packages/runtime-claude" },
-    { "path": "packages/runtime-codex" }
+    { "path": "packages/runtime-codex" },
+    { "path": "packages/tools" }
   ]
 }
