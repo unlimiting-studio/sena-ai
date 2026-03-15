@@ -6,37 +6,61 @@ export function mapCodexNotification(method: string, params: any): RuntimeEvent 
       return { type: 'progress.delta', text: params.delta ?? '' }
 
     case 'item/started': {
-      const itemType = params.item?.type ?? params.type
-      if (itemType === 'commandExecution' || itemType === 'fileChange') {
-        const toolName = itemType === 'commandExecution'
-          ? `shell:${params.item?.command ?? 'unknown'}`
-          : `file:${params.item?.path ?? 'unknown'}`
-        return { type: 'tool.start', toolName }
+      const item = params.item
+      const itemType = item?.type ?? params.type
+      switch (itemType) {
+        case 'commandExecution':
+          return { type: 'tool.start', toolName: `shell:${item?.command ?? 'unknown'}` }
+        case 'fileChange':
+          return { type: 'tool.start', toolName: `file:${item?.changes?.[0]?.path ?? 'unknown'}` }
+        case 'mcpToolCall':
+          return { type: 'tool.start', toolName: `mcp:${item?.server ?? 'unknown'}/${item?.tool ?? 'unknown'}` }
+        case 'dynamicToolCall':
+          return { type: 'tool.start', toolName: `tool:${item?.tool ?? 'unknown'}` }
+        default:
+          return null
       }
-      return null
     }
 
     case 'item/completed': {
       const item = params.item
       if (!item) return null
-      const itemType = item.type
-      if (itemType === 'commandExecution' || itemType === 'fileChange') {
-        const toolName = itemType === 'commandExecution'
-          ? `shell:${item.command ?? 'unknown'}`
-          : `file:${item.path ?? 'unknown'}`
-        const isError = item.exitCode !== undefined ? item.exitCode !== 0 : false
-        return { type: 'tool.end', toolName, isError }
-      }
-      if (itemType === 'agentMessage') {
-        const text = item.content
-          ?.filter((b: any) => b.type === 'text')
-          ?.map((b: any) => b.text)
-          ?.join('') ?? ''
-        if (text) {
-          return { type: 'progress', text }
+      switch (item.type) {
+        case 'commandExecution':
+          return {
+            type: 'tool.end',
+            toolName: `shell:${item.command ?? 'unknown'}`,
+            isError: item.exitCode != null ? item.exitCode !== 0 : false,
+          }
+        case 'fileChange':
+          return {
+            type: 'tool.end',
+            toolName: `file:${item.changes?.[0]?.path ?? 'unknown'}`,
+            isError: false,
+          }
+        case 'mcpToolCall':
+          return {
+            type: 'tool.end',
+            toolName: `mcp:${item.server ?? 'unknown'}/${item.tool ?? 'unknown'}`,
+            isError: item.error != null,
+          }
+        case 'dynamicToolCall':
+          return {
+            type: 'tool.end',
+            toolName: `tool:${item.tool ?? 'unknown'}`,
+            isError: item.success === false,
+          }
+        case 'agentMessage': {
+          const text = item.content
+            ?.filter((b: any) => b.type === 'text')
+            ?.map((b: any) => b.text)
+            ?.join('') ?? ''
+          if (text) return { type: 'progress', text }
+          return null
         }
+        default:
+          return null
       }
-      return null
     }
 
     case 'turn/completed': {
