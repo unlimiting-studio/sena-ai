@@ -19,6 +19,7 @@
   },
   "references": [
     { "path": "packages/core" },
-    { "path": "packages/hooks" }
+    { "path": "packages/hooks" },
+    { "path": "packages/runtime-claude" }
   ]
 }
