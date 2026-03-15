@@ -50,9 +50,9 @@ describe('mapCodexNotification', () => {
     expect(event).toEqual({ type: 'error', message: 'Context window exceeded' })
   })
 
-  it('maps error notification to error event', () => {
-    const event = mapCodexNotification('error', {
-      error: { message: 'Server crashed' },
+  it('maps codex/event/error notification to error event', () => {
+    const event = mapCodexNotification('codex/event/error', {
+      msg: { message: 'Server crashed' },
     })
     expect(event).toEqual({ type: 'error', message: 'Server crashed' })
   })

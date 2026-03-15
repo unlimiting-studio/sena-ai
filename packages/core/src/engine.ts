@@ -196,6 +196,7 @@ async function executeRuntime(
   })
 
   let resultText = ''
+  let progressText = '' // Accumulate progress/delta as fallback for result
   let resultSessionId: string | null = sessionId
   const toolCalls: { toolName: string; durationMs: number; isError: boolean }[] = []
   const toolStarts = new Map<string, number>()
@@ -206,6 +207,12 @@ async function executeRuntime(
     switch (event.type) {
       case 'session.init':
         resultSessionId = event.sessionId
+        break
+      case 'progress':
+        progressText = event.text // Full progress replaces
+        break
+      case 'progress.delta':
+        progressText += event.text // Deltas accumulate
         break
       case 'result':
         resultText = event.text
@@ -226,5 +233,7 @@ async function executeRuntime(
     }
   }
 
-  return { text: resultText, sessionId: resultSessionId, toolCalls }
+  // Use accumulated progress text as fallback if result is empty
+  const finalText = resultText || progressText
+  return { text: finalText, sessionId: resultSessionId, toolCalls }
 }

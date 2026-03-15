@@ -13,7 +13,7 @@ export type CodexRuntimeOptions = {
 
 export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
   const {
-    model = 'o4-mini',
+    model,
     apiKey,
     reasoningEffort = 'medium',
     sandboxMode = 'workspace-write',
@@ -52,7 +52,12 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         const event = mapCodexNotification(msg.method, msg.params)
         if (event) pushEvent(event)
 
-        if (msg.method === 'turn/completed') {
+        if (msg.method === 'turn/completed' || msg.method === 'turn/ended') {
+          turnDone = true
+          resolveWait?.()
+        }
+        // Codex error events also terminate the turn
+        if (msg.method === 'codex/event/error') {
           turnDone = true
           resolveWait?.()
         }
@@ -79,25 +84,22 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         await client.initialize('sena-runtime')
 
         const baseInstructions = buildBaseInstructions(contextFragments)
+        const resolvedModel = streamOptions.model || model
+
+        const threadParams: Record<string, unknown> = {
+          cwd: cwd || process.cwd(),
+          approvalPolicy,
+          sandbox: sandboxModeToCodex(sandboxMode),
+          baseInstructions,
+        }
+        if (resolvedModel) threadParams.model = resolvedModel
 
         let threadId: string
         if (sessionId) {
-          await client.threadResume(sessionId, {
-            model: streamOptions.model || model,
-            cwd: cwd || process.cwd(),
-            approvalPolicy,
-            sandbox: sandboxModeToCodex(sandboxMode),
-            baseInstructions,
-          })
+          await client.threadResume(sessionId, threadParams)
           threadId = sessionId
         } else {
-          const thread = await client.threadStart({
-            model: streamOptions.model || model,
-            cwd: cwd || process.cwd(),
-            approvalPolicy,
-            sandbox: sandboxModeToCodex(sandboxMode),
-            baseInstructions,
-          })
+          const thread = await client.threadStart(threadParams as any)
           threadId = thread.threadId
           pushEvent({ type: 'session.init', sessionId: threadId })
         }
@@ -143,10 +145,7 @@ function buildBaseInstructions(fragments: ContextFragment[]): string {
 }
 
 function sandboxModeToCodex(mode: string): string {
-  switch (mode) {
-    case 'read-only': return 'readonly'
-    case 'workspace-write': return 'workspaceWrite'
-    case 'danger-full-access': return 'dangerFullAccess'
-    default: return 'workspaceWrite'
-  }
+  // Codex app-server expects the original kebab-case format as-is
+  const valid = ['read-only', 'workspace-write', 'danger-full-access']
+  return valid.includes(mode) ? mode : 'workspace-write'
 }
