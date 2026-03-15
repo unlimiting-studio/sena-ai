@@ -9,6 +9,9 @@
     }
   },
   "files": ["dist"],
+  "bin": {
+    "sena-slack-mcp": "./dist/mcp-server.js"
+  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch"
