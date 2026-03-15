@@ -13,6 +13,44 @@ type ScheduleEntry = {
   running: boolean
 }
 
+export function matchField(field: string, value: number): boolean {
+  if (field === '*') return true
+
+  // Handle step values: */5
+  if (field.startsWith('*/')) {
+    const step = parseInt(field.slice(2), 10)
+    return value % step === 0
+  }
+
+  // Handle ranges: 1-5
+  if (field.includes('-')) {
+    const [start, end] = field.split('-').map(Number)
+    return value >= start && value <= end
+  }
+
+  // Handle lists: 1,3,5
+  if (field.includes(',')) {
+    return field.split(',').map(Number).includes(value)
+  }
+
+  return parseInt(field, 10) === value
+}
+
+export function matchesCron(expression: string, date: Date, timezone?: string): boolean {
+  const tz = timezone ?? 'Asia/Seoul'
+  // Convert to timezone
+  const tzDate = new Date(date.toLocaleString('en-US', { timeZone: tz }))
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = expression.split(' ')
+
+  return (
+    matchField(minute, tzDate.getMinutes()) &&
+    matchField(hour, tzDate.getHours()) &&
+    matchField(dayOfMonth, tzDate.getDate()) &&
+    matchField(month, tzDate.getMonth() + 1) &&
+    matchField(dayOfWeek, tzDate.getDay())
+  )
+}
+
 export function createScheduler(options: SchedulerOptions) {
   const { onTurn, timezone = 'Asia/Seoul' } = options
   const entries: ScheduleEntry[] = []
@@ -24,43 +62,6 @@ export function createScheduler(options: SchedulerOptions) {
     const [, num, unit] = match
     const multipliers: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000 }
     return parseInt(num, 10) * multipliers[unit]
-  }
-
-  function matchesCron(expression: string, date: Date): boolean {
-    // Convert to timezone
-    const tzDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }))
-    const [minute, hour, dayOfMonth, month, dayOfWeek] = expression.split(' ')
-
-    return (
-      matchField(minute, tzDate.getMinutes()) &&
-      matchField(hour, tzDate.getHours()) &&
-      matchField(dayOfMonth, tzDate.getDate()) &&
-      matchField(month, tzDate.getMonth() + 1) &&
-      matchField(dayOfWeek, tzDate.getDay())
-    )
-  }
-
-  function matchField(field: string, value: number): boolean {
-    if (field === '*') return true
-
-    // Handle step values: */5
-    if (field.startsWith('*/')) {
-      const step = parseInt(field.slice(2), 10)
-      return value % step === 0
-    }
-
-    // Handle ranges: 1-5
-    if (field.includes('-')) {
-      const [start, end] = field.split('-').map(Number)
-      return value >= start && value <= end
-    }
-
-    // Handle lists: 1,3,5
-    if (field.includes(',')) {
-      return field.split(',').map(Number).includes(value)
-    }
-
-    return parseInt(field, 10) === value
   }
 
   async function executeTurn(schedule: Schedule, entry: ScheduleEntry): Promise<void> {
@@ -95,7 +96,7 @@ export function createScheduler(options: SchedulerOptions) {
       } else if (schedule.type === 'cron') {
         // Check every minute for cron matches
         entry.timer = setInterval(() => {
-          if (matchesCron(schedule.expression, new Date())) {
+          if (matchesCron(schedule.expression, new Date(), timezone)) {
             executeTurn(schedule, entry)
           }
         }, 60_000)

@@ -61,4 +61,47 @@ describe('mapCodexNotification', () => {
     expect(mapCodexNotification('thread/name/updated', {})).toBeNull()
     expect(mapCodexNotification('account/updated', {})).toBeNull()
   })
+
+  it('maps turn/ended (alias) the same as turn/completed', () => {
+    const event = mapCodexNotification('turn/ended', {
+      turn: { status: 'completed', items: [{ type: 'agentMessage', content: [{ type: 'text', text: 'done' }] }] }
+    })
+    expect(event).toEqual({ type: 'result', text: 'done' })
+  })
+
+  it('maps fileChange item/started to tool.start', () => {
+    const event = mapCodexNotification('item/started', {
+      item: { type: 'fileChange', path: '/tmp/test.ts' }
+    })
+    expect(event).toEqual({ type: 'tool.start', toolName: 'file:/tmp/test.ts' })
+  })
+
+  it('maps fileChange item/completed to tool.end', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'fileChange', path: '/tmp/test.ts' }
+    })
+    expect(event).toEqual({ type: 'tool.end', toolName: 'file:/tmp/test.ts', isError: false })
+  })
+
+  it('returns null for item/started with unrecognized type', () => {
+    expect(mapCodexNotification('item/started', { item: { type: 'userMessage' } })).toBeNull()
+  })
+
+  it('returns null for item/completed with null item', () => {
+    expect(mapCodexNotification('item/completed', {})).toBeNull()
+  })
+
+  it('handles turn/completed with empty items array', () => {
+    const event = mapCodexNotification('turn/completed', {
+      turn: { status: 'completed', items: [] }
+    })
+    expect(event).toEqual({ type: 'result', text: '' })
+  })
+
+  it('extracts text from agentMessage in item/completed', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'agentMessage', content: [{ type: 'text', text: 'hello' }, { type: 'text', text: ' world' }] }
+    })
+    expect(event).toEqual({ type: 'progress', text: 'hello world' })
+  })
 })

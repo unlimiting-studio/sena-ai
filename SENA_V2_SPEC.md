@@ -484,12 +484,11 @@ claudeRuntime({
 
 ```ts
 codexRuntime({
-  model: 'gpt-5.4',
+  model: 'gpt-5.4',               // 선택 — 미지정 시 codex config 기본 모델 사용
   apiKey: env('CODEX_API_KEY'),
   reasoningEffort: 'medium',       // 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-  sandboxMode: 'workspace-write',  // 'read-only' | 'workspace-write' | 'danger-full-access'
-  approvalPolicy: 'never',        // 'never' | 'on-request' | 'on-failure' | 'untrusted'
-  transport: 'stdio',             // 'stdio' | 'websocket'
+  sandboxMode: 'danger-full-access', // 'read-only' | 'workspace-write' | 'danger-full-access'
+  approvalPolicy: 'never',        // 'never' | 'on-request' | 'always'
 })
 ```
 
@@ -501,17 +500,29 @@ codexRuntime({
 - **스레드 고급 조작**: `thread/fork`, `thread/rollback`, `thread/compact` 등 대화 히스토리 관리
 - **MCP 네이티브**: `mcpToolCall` 아이템 타입으로 외부 도구 통합
 
-**내부 동작:**
-1. `codex app-server` 프로세스를 stdio(또는 WebSocket)로 spawn
-2. `initialize` 요청 → `initialized` 응답
-3. `thread/start` (또는 `thread/resume`) → 대화 시작/재개
-4. `turn/start` → 메시지 전송, 서버가 `item/*` 노티피케이션 스트리밍
-5. `item/agentMessage/delta` → `RuntimeEvent.progress`로 변환
-6. `item/completed` (shell/file edit) → `RuntimeEvent.tool.start/end`로 변환
-7. `turn/completed` → `RuntimeEvent.result`로 변환
-8. 승인 요청(`item/commandExecution/requestApproval`) → `approvalPolicy`에 따라 자동 처리
+**프로토콜 상세 (통합 테스트로 검증된 사항):**
 
-**세션 매핑:** Codex의 `threadId`를 Sena의 `sessionId`로 사용한다. `SessionStore`에 `conversationId → threadId` 매핑을 저장하고, 이후 턴에서 `thread/resume`로 대화를 이어간다.
+`initialize` 단계에서 반드시 `experimentalApi: true` capability를 선언해야 `persistExtendedHistory` 기능을 사용할 수 있다.
+
+`thread/start` 응답은 `{ thread: { id: string } }` 형태이다 (플랫 `{ threadId }` 아님).
+`turn/start` 응답은 `{ turn: { id: string } }` 형태이다.
+
+sandbox mode 값은 kebab-case 그대로 전달한다: `'read-only'`, `'workspace-write'`, `'danger-full-access'`.
+
+**내부 동작:**
+1. `codex app-server` 프로세스를 stdio로 spawn
+2. `initialize` 요청 (`experimentalApi: true`) → `initialized` 응답
+3. `thread/start` (또는 `thread/resume`) → 대화 시작/재개, 응답에서 `thread.id` 추출
+4. `turn/start` → 메시지 전송, 서버가 노티피케이션 스트리밍 시작
+5. `item/agentMessage/delta` → `RuntimeEvent.progress.delta`로 변환 (토큰 누적)
+6. `item/started`/`item/completed` (commandExecution/fileChange) → `RuntimeEvent.tool.start/end`로 변환
+7. `turn/completed` 또는 `turn/ended` → `RuntimeEvent.result`로 변환. 단, `turn.items`가 비어있을 수 있으므로 누적된 `progress.delta` 텍스트를 fallback으로 사용한다.
+8. `codex/event/error` → `RuntimeEvent.error`로 변환 (주의: Node.js의 `'error'` EventEmitter 이벤트와 충돌하므로 `'notification'` 이벤트로 통합 처리)
+9. 승인 요청(`requestApproval`) → `approvalPolicy`에 따라 자동 처리
+
+**세션 매핑:** Codex의 `thread.id`를 Sena의 `sessionId`로 사용한다. `SessionStore`에 `conversationId → threadId` 매핑을 저장하고, 이후 턴에서 `thread/resume`로 대화를 이어간다.
+
+**미검증 기능:** `thread/fork`, `thread/rollback`, `thread/compact`, `mcpToolCall` 아이템 타입, WebSocket 트랜스포트는 아직 구현/검증되지 않았다.
 
 **의존성:** 런타임 환경에 `codex` CLI가 설치되어 있어야 한다 (`npm i -g @openai/codex` 또는 `brew install --cask codex`).
 

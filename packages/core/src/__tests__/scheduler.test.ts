@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createScheduler } from '../scheduler.js'
+import { createScheduler, matchField, matchesCron } from '../scheduler.js'
 import type { Schedule, TurnTrace } from '../types.js'
 
 function mockTrace(): TurnTrace {
@@ -120,5 +120,53 @@ describe('createScheduler', () => {
     expect(onTurn).toHaveBeenCalledTimes(2)
 
     scheduler.stop()
+  })
+})
+
+describe('matchField', () => {
+  it('matches wildcard', () => {
+    expect(matchField('*', 5)).toBe(true)
+  })
+  it('matches exact value', () => {
+    expect(matchField('5', 5)).toBe(true)
+    expect(matchField('5', 6)).toBe(false)
+  })
+  it('matches step values', () => {
+    expect(matchField('*/5', 0)).toBe(true)
+    expect(matchField('*/5', 5)).toBe(true)
+    expect(matchField('*/5', 10)).toBe(true)
+    expect(matchField('*/5', 3)).toBe(false)
+  })
+  it('matches ranges', () => {
+    expect(matchField('1-5', 1)).toBe(true)
+    expect(matchField('1-5', 3)).toBe(true)
+    expect(matchField('1-5', 5)).toBe(true)
+    expect(matchField('1-5', 0)).toBe(false)
+    expect(matchField('1-5', 6)).toBe(false)
+  })
+  it('matches lists', () => {
+    expect(matchField('1,3,5', 1)).toBe(true)
+    expect(matchField('1,3,5', 3)).toBe(true)
+    expect(matchField('1,3,5', 2)).toBe(false)
+  })
+})
+
+describe('matchesCron', () => {
+  it('matches every-minute wildcard', () => {
+    expect(matchesCron('* * * * *', new Date('2026-03-15T10:30:00Z'), 'UTC')).toBe(true)
+  })
+  it('matches specific minute and hour', () => {
+    expect(matchesCron('30 10 * * *', new Date('2026-03-15T10:30:00Z'), 'UTC')).toBe(true)
+    expect(matchesCron('30 10 * * *', new Date('2026-03-15T10:31:00Z'), 'UTC')).toBe(false)
+  })
+  it('matches day of week (0=Sunday)', () => {
+    // 2026-03-15 is a Sunday
+    expect(matchesCron('* * * * 0', new Date('2026-03-15T10:00:00Z'), 'UTC')).toBe(true)
+    expect(matchesCron('* * * * 1', new Date('2026-03-15T10:00:00Z'), 'UTC')).toBe(false)
+  })
+  it('matches step in minutes', () => {
+    expect(matchesCron('*/15 * * * *', new Date('2026-03-15T10:00:00Z'), 'UTC')).toBe(true)
+    expect(matchesCron('*/15 * * * *', new Date('2026-03-15T10:15:00Z'), 'UTC')).toBe(true)
+    expect(matchesCron('*/15 * * * *', new Date('2026-03-15T10:07:00Z'), 'UTC')).toBe(false)
   })
 })
