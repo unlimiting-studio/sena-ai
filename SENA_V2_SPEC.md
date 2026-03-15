@@ -40,7 +40,7 @@
 | `@sena-ai/tools-obsidian` | Obsidian MCP 도구 | `obsidianTools` |
 | `@sena-ai/connector-slack` | Slack 커넥터 | `slackConnector` |
 | `@sena-ai/runtime-claude` | Claude Agent SDK 런타임 | `claudeRuntime` |
-| `@sena-ai/runtime-codex` | Codex SDK 런타임 | `codexRuntime` |
+| `@sena-ai/runtime-codex` | Codex App Server 런타임 | `codexRuntime` |
 
 ### 의존 관계
 
@@ -53,7 +53,7 @@
   ├── @sena-ai/tools-obsidian (core + nano/couchdb)
   ├── @sena-ai/connector-slack (core + @slack/web-api)
   ├── @sena-ai/runtime-claude (core + @anthropic-ai/claude-agent-sdk)
-  └── @sena-ai/runtime-codex (core + @openai/codex-sdk)
+  └── @sena-ai/runtime-codex (core + codex app-server JSON-RPC)
 ```
 
 ### 디렉터리 레이아웃
@@ -460,6 +460,7 @@ type RuntimeStreamOptions = {
 type RuntimeEvent =
   | { type: 'session.init'; sessionId: string }
   | { type: 'progress'; text: string }
+  | { type: 'progress.delta'; text: string }       // 토큰 단위 스트리밍 (누적이 아닌 증분)
   | { type: 'tool.start'; toolName: string }
   | { type: 'tool.end'; toolName: string; isError: boolean }
   | { type: 'result'; text: string }
@@ -483,13 +484,36 @@ claudeRuntime({
 
 ```ts
 codexRuntime({
-  model: 'gpt-5-codex',
+  model: 'gpt-5.4',
   apiKey: env('CODEX_API_KEY'),
-  reasoningEffort: 'medium',
+  reasoningEffort: 'medium',       // 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+  sandboxMode: 'workspace-write',  // 'read-only' | 'workspace-write' | 'danger-full-access'
+  approvalPolicy: 'never',        // 'never' | 'on-request' | 'on-failure' | 'untrusted'
+  transport: 'stdio',             // 'stdio' | 'websocket'
 })
 ```
 
-`@openai/codex-sdk` 기반. 세션 재개 지원.
+**Codex App Server** (`codex app-server`) 기반. JSON-RPC 2.0 프로토콜로 통신한다.
+
+**App Server를 선택한 이유:**
+- **토큰 단위 스트리밍**: `item/agentMessage/delta` 이벤트로 실시간 진행 중계 가능 (SDK는 Item 단위)
+- **양방향 제어**: 승인/거부/중단을 서버→클라이언트, 클라이언트→서버 양방향으로 교환 가능
+- **스레드 고급 조작**: `thread/fork`, `thread/rollback`, `thread/compact` 등 대화 히스토리 관리
+- **MCP 네이티브**: `mcpToolCall` 아이템 타입으로 외부 도구 통합
+
+**내부 동작:**
+1. `codex app-server` 프로세스를 stdio(또는 WebSocket)로 spawn
+2. `initialize` 요청 → `initialized` 응답
+3. `thread/start` (또는 `thread/resume`) → 대화 시작/재개
+4. `turn/start` → 메시지 전송, 서버가 `item/*` 노티피케이션 스트리밍
+5. `item/agentMessage/delta` → `RuntimeEvent.progress`로 변환
+6. `item/completed` (shell/file edit) → `RuntimeEvent.tool.start/end`로 변환
+7. `turn/completed` → `RuntimeEvent.result`로 변환
+8. 승인 요청(`item/commandExecution/requestApproval`) → `approvalPolicy`에 따라 자동 처리
+
+**세션 매핑:** Codex의 `threadId`를 Sena의 `sessionId`로 사용한다. `SessionStore`에 `conversationId → threadId` 매핑을 저장하고, 이후 턴에서 `thread/resume`로 대화를 이어간다.
+
+**의존성:** 런타임 환경에 `codex` CLI가 설치되어 있어야 한다 (`npm i -g @openai/codex` 또는 `brew install --cask codex`).
 
 ### 런타임 교체
 
