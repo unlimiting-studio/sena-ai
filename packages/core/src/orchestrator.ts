@@ -25,8 +25,15 @@ export function createOrchestrator(options: OrchestratorOptions) {
     const gen = ++generation
     const wp = workerPortOverride ?? workerPort
 
+    // If workerScript is a .ts file, use tsx to run it
+    const isTsFile = workerScript.endsWith('.ts') || workerScript.endsWith('.tsx')
+    const execArgv = isTsFile
+      ? ['--import', 'tsx']
+      : []
+
     const child = fork(workerScript, [], {
       env: { ...process.env, SENA_WORKER_PORT: String(wp), SENA_GENERATION: String(gen) },
+      execArgv: [...process.execArgv, ...execArgv],
       stdio: 'inherit',
     })
 

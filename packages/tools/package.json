@@ -1,20 +1,23 @@
 {
   "name": "@sena-ai/tools",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch"
   },
   "dependencies": {
-    "@sena-ai/core": "workspace:*"
+    "@sena-ai/core": "^0.0.1"
   },
   "devDependencies": {
     "typescript": "^5.8.0"
