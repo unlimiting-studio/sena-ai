@@ -67,16 +67,58 @@ describe('mapCodexNotification', () => {
 
   it('maps fileChange item/started to tool.start', () => {
     const event = mapCodexNotification('item/started', {
-      item: { type: 'fileChange', path: '/tmp/test.ts' }
+      item: { type: 'fileChange', changes: [{ path: '/tmp/test.ts' }] }
     })
     expect(event).toEqual({ type: 'tool.start', toolName: 'file:/tmp/test.ts' })
   })
 
   it('maps fileChange item/completed to tool.end', () => {
     const event = mapCodexNotification('item/completed', {
-      item: { type: 'fileChange', path: '/tmp/test.ts' }
+      item: { type: 'fileChange', changes: [{ path: '/tmp/test.ts' }] }
     })
     expect(event).toEqual({ type: 'tool.end', toolName: 'file:/tmp/test.ts', isError: false })
+  })
+
+  it('maps mcpToolCall item/started to tool.start', () => {
+    const event = mapCodexNotification('item/started', {
+      item: { type: 'mcpToolCall', server: 'slack', tool: 'post_message' }
+    })
+    expect(event).toEqual({ type: 'tool.start', toolName: 'mcp:slack/post_message' })
+  })
+
+  it('maps mcpToolCall item/completed to tool.end', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'mcpToolCall', server: 'slack', tool: 'post_message', error: null }
+    })
+    expect(event).toEqual({ type: 'tool.end', toolName: 'mcp:slack/post_message', isError: false })
+  })
+
+  it('maps mcpToolCall item/completed with error', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'mcpToolCall', server: 'slack', tool: 'post_message', error: { message: 'timeout' } }
+    })
+    expect(event).toEqual({ type: 'tool.end', toolName: 'mcp:slack/post_message', isError: true })
+  })
+
+  it('maps dynamicToolCall item/started to tool.start', () => {
+    const event = mapCodexNotification('item/started', {
+      item: { type: 'dynamicToolCall', tool: 'custom_search' }
+    })
+    expect(event).toEqual({ type: 'tool.start', toolName: 'tool:custom_search' })
+  })
+
+  it('maps dynamicToolCall item/completed to tool.end', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'dynamicToolCall', tool: 'custom_search', success: true }
+    })
+    expect(event).toEqual({ type: 'tool.end', toolName: 'tool:custom_search', isError: false })
+  })
+
+  it('maps dynamicToolCall item/completed with failure', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'dynamicToolCall', tool: 'custom_search', success: false }
+    })
+    expect(event).toEqual({ type: 'tool.end', toolName: 'tool:custom_search', isError: true })
   })
 
   it('returns null for item/started with unrecognized type', () => {
