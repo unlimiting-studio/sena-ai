@@ -22,6 +22,8 @@
     { "path": "packages/hooks" },
     { "path": "packages/runtime-claude" },
     { "path": "packages/runtime-codex" },
-    { "path": "packages/tools" }
+    { "path": "packages/tools" },
+    { "path": "packages/tools-slack" },
+    { "path": "packages/tools-obsidian" }
   ]
 }
