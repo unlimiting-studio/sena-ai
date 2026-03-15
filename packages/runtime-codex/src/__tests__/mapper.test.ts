@@ -50,7 +50,7 @@ describe('mapCodexNotification', () => {
     expect(event).toEqual({ type: 'error', message: 'Context window exceeded' })
   })
 
-  it('maps official "error" notification (ErrorNotification format)', () => {
+  it('maps "error" notification (ErrorNotification format)', () => {
     const event = mapCodexNotification('error', {
       error: { message: 'Rate limit exceeded' },
       willRetry: false,
@@ -60,23 +60,9 @@ describe('mapCodexNotification', () => {
     expect(event).toEqual({ type: 'error', message: 'Rate limit exceeded' })
   })
 
-  it('maps legacy codex/event/error notification to error event', () => {
-    const event = mapCodexNotification('codex/event/error', {
-      msg: { message: 'Server crashed' },
-    })
-    expect(event).toEqual({ type: 'error', message: 'Server crashed' })
-  })
-
   it('returns null for unrelated notifications', () => {
     expect(mapCodexNotification('thread/name/updated', {})).toBeNull()
     expect(mapCodexNotification('account/updated', {})).toBeNull()
-  })
-
-  it('maps turn/ended (legacy fallback) the same as turn/completed', () => {
-    const event = mapCodexNotification('turn/ended', {
-      turn: { status: 'completed', items: [{ type: 'agentMessage', content: [{ type: 'text', text: 'done' }] }] }
-    })
-    expect(event).toEqual({ type: 'result', text: 'done' })
   })
 
   it('maps fileChange item/started to tool.start', () => {

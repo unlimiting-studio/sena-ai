@@ -533,8 +533,6 @@ codexRuntime({
 
 **ThreadItem 종류 (공식):** userMessage, agentMessage, plan, reasoning, commandExecution, fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall, webSearch, imageView, imageGeneration, enteredReviewMode, exitedReviewMode, contextCompaction
 
-**레거시 호환:** 실제 테스트에서 `turn/ended`, `codex/event/error` 같은 비공식 메서드도 관찰되었다. 공식 스키마에는 없지만 방어적 fallback으로 처리한다.
-
 **내부 동작:**
 1. `codex app-server` 프로세스를 stdio로 spawn
 2. `initialize` 요청 (`experimentalApi: true`) → `initialized` 응답
