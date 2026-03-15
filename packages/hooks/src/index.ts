@@ -1,1 +1,6 @@
 export const VERSION = '0.0.1'
+
+export { fileContext } from './fileContext.js'
+export type { FileContextOptions } from './fileContext.js'
+export { traceLogger } from './traceLogger.js'
+export type { TraceLoggerOptions } from './traceLogger.js'
