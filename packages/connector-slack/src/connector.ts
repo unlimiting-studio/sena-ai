@@ -6,23 +6,25 @@ export type SlackConnectorOptions = {
   appId: string
   botToken: string
   signingSecret: string
+  /** Message shown immediately when a turn starts (e.g. ":loading-dots: *세나가 생각중이에요*"). Set to false to disable. */
+  thinkingMessage?: string | false
 }
 
 export function slackConnector(options: SlackConnectorOptions): Connector {
-  const { appId, botToken, signingSecret } = options
+  const { appId, botToken, signingSecret, thinkingMessage } = options
   const slack = new WebClient(botToken)
 
   return {
     name: 'slack',
 
     registerRoutes(server: HttpServer, engine: TurnEngine): void {
-      server.post('/slack/events', (req: any, res: any) => {
+      server.post('/api/slack/events', (req: any, res: any) => {
         handleSlackEvent(req, res, engine, signingSecret, appId)
       })
     },
 
     createOutput(context: ConnectorOutputContext): ConnectorOutput {
-      return createSlackOutput(slack, context)
+      return createSlackOutput(slack, context, thinkingMessage)
     },
   }
 }
@@ -48,6 +50,7 @@ async function handleSlackEvent(
   const rawBody = req.rawBody ?? JSON.stringify(body)
 
   if (!verifySignature(signingSecret, timestamp, rawBody, signature)) {
+    console.warn('[slack] signature verification failed')
     res.status(401).send('Invalid signature')
     return
   }
@@ -57,16 +60,24 @@ async function handleSlackEvent(
 
   // Process event
   const event = body?.event
-  if (!event) return
+  if (!event) {
+    console.log('[slack] no event in body, type:', body?.type)
+    return
+  }
 
   // Only handle app_mention and message events directed at the bot
-  if (event.type !== 'app_mention' && event.type !== 'message') return
+  if (event.type !== 'app_mention' && event.type !== 'message') {
+    console.log('[slack] ignoring event type:', event.type)
+    return
+  }
   if (event.bot_id) return // Ignore bot messages
   if (event.subtype) return // Ignore message subtypes (edits, deletes, etc.)
 
+  console.log(`[slack] ${event.type} from ${event.user} in ${event.channel}`)
+
   const inbound: InboundEvent = {
     connector: 'slack',
-    conversationId: event.thread_ts ?? event.ts, // Use thread ts as conversation ID
+    conversationId: `${event.channel}:${event.thread_ts ?? event.ts}`, // channel:thread_ts
     userId: event.user ?? '',
     userName: event.user ?? '',
     text: event.text ?? '',
@@ -79,13 +90,35 @@ async function handleSlackEvent(
     raw: body,
   }
 
-  await engine.submitTurn(inbound)
+  try {
+    await engine.submitTurn(inbound)
+  } catch (err) {
+    console.error('[slack] submitTurn error:', err)
+  }
 }
 
-function createSlackOutput(slack: WebClient, context: ConnectorOutputContext): ConnectorOutput {
+function createSlackOutput(
+  slack: WebClient,
+  context: ConnectorOutputContext,
+  thinkingMessage?: string | false,
+): ConnectorOutput {
+  // conversationId format: "channel:thread_ts"
+  const [channel, threadTs] = context.conversationId.split(':')
   let progressTs: string | undefined
   let lastProgressTime = 0
   const THROTTLE_MS = 1500
+
+  // Send thinking indicator immediately on creation (context block = small text, like v1)
+  if (thinkingMessage && thinkingMessage !== '') {
+    slack.chat.postMessage({
+      channel,
+      thread_ts: threadTs,
+      text: thinkingMessage,
+      blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage }] }],
+    })
+      .then(r => { progressTs = r.ts; lastProgressTime = Date.now() })
+      .catch(() => {})
+  }
 
   return {
     async showProgress(text: string): Promise<void> {
@@ -94,17 +127,9 @@ function createSlackOutput(slack: WebClient, context: ConnectorOutputContext): C
 
       try {
         if (progressTs) {
-          await slack.chat.update({
-            channel: context.conversationId.split(':')[0] || context.conversationId,
-            ts: progressTs,
-            text: `_${text}_`,
-          })
+          await slack.chat.update({ channel, ts: progressTs, text: `_${text}_` })
         } else {
-          const result = await slack.chat.postMessage({
-            channel: context.conversationId.split(':')[0] || context.conversationId,
-            thread_ts: context.conversationId,
-            text: `_${text}_`,
-          })
+          const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, text: `_${text}_` })
           progressTs = result.ts
         }
         lastProgressTime = now
@@ -114,41 +139,43 @@ function createSlackOutput(slack: WebClient, context: ConnectorOutputContext): C
     },
 
     async sendResult(text: string): Promise<void> {
-      // Delete progress message if exists
+      // Delete progress/thinking message if exists
       if (progressTs) {
         try {
-          await slack.chat.delete({
-            channel: context.conversationId.split(':')[0] || context.conversationId,
-            ts: progressTs,
-          })
+          await slack.chat.delete({ channel, ts: progressTs })
         } catch {
           // Ignore
         }
       }
 
-      await slack.chat.postMessage({
-        channel: context.conversationId.split(':')[0] || context.conversationId,
-        thread_ts: context.conversationId,
-        text,
-      })
+      console.log(`[slack] sendResult: channel=${channel}, thread_ts=${threadTs}, text.length=${text.length}`)
+      try {
+        const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, text })
+        console.log(`[slack] sendResult ok: ts=${result.ts}, ok=${result.ok}`)
+      } catch (err) {
+        console.error(`[slack] sendResult failed:`, err)
+        throw err
+      }
     },
 
     async sendError(message: string): Promise<void> {
-      await slack.chat.postMessage({
-        channel: context.conversationId.split(':')[0] || context.conversationId,
-        thread_ts: context.conversationId,
-        text: `:warning: ${message}`,
-      })
+      // Delete progress/thinking message if exists
+      if (progressTs) {
+        try {
+          await slack.chat.delete({ channel, ts: progressTs })
+        } catch {
+          // Ignore
+        }
+        progressTs = undefined
+      }
+
+      await slack.chat.postMessage({ channel, thread_ts: threadTs, text: `:warning: ${message}` })
     },
 
     async dispose(): Promise<void> {
-      // Clean up progress message
       if (progressTs) {
         try {
-          await slack.chat.delete({
-            channel: context.conversationId.split(':')[0] || context.conversationId,
-            ts: progressTs,
-          })
+          await slack.chat.delete({ channel, ts: progressTs })
         } catch {
           // Ignore
         }
