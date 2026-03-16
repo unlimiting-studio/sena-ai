@@ -1,4 +1,4 @@
-import type { ToolPort, RuntimeInfo, McpConfig } from '@sena-ai/core'
+import type { McpToolPort, RuntimeInfo, McpConfig } from '@sena-ai/core'
 
 export type ObsidianToolsOptions = {
   couchdbUrl: string
@@ -11,7 +11,7 @@ export type ObsidianToolsOptions = {
  * Creates a ToolPort for Obsidian MCP tools via CouchDB LiveSync.
  * Exposes: list_notes, read_note, write_note, search_notes
  */
-export function obsidianTools(options: ObsidianToolsOptions): ToolPort {
+export function obsidianTools(options: ObsidianToolsOptions): McpToolPort {
   const { couchdbUrl, couchdbUser, couchdbPassword, database = 'obsidian' } = options
 
   return {
