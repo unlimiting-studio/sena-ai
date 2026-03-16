@@ -7,6 +7,7 @@ describe('TurnEngine', () => {
   it('executes a basic turn and returns a TurnTrace', async () => {
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createMockRuntime('hello world'),
       hooks: {},
       tools: [],
@@ -29,6 +30,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createMockRuntime(),
       hooks: {
         onTurnStart: [createMockHook('soul-loader', fragments)],
@@ -47,6 +49,7 @@ describe('TurnEngine', () => {
   it('runs multiple onTurnStart hooks in order', async () => {
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createMockRuntime(),
       hooks: {
         onTurnStart: [
@@ -70,6 +73,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createMockRuntime('done'),
       hooks: { onTurnEnd: [endHook] },
       tools: [],
@@ -91,6 +95,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: failRuntime,
       hooks: {},
       tools: [],
@@ -112,6 +117,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createStreamingMockRuntime(events),
       hooks: {},
       tools: [],
@@ -135,6 +141,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createStreamingMockRuntime(events),
       hooks: {},
       tools: [],
@@ -156,6 +163,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createStreamingMockRuntime(events),
       hooks: {},
       tools: [],
@@ -179,6 +187,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: failRuntime,
       hooks: { onError: [errorHook] },
       tools: [],
@@ -207,6 +216,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: createStreamingMockRuntime(events),
       hooks: {},
       tools: [],
@@ -240,6 +250,7 @@ describe('TurnEngine', () => {
 
     const engine = createTurnEngine({
       name: 'test',
+      cwd: '/tmp',
       runtime: delayedRuntime,
       hooks: {},
       tools: [],

@@ -10,6 +10,7 @@ export type Agent = {
 export function createAgent(config: ResolvedSenaConfig): Agent {
   const engine = createTurnEngine({
     name: config.name,
+    cwd: config.cwd,
     runtime: config.runtime,
     hooks: config.hooks,
     tools: config.tools,

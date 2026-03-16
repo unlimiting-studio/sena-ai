@@ -217,6 +217,7 @@ export type OrchestratorConfig = {
 
 export type SenaConfig = {
   name: string
+  cwd?: string
   runtime: Runtime
   connectors?: Connector[]
   tools?: ToolPort[]

@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto'
 
 export type TurnEngineConfig = {
   name: string
+  cwd: string
   runtime: Runtime
   hooks: {
     onTurnStart?: TurnStartHook[]
@@ -36,7 +37,7 @@ export type ProcessTurnOptions = {
 }
 
 export function createTurnEngine(config: TurnEngineConfig) {
-  const { name, runtime, hooks, tools } = config
+  const { name, cwd, runtime, hooks, tools } = config
 
   async function processTurn(options: ProcessTurnOptions): Promise<TurnTrace> {
     const turnId = randomUUID()
@@ -102,6 +103,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         input: options.input,
         tools,
         sessionId: options.sessionId ?? null,
+        cwd,
         abortSignal: options.abortSignal,
         onEvent: options.onEvent,
       })
@@ -196,11 +198,12 @@ async function executeRuntime(
     input: string
     tools: ToolPort[]
     sessionId: string | null
+    cwd: string
     abortSignal?: AbortSignal
     onEvent?: (event: RuntimeEvent) => void
   },
 ): Promise<RuntimeExecutionResult> {
-  const { contextFragments, input, tools, sessionId, abortSignal, onEvent } = options
+  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent } = options
 
   async function* promptIterable() {
     yield { text: input }
@@ -212,7 +215,7 @@ async function executeRuntime(
     prompt: promptIterable(),
     tools,
     sessionId,
-    cwd: process.cwd(),
+    cwd,
     env: {},
     abortSignal: abortSignal ?? new AbortController().signal,
   })

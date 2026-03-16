@@ -29,6 +29,7 @@ export function createWorker(options: WorkerOptions) {
 
   const engine = createTurnEngine({
     name: config.name,
+    cwd: config.cwd,
     runtime: config.runtime,
     hooks: config.hooks,
     tools: config.tools,
