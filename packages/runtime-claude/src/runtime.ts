@@ -1,5 +1,5 @@
 import { isBrandedToolResult } from '@sena-ai/core'
-import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, McpConfig, RuntimeInfo } from '@sena-ai/core'
+import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, McpConfig, RuntimeInfo, InlineToolPort } from '@sena-ai/core'
 import { mapSdkMessage } from './mapper.js'
 
 type NativeTool = {
@@ -132,19 +132,42 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         sdkOptions.env = sdkEnv
       }
 
-      if (Object.keys(mcpServers).length > 0) {
-        sdkOptions.mcpServers = mcpServers
-      }
-      if (allowedTools.length > 0) {
-        sdkOptions.allowedTools = allowedTools
-      }
-      // Native tools are not yet supported by the Claude Agent SDK's query() API.
-      // Fail explicitly rather than silently dropping inline tools.
+      // Register inline (native) tools as an in-process SDK MCP server so the
+      // Claude Agent SDK can invoke them via the MCP protocol.
+      const allMcpServers = { ...mcpServers }
+      // Strip bare inline tool names from allowedTools — they will be re-added
+      // below under the mcp__<server>__* wildcard after the server is registered.
+      const inlineToolNames = new Set(nativeTools.map(t => t.name))
+      const effectiveAllowedTools = allowedTools.filter(t => !inlineToolNames.has(t))
+
       if (nativeTools.length > 0) {
-        throw new Error(
-          `Inline tools require SDK native tool support — not yet implemented. ` +
-          `Affected tools: ${nativeTools.map(t => t.name).join(', ')}`,
-        )
+        const { createSdkMcpServer } = await import('@anthropic-ai/claude-agent-sdk')
+        const { z } = await import('zod')
+
+        const NATIVE_SERVER_NAME = '__native__'
+
+        const inlineTools = tools.filter((t): t is InlineToolPort => t.type === 'inline')
+        const sdkTools = inlineTools.map(t => ({
+          name: t.name,
+          description: t.inline.description,
+          // Use the original Zod params shape when available so the model sees
+          // typed parameter descriptions.  Fall back to passthrough for tools
+          // that were registered without explicit params.
+          inputSchema: t.inline.params ?? (z.object({}).passthrough() as any),
+          handler: wrapHandler(t.inline.handler),
+        }))
+
+        const sdkServer = createSdkMcpServer({ name: NATIVE_SERVER_NAME, tools: sdkTools as any })
+        allMcpServers[NATIVE_SERVER_NAME] = sdkServer as any
+        // Auto-allow all tools on the native SDK server
+        effectiveAllowedTools.push(`mcp__${NATIVE_SERVER_NAME}__*`)
+      }
+
+      if (Object.keys(allMcpServers).length > 0) {
+        sdkOptions.mcpServers = allMcpServers
+      }
+      if (effectiveAllowedTools.length > 0) {
+        sdkOptions.allowedTools = effectiveAllowedTools
       }
 
       if (sessionId) {

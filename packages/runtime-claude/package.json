@@ -17,8 +17,9 @@
     "dev": "tsc -b --watch"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.0",
     "@sena-ai/core": "workspace:*",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.8.0"
