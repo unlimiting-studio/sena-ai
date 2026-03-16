@@ -1,4 +1,4 @@
-import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, RuntimeInfo } from '@sena-ai/core'
+import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, RuntimeInfo } from '@sena-ai/core'
 import { mapSdkMessage } from './mapper.js'
 
 export type ClaudeRuntimeOptions = {
@@ -69,10 +69,15 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       }
       sdkOptions.abortController = controller
 
-      if (apiKey) {
-        sdkOptions.env = { ...envVars, ANTHROPIC_API_KEY: apiKey }
-      } else if (Object.keys(envVars).length > 0) {
-        sdkOptions.env = envVars
+      // Build env: only set if we have overrides (apiKey or envVars).
+      // MCP tools are always deferred in the SDK — ToolSearch must remain enabled (default)
+      // to let the model fetch MCP tool schemas on demand.
+      if (apiKey || Object.keys(envVars).length > 0) {
+        const sdkEnv: Record<string, string | undefined> = { ...envVars }
+        if (apiKey) {
+          sdkEnv.ANTHROPIC_API_KEY = apiKey
+        }
+        sdkOptions.env = sdkEnv
       }
 
       if (Object.keys(mcpServers).length > 0) {
@@ -83,6 +88,18 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       if (sessionId) {
         sdkOptions.resume = sessionId
       }
+
+      // Debug: log SDK options (mask env values)
+      const debugOpts: Record<string, any> = { ...sdkOptions, systemPrompt: `${systemPrompt.length}ch` }
+      if (debugOpts.mcpServers) {
+        debugOpts.mcpServers = Object.fromEntries(
+          Object.entries(debugOpts.mcpServers as Record<string, any>).map(([k, v]: [string, any]) => [
+            k,
+            { ...v, env: v.env ? Object.fromEntries(Object.entries(v.env as Record<string, any>).map(([ek, ev]: [string, any]) => [ek, ev ? `${String(ev).slice(0, 8)}...` : '(empty)'])) : undefined },
+          ]),
+        )
+      }
+      console.log(`[runtime-claude] query options:`, JSON.stringify(debugOpts, null, 2))
 
       const stream = query({ prompt: userText, options: sdkOptions })
 
@@ -112,8 +129,9 @@ function buildSystemPrompt(fragments: ContextFragment[]): string {
 }
 
 function buildMcpServers(tools: ToolPort[], runtimeInfo: RuntimeInfo): Record<string, any> {
+  const mcpTools = tools.filter((t): t is McpToolPort => t.type !== 'inline')
   const servers: Record<string, any> = {}
-  for (const tool of tools) {
+  for (const tool of mcpTools) {
     servers[tool.name] = tool.toMcpConfig(runtimeInfo)
   }
   return servers
