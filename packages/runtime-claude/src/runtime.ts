@@ -1,5 +1,60 @@
-import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, RuntimeInfo } from '@sena-ai/core'
+import { isBrandedToolResult } from '@sena-ai/core'
+import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, McpConfig, RuntimeInfo } from '@sena-ai/core'
 import { mapSdkMessage } from './mapper.js'
+
+type NativeTool = {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  handler: (params: any) => Promise<any>
+}
+
+export function buildToolConfig(tools: ToolPort[], runtimeInfo: RuntimeInfo) {
+  const mcpServers: Record<string, McpConfig> = {}
+  const nativeTools: NativeTool[] = []
+  const allowedTools: string[] = []
+
+  for (const tool of tools) {
+    if (tool.type === 'inline') {
+      nativeTools.push({
+        name: tool.name,
+        description: tool.inline.description,
+        input_schema: tool.inline.inputSchema,
+        handler: wrapHandler(tool.inline.handler),
+      })
+      allowedTools.push(tool.name)
+    } else {
+      mcpServers[tool.name] = tool.toMcpConfig(runtimeInfo)
+      allowedTools.push(`mcp__${tool.name}__*`)
+    }
+  }
+
+  return { mcpServers, nativeTools, allowedTools }
+}
+
+function wrapHandler(handler: (params: any) => any) {
+  return async (params: any) => {
+    try {
+      const raw = await handler(params)
+      if (isBrandedToolResult(raw)) {
+        return {
+          content: raw.content.map((c: any) => {
+            if (c.type === 'text') return { type: 'text', text: c.text }
+            if (c.type === 'image') return {
+              type: 'image',
+              source: { type: 'base64', media_type: c.mimeType, data: c.data },
+            }
+            throw new Error(`Unknown ToolContent type: ${c.type}`)
+          }),
+        }
+      }
+      if (typeof raw === 'string') return { content: [{ type: 'text', text: raw }] }
+      return { content: [{ type: 'text', text: JSON.stringify(raw) }] }
+    } catch (err: any) {
+      return { isError: true, content: [{ type: 'text', text: err.message }] }
+    }
+  }
+}
 
 export type ClaudeRuntimeOptions = {
   model?: string
@@ -35,12 +90,9 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       // Build system prompt from context fragments
       const systemPrompt = buildSystemPrompt(contextFragments)
 
-      // Build MCP server config from tool ports
+      // Build tool config splitting inline and MCP tools
       const runtimeInfo: RuntimeInfo = { name: 'claude' }
-      const mcpServers = buildMcpServers(tools, runtimeInfo)
-
-      // Collect allowed tool patterns
-      const allowedTools = tools.map(t => `mcp__${t.name}__*`)
+      const { mcpServers, nativeTools, allowedTools } = buildToolConfig(tools, runtimeInfo)
 
       // Get first user message from prompt iterable
       let userText = ''
@@ -82,8 +134,12 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
 
       if (Object.keys(mcpServers).length > 0) {
         sdkOptions.mcpServers = mcpServers
+      }
+      if (allowedTools.length > 0) {
         sdkOptions.allowedTools = allowedTools
       }
+      // nativeTools reserved for future SDK native tool support
+      void nativeTools
 
       if (sessionId) {
         sdkOptions.resume = sessionId
@@ -128,11 +184,3 @@ function buildSystemPrompt(fragments: ContextFragment[]): string {
   return parts.join('\n\n')
 }
 
-function buildMcpServers(tools: ToolPort[], runtimeInfo: RuntimeInfo): Record<string, any> {
-  const mcpTools = tools.filter((t): t is McpToolPort => t.type !== 'inline')
-  const servers: Record<string, any> = {}
-  for (const tool of mcpTools) {
-    servers[tool.name] = tool.toMcpConfig(runtimeInfo)
-  }
-  return servers
-}
