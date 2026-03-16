@@ -1,6 +1,6 @@
 {
   "name": "@sena-ai/tools-slack",
-  "version": "0.0.9",
+  "version": "0.0.12",
   "type": "module",
   "exports": {
     ".": {
@@ -12,16 +12,14 @@
   "files": [
     "dist"
   ],
-  "bin": {
-    "sena-slack-mcp": "./dist/mcp-server.js"
-  },
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch"
   },
   "dependencies": {
     "@sena-ai/core": "^0.0.1",
-    "@slack/web-api": "^7.0.0"
+    "@slack/web-api": "^7.0.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.8.0"
