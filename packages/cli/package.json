@@ -1,7 +1,10 @@
 {
-  "name": "@sena-ai/runtime-codex",
+  "name": "@sena-ai/cli",
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "sena": "dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -12,16 +15,20 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -b",
-    "dev": "tsc -b --watch"
+    "build": "tsc -b"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "@sena-ai/core": "workspace:*",
-    "zod": "^4.3.6"
+    "tsx": "^4.21.0",
+    "commander": "^13",
+    "dotenv": "^16.6",
+    "@sena-ai/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "typescript": "^5.8.0"
   }
 }
