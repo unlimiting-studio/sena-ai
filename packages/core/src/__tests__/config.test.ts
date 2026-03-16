@@ -17,6 +17,7 @@ describe('defineConfig()', () => {
       runtime: mockRuntime,
     })
     expect(config.name).toBe('test-agent')
+    expect(config.cwd).toBe(process.cwd())
     expect(config.runtime.name).toBe('mock')
     expect(config.connectors).toEqual([])
     expect(config.tools).toEqual([])
@@ -31,6 +32,15 @@ describe('defineConfig()', () => {
       orchestrator: { port: 4000 },
     })
     expect(config.orchestrator?.port).toBe(4000)
+  })
+
+  it('uses explicit cwd when provided', () => {
+    const config = defineConfig({
+      name: 'agent',
+      cwd: '/custom/path',
+      runtime: mockRuntime,
+    })
+    expect(config.cwd).toBe('/custom/path')
   })
 
   it('throws on duplicate tool names', () => {
