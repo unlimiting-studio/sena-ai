@@ -1,4 +1,4 @@
-import type { ToolPort, RuntimeInfo, McpConfig } from '@sena-ai/core'
+import type { McpToolPort, RuntimeInfo, McpConfig } from '@sena-ai/core'
 
 export type SlackToolsOptions = {
   botToken: string
@@ -8,7 +8,7 @@ export type SlackToolsOptions = {
  * Creates a ToolPort for Slack MCP tools.
  * Exposes: get_messages, post_message, list_channels, upload_file, download_file
  */
-export function slackTools(options: SlackToolsOptions): ToolPort {
+export function slackTools(options: SlackToolsOptions): McpToolPort {
   const { botToken } = options
 
   return {
@@ -21,6 +21,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort {
         command: 'node',
         args: [new URL('../dist/mcp-server.js', import.meta.url).pathname],
         env: {
+          ...process.env,
           SLACK_BOT_TOKEN: botToken,
         },
       }

@@ -1,4 +1,4 @@
-import type { ToolPort, RuntimeInfo, McpConfig } from '@sena-ai/core'
+import type { McpToolPort, RuntimeInfo, McpConfig } from '@sena-ai/core'
 
 export type McpHttpOptions = {
   name: string
@@ -19,7 +19,7 @@ function isHttpOptions(opts: McpServerOptions): opts is McpHttpOptions {
   return 'url' in opts
 }
 
-export function mcpServer(options: McpServerOptions): ToolPort {
+export function mcpServer(options: McpServerOptions): McpToolPort {
   if (isHttpOptions(options)) {
     return {
       name: options.name,
@@ -40,7 +40,7 @@ export function mcpServer(options: McpServerOptions): ToolPort {
       return {
         command: options.command,
         args: options.args ?? [],
-        ...(options.env ? { env: options.env } : {}),
+        ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
       }
     },
   }
