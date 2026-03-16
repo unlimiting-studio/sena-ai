@@ -43,11 +43,37 @@ defineTool({
 | `name` | `string` | ✅ | 도구 이름 (LLM에 노출) |
 | `description` | `string` | ✅ | 도구 설명 (LLM에 노출) |
 | `params` | `Record<string, ZodSchema>` | ❌ | 파라미터 스키마. 없으면 파라미터 없는 도구. |
-| `handler` | `(params) => Promise<string \| object \| BrandedToolResult>` | ✅ | 도구 실행 함수 |
+| `handler` | `(params) => string \| object \| BrandedToolResult \| Promise<...>` | ✅ | 도구 실행 함수. 동기/비동기 모두 허용. |
 
 #### 반환 타입: `ToolPort`
 
 `defineTool()`은 기존과 동일한 `ToolPort`를 반환하므로 `tools` 배열에 그대로 들어간다.
+
+#### Zod → JSON Schema 변환
+
+`params`의 `Record<string, ZodSchema>`는 `zod-to-json-schema` 라이브러리로 JSON Schema `object` 타입으로 변환한다:
+
+```ts
+import { zodToJsonSchema } from 'zod-to-json-schema'
+
+// params: { city: z.string(), days: z.number().optional() }
+// →
+// {
+//   type: 'object',
+//   properties: {
+//     city: { type: 'string' },
+//     days: { type: 'number' }
+//   },
+//   required: ['city']
+// }
+function paramsToJsonSchema(params: Record<string, ZodSchema>): JsonSchema {
+  const shape: Record<string, ZodSchema> = params
+  const schema = z.object(shape)
+  return zodToJsonSchema(schema, { target: 'openApi3' })
+}
+```
+
+`params`가 없으면 빈 object 스키마(`{ type: 'object', properties: {} }`)를 생성한다.
 
 ### 1.2 핸들러 반환값
 
@@ -63,9 +89,10 @@ defineTool({
 import { toolResult } from '@sena-ai/core'
 
 // 멀티모달 반환
+const imageData = fs.readFileSync('chart.png').toString('base64')
 handler: async ({ query }) => toolResult([
   { type: 'text', text: '이미지 결과입니다' },
-  { type: 'image', data: base64, mimeType: 'image/png' },
+  { type: 'image', data: imageData, mimeType: 'image/png' },
 ])
 ```
 
@@ -73,6 +100,10 @@ handler: async ({ query }) => toolResult([
 
 ```ts
 const TOOL_RESULT = Symbol('ToolResult')
+
+type ToolContent =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string }
 
 type BrandedToolResult = {
   [TOOL_RESULT]: true
@@ -82,14 +113,28 @@ type BrandedToolResult = {
 function toolResult(content: ToolContent[]): BrandedToolResult {
   return { [TOOL_RESULT]: true, content }
 }
+
+function isBrandedToolResult(value: unknown): value is BrandedToolResult {
+  return typeof value === 'object' && value !== null && TOOL_RESULT in value
+}
 ```
+
+`ToolContent`는 MCP 프로토콜의 콘텐츠 형식을 따른다. 각 런타임 어댑터가 자신의 SDK 형식으로 변환한다 (섹션 3 참고).
 
 ### 1.3 에러 처리
 
 - 핸들러가 `throw` → 프레임워크가 catch → `isError: true` + 에러 메시지를 LLM에 반환.
 - 별도의 에러 래핑이나 try-catch 불필요.
 
-### 1.4 사용 예시 (`sena.config.ts`)
+### 1.4 이름 충돌 방지
+
+`defineConfig()` 내에서 `tools` 배열을 resolve할 때, 모든 `ToolPort`의 `name`이 고유한지 검증한다. 중복 시 시작 단계에서 에러를 throw한다:
+
+```
+Error: Duplicate tool name "slack_get_messages" — tool names must be unique across all tools.
+```
+
+### 1.5 사용 예시 (`sena.config.ts`)
 
 ```ts
 import { defineConfig, defineTool, env } from '@sena-ai/core'
@@ -113,7 +158,7 @@ export default defineConfig({
       handler: async () => 'pong',
     }),
 
-    // 패키지 도구 (내부적으로 defineTool 사용)
+    // 패키지 도구 (내부적으로 defineTool 사용, ToolPort[] 반환)
     ...slackTools({ botToken: env('SLACK_BOT_TOKEN') }),
 
     // 외부 MCP 서버
@@ -126,30 +171,59 @@ export default defineConfig({
 
 ## 2. ToolPort 타입 확장
 
+### 2.1 Discriminated Union 방식
+
+기존 `ToolPort`를 단일 타입에서 discriminated union으로 변경한다:
+
 ```ts
-// 기존
-type ToolPort = {
+type McpToolPort = {
   name: string
-  type: 'builtin' | 'mcp-http' | 'mcp-stdio'
+  type: 'mcp-http' | 'mcp-stdio'
   toMcpConfig(runtime: RuntimeInfo): McpConfig
 }
 
-// 확장
+type InlineToolPort = {
+  name: string
+  type: 'inline'
+  inline: InlineToolDef
+}
+
 type InlineToolDef = {
   description: string
   params?: Record<string, ZodSchema>
-  handler: (params: any) => Promise<string | object | BrandedToolResult>
+  inputSchema: JsonSchema  // paramsToJsonSchema()로 미리 변환
+  handler: (params: any) => string | object | BrandedToolResult | Promise<string | object | BrandedToolResult>
 }
 
-type ToolPort = {
-  name: string
-  type: 'builtin' | 'mcp-http' | 'mcp-stdio' | 'inline'
-  toMcpConfig(runtime: RuntimeInfo): McpConfig
-  inline?: InlineToolDef
+type ToolPort = McpToolPort | InlineToolPort
+```
+
+`InlineToolPort`에는 `toMcpConfig()`가 없다. 각 런타임이 `type`으로 분기하므로 인라인 도구에서 `toMcpConfig()`를 호출할 일이 없다.
+
+### 2.2 `defineTool()` 구현
+
+```ts
+function defineTool(options: DefineToolOptions): InlineToolPort {
+  const inputSchema = options.params
+    ? paramsToJsonSchema(options.params)
+    : { type: 'object', properties: {} }
+
+  return {
+    name: options.name,
+    type: 'inline',
+    inline: {
+      description: options.description,
+      params: options.params,
+      inputSchema,
+      handler: options.handler,
+    },
+  }
 }
 ```
 
-`type: 'inline'`인 경우 `inline` 필드가 반드시 존재한다. `toMcpConfig()`는 Codex 런타임용 MCP 브릿지에서 사용된다.
+### 2.3 파일 위치
+
+`defineTool()`, `toolResult()`, `isBrandedToolResult()`, `paramsToJsonSchema()`는 `@sena-ai/core`의 새 파일 `packages/core/src/tool.ts`에 구현한다. `packages/core/src/index.ts`에서 re-export.
 
 ---
 
@@ -157,41 +231,146 @@ type ToolPort = {
 
 ### 3.1 Claude 런타임
 
-`buildMcpServers()`에서 `type: 'inline'` 도구를 분리한다:
+기존 `buildMcpServers()`를 `buildToolConfig()`로 확장한다:
 
+```ts
+function buildToolConfig(tools: ToolPort[], runtimeInfo: RuntimeInfo) {
+  const mcpServers: Record<string, McpConfig> = {}
+  const nativeTools: NativeTool[] = []
+  const allowedTools: string[] = []
+
+  for (const tool of tools) {
+    if (tool.type === 'inline') {
+      // SDK 네이티브 tool로 등록
+      nativeTools.push({
+        name: tool.name,
+        description: tool.inline.description,
+        input_schema: tool.inline.inputSchema,
+        handler: wrapHandler(tool.inline.handler),
+      })
+      allowedTools.push(tool.name)
+    } else {
+      // MCP 서버로 등록
+      mcpServers[tool.name] = tool.toMcpConfig(runtimeInfo)
+      allowedTools.push(`mcp__${tool.name}__*`)
+    }
+  }
+
+  return { mcpServers, nativeTools, allowedTools }
+}
 ```
-tools[] → inline 분리 → MCP 도구 → mcpServers 옵션
-                       → inline 도구 → SDK 네이티브 tool 등록 + 핸들러 직접 호출
+
+`wrapHandler()`는 핸들러 반환값을 Claude SDK 형식으로 변환한다:
+
+```ts
+function wrapHandler(handler: InlineToolDef['handler']) {
+  return async (params: any) => {
+    const raw = await handler(params)
+    if (isBrandedToolResult(raw)) {
+      // ToolContent → Claude SDK content block 변환
+      return {
+        content: raw.content.map(c => {
+          if (c.type === 'text') return { type: 'text', text: c.text }
+          if (c.type === 'image') return {
+            type: 'image',
+            source: { type: 'base64', media_type: c.mimeType, data: c.data },
+          }
+          return c
+        }),
+      }
+    }
+    if (typeof raw === 'string') return { content: [{ type: 'text', text: raw }] }
+    return { content: [{ type: 'text', text: JSON.stringify(raw) }] }
+  }
+}
 ```
-
-Claude Agent SDK는 MCP 서버와 네이티브 tool을 동시에 지원하므로 양쪽이 공존한다.
-
-인라인 도구의 핸들러 반환값은 SDK에 전달하기 전에 변환한다:
-- `string` → `{ content: [{ type: 'text', text }] }`
-- `object` → `{ content: [{ type: 'text', text: JSON.stringify(obj) }] }`
-- `BrandedToolResult` → `{ content: result.content }`
 
 ### 3.2 Codex 런타임
 
-인라인 도구들을 모아 자동으로 in-process MCP 서버를 하나 생성한다:
+현재 Codex 런타임은 `tools`를 사용하지 않는다. 인라인 도구 지원을 위해 다음을 추가한다:
+
+#### MCP 브릿지: child process 방식
+
+in-process stdio는 Codex app server가 이미 `process.stdin/stdout`을 점유하므로 사용할 수 없다. 대신 인라인 도구들을 호스팅하는 **별도 child process**를 spawn한다:
 
 ```
-tools[] → inline 분리 → createInlineMcpBridge(inlineTools)
-                         → McpServer 인스턴스 생성
-                         → 각 인라인 도구를 server.tool()로 등록
-                         → stdio transport로 연결
-                       → MCP 도구 → 기존 경로 그대로
+Codex app server (stdio)
+  └─ MCP bridge child process (stdio)
+       └─ 인라인 도구 핸들러 실행
 ```
 
-`createInlineMcpBridge()`는 `@sena-ai/core`에 구현한다:
+구현:
+
+1. `@sena-ai/core`에 `inline-mcp-bridge.ts` 엔트리포인트를 추가한다. 이 파일은 child process로 실행되며, 부모로부터 직렬화된 도구 정의를 받아 MCP 서버를 시작한다.
+2. 단, 핸들러는 함수이므로 직렬화할 수 없다. 따라서 부모 프로세스가 핸들러 레지스트리를 유지하고, child process의 MCP 서버는 도구 호출 시 부모에게 IPC로 위임한다.
 
 ```ts
-function createInlineMcpBridge(tools: ToolPort[]): McpConfig {
-  // inline 도구들만 필터링
-  // McpServer 인스턴스 생성
-  // 각 도구의 inline.handler를 server.tool()로 등록
-  // StdioServerTransport 연결
-  // McpConfig 반환
+// Codex 런타임 내부
+function setupInlineTools(inlineTools: InlineToolPort[]): McpConfig {
+  if (inlineTools.length === 0) return null
+
+  // 핸들러 레지스트리 (부모 프로세스)
+  const handlers = new Map(inlineTools.map(t => [t.name, t.inline.handler]))
+
+  // child process spawn
+  const child = fork(require.resolve('@sena-ai/core/inline-mcp-bridge'), {
+    stdio: ['pipe', 'pipe', 'inherit', 'ipc'],
+  })
+
+  // 도구 메타데이터 전송 (핸들러 제외)
+  child.send({
+    type: 'init',
+    tools: inlineTools.map(t => ({
+      name: t.name,
+      description: t.inline.description,
+      inputSchema: t.inline.inputSchema,
+    })),
+  })
+
+  // IPC: child가 도구 호출 요청 → 부모가 핸들러 실행 → 결과 반환
+  child.on('message', async (msg) => {
+    if (msg.type === 'call') {
+      try {
+        const result = await handlers.get(msg.toolName)(msg.params)
+        child.send({ type: 'result', id: msg.id, value: normalizeResult(result) })
+      } catch (err) {
+        child.send({ type: 'error', id: msg.id, message: err.message })
+      }
+    }
+  })
+
+  // Codex에 전달할 MCP 설정
+  return {
+    command: child.spawnfile,
+    // ... child의 stdio를 MCP transport로 연결
+  }
+}
+```
+
+3. Codex 런타임의 `createStream()`에서 `tools`를 처리하는 로직 추가:
+
+```ts
+async *createStream(streamOptions: RuntimeStreamOptions) {
+  const { tools, ...rest } = streamOptions
+
+  // 인라인/MCP 분리
+  const inlineTools = tools.filter((t): t is InlineToolPort => t.type === 'inline')
+  const mcpTools = tools.filter((t): t is McpToolPort => t.type !== 'inline')
+
+  // MCP 설정 구성
+  const mcpServers: Record<string, McpConfig> = {}
+  for (const t of mcpTools) {
+    mcpServers[t.name] = t.toMcpConfig({ name: 'codex' })
+  }
+
+  // 인라인 → MCP 브릿지
+  const bridgeConfig = setupInlineTools(inlineTools)
+  if (bridgeConfig) {
+    mcpServers['__inline__'] = bridgeConfig
+  }
+
+  // Codex app server에 mcpServers 전달
+  // ...기존 Codex 프로토콜 로직
 }
 ```
 
@@ -203,10 +382,24 @@ function createInlineMcpBridge(tools: ToolPort[]): McpConfig {
 
 | 패키지 | 변경 내용 |
 |--------|----------|
-| `@sena-ai/core` | `ToolPort` 타입 확장, `defineTool()`, `toolResult()` export |
-| `@sena-ai/runtime-claude` | 인라인 도구 네이티브 등록 로직 추가 |
-| `@sena-ai/runtime-codex` | `createInlineMcpBridge()` 호출 추가 |
-| `@sena-ai/tools-slack` | MCP 서버 방식 → `defineTool` 인라인으로 전환. `mcp-server.ts` 제거. `slackTools()`가 `ToolPort[]` 반환. |
+| `@sena-ai/core` | `ToolPort` discriminated union으로 변경, `defineTool()`, `toolResult()`, `paramsToJsonSchema()` 추가, `inline-mcp-bridge.ts` 추가, 이름 충돌 검증 추가 |
+| `@sena-ai/runtime-claude` | `buildMcpServers()` → `buildToolConfig()`로 확장, 인라인 도구 네이티브 등록, `allowedTools` 패턴 분기 |
+| `@sena-ai/runtime-codex` | `setupInlineTools()` + MCP 브릿지 child process, `createStream()`에서 tools 처리 추가 |
+| `@sena-ai/tools-slack` | MCP 서버 방식 → `defineTool` 인라인으로 전환. `mcp-server.ts` 제거. `slackTools()` 반환 타입 `ToolPort` → `ToolPort[]` (breaking change, 아래 참고). |
+
+### `slackTools()` breaking change
+
+반환 타입이 `ToolPort` (단일) → `ToolPort[]` (배열)로 변경된다. 사용처에서 spread 연산자를 추가해야 한다:
+
+```ts
+// Before
+tools: [slackTools({ botToken: '...' })]
+
+// After
+tools: [...slackTools({ botToken: '...' })]
+```
+
+현재 이 패키지의 유일한 소비자는 sena 자체 설정 파일이므로 외부 호환성 문제는 없다.
 
 ### 삭제
 
@@ -220,7 +413,7 @@ function createInlineMcpBridge(tools: ToolPort[]): McpConfig {
 |--------|------|
 | `@sena-ai/tools` | 외부 MCP 서버 연결용 `mcpServer()` 여전히 필요 |
 | `@sena-ai/connector-slack` | 도구와 무관 |
-| `@sena-ai/engine` | `ToolPort[]`를 그대로 전달하는 구조, 변경 불필요 |
+| `@sena-ai/engine` | `ToolPort[]`를 그대로 전달하는 구조 (mixed array를 받지만 분기하지 않음) |
 | `@sena-ai/worker` | 동일 |
 
 ---
@@ -229,24 +422,39 @@ function createInlineMcpBridge(tools: ToolPort[]): McpConfig {
 
 ### 단위 테스트
 
-- `defineTool()` → 올바른 `ToolPort` 생성 확인 (`type: 'inline'`, `inline` 필드 존재)
+- `defineTool()` → 올바른 `InlineToolPort` 생성 확인 (`type: 'inline'`, `inline` 필드 존재)
+- `paramsToJsonSchema()` → Zod 스키마 → JSON Schema 변환 (required/optional 구분 포함)
 - 핸들러 반환값 변환: `string`, `object`, `toolResult()` 각각 올바르게 변환
 - 에러 처리: `throw` 시 `isError: true` 전파
-- `toolResult()` 브랜드 심볼 검증
+- `toolResult()` 브랜드 심볼: `isBrandedToolResult()` 검증
+- 이름 충돌 검증: 중복 시 에러 throw
 
 ### 런타임 어댑터 테스트
 
-- Claude: 인라인 도구가 네이티브 tool로 변환되는지
-- Claude: 인라인 + MCP 도구 혼합 시 양쪽 모두 등록되는지
-- Codex: 인라인 도구들이 MCP 브릿지로 묶이는지
-- Codex: 브릿지 MCP 서버가 정상 응답하는지
+- Claude: 인라인 도구가 네이티브 tool로 변환되는지 (input_schema 포함)
+- Claude: 인라인 + MCP 도구 혼합 시 `allowedTools`에 올바른 패턴 생성
+- Claude: `wrapHandler()`가 `ToolContent` → Claude SDK content block 변환 검증
+- Codex: `setupInlineTools()`가 MCP 브릿지 child process 생성
+- Codex: 브릿지를 통한 도구 호출 → IPC → 핸들러 실행 → 결과 반환 검증
 
 ### 핸들러 직접 테스트
 
 인라인 도구의 핸들러는 순수 함수이므로 MCP 서버 없이 직접 호출하여 테스트 가능:
 
 ```ts
-const tool = defineTool({ name: 'ping', handler: async () => 'pong' })
-const result = await tool.inline!.handler({})
+const tool = defineTool({
+  name: 'ping',
+  description: 'Health check',
+  handler: async () => 'pong',
+})
+const result = await tool.inline.handler({})
 expect(result).toBe('pong')
 ```
+
+---
+
+## 6. 의존성 추가
+
+| 패키지 | 새 의존성 | 용도 |
+|--------|----------|------|
+| `@sena-ai/core` | `zod-to-json-schema` | params → JSON Schema 변환 |
