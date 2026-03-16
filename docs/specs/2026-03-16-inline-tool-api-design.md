@@ -292,67 +292,97 @@ function wrapHandler(handler: InlineToolDef['handler']) {
 
 ### 3.2 Codex 런타임
 
-현재 Codex 런타임은 `tools`를 전혀 사용하지 않는다 (MCP 도구 포함). 이 스펙에서 Codex에 **인라인 도구와 MCP 도구 모두**에 대한 도구 지원을 추가한다:
+현재 Codex 런타임은 `tools`를 전혀 사용하지 않는다 (MCP 도구 포함). 이 스펙에서 Codex에 **인라인 도구와 MCP 도구 모두**에 대한 도구 지원을 추가한다.
 
-#### MCP 브릿지: child process 방식
+#### 인라인 도구 → localhost StreamableHTTP MCP 서버
 
-in-process stdio는 Codex app server가 이미 `process.stdin/stdout`을 점유하므로 사용할 수 없다. 대신 인라인 도구들을 호스팅하는 **별도 child process**를 spawn한다:
+Codex app server는 MCP 서버 연결 시 **StreamableHTTP** (`url` 설정)을 네이티브 지원한다. 인라인 도구를 같은 Worker 프로세스 내에서 HTTP MCP 서버로 노출하고, Codex에 `-c` 플래그로 URL을 전달한다.
 
 ```
-Codex app server (stdio)
-  └─ MCP bridge child process (stdio)
-       └─ 인라인 도구 핸들러 실행
+Worker 프로세스 (단일)
+  ├─ HTTP 서버 (127.0.0.1:PORT/mcp)
+  │    └─ StreamableHTTPServerTransport
+  │         └─ McpServer (인라인 도구 핸들러 직접 호출)
+  │
+  └─ Codex app server (stdio)
+       └─ -c 'mcp_servers.__inline__.url="http://127.0.0.1:PORT/mcp"'
 ```
+
+핸들러가 같은 프로세스에서 실행되므로 child process, IPC, 직렬화가 모두 불필요하다.
 
 구현:
 
-1. `@sena-ai/core`에 `inline-mcp-bridge.ts` 엔트리포인트를 추가한다. 이 파일은 child process로 실행되며, 부모로부터 직렬화된 도구 정의를 받아 MCP 서버를 시작한다.
-2. 단, 핸들러는 함수이므로 직렬화할 수 없다. 따라서 부모 프로세스가 핸들러 레지스트리를 유지하고, child process의 MCP 서버는 도구 호출 시 부모에게 IPC로 위임한다.
-
 ```ts
-// Codex 런타임 내부
-function setupInlineTools(inlineTools: InlineToolPort[]): McpConfig {
+import { McpServer } from '@modelcontextprotocol/server'
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node'
+import { createServer } from 'node:http'
+
+// Worker 프로세스 내에서 인라인 도구를 MCP 서버로 노출
+async function startInlineMcpHttpServer(
+  inlineTools: InlineToolPort[]
+): Promise<{ url: string; close: () => Promise<void> }> {
   if (inlineTools.length === 0) return null
 
-  // 핸들러 레지스트리 (부모 프로세스)
-  const handlers = new Map(inlineTools.map(t => [t.name, t.inline.handler]))
+  const mcpServer = new McpServer({ name: 'sena-inline-tools', version: '1.0.0' })
 
-  // child process spawn
-  const child = fork(require.resolve('@sena-ai/core/inline-mcp-bridge'), {
-    stdio: ['pipe', 'pipe', 'inherit', 'ipc'],
-  })
-
-  // 도구 메타데이터 전송 (핸들러 제외)
-  child.send({
-    type: 'init',
-    tools: inlineTools.map(t => ({
-      name: t.name,
-      description: t.inline.description,
-      inputSchema: t.inline.inputSchema,
-    })),
-  })
-
-  // IPC: child가 도구 호출 요청 → 부모가 핸들러 실행 → 결과 반환
-  child.on('message', async (msg) => {
-    if (msg.type === 'call') {
-      try {
-        const result = await handlers.get(msg.toolName)(msg.params)
-        child.send({ type: 'result', id: msg.id, value: normalizeResult(result) })
-      } catch (err) {
-        child.send({ type: 'error', id: msg.id, message: err.message })
+  // 각 인라인 도구를 MCP server.tool()로 등록
+  for (const tool of inlineTools) {
+    mcpServer.tool(
+      tool.name,
+      tool.inline.description,
+      tool.inline.inputSchema.properties ?? {},
+      async (params) => {
+        const raw = await tool.inline.handler(params)
+        return normalizeToMcpResult(raw)
       }
+    )
+  }
+
+  // HTTP 서버 시작 (127.0.0.1, 랜덤 포트)
+  const httpServer = createServer()
+  const transport = new NodeStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // stateless
+  })
+
+  httpServer.on('request', async (req, res) => {
+    if (req.url === '/mcp' && req.method === 'POST') {
+      await mcpServer.connect(transport)
+      await transport.handleRequest(req, res, await parseBody(req))
+    } else {
+      res.writeHead(404).end()
     }
   })
 
-  // Codex에 전달할 MCP 설정
+  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve))
+  const port = (httpServer.address() as any).port
+
   return {
-    command: child.spawnfile,
-    // ... child의 stdio를 MCP transport로 연결
+    url: `http://127.0.0.1:${port}/mcp`,
+    close: () => new Promise((resolve) => httpServer.close(resolve)),
   }
+}
+
+// 핸들러 반환값 → MCP content 변환
+function normalizeToMcpResult(raw: unknown) {
+  if (isBrandedToolResult(raw)) return { content: raw.content }
+  if (typeof raw === 'string') return { content: [{ type: 'text', text: raw }] }
+  return { content: [{ type: 'text', text: JSON.stringify(raw) }] }
 }
 ```
 
-3. Codex 런타임의 `createStream()`에서 `tools`를 처리하는 로직 추가:
+#### MCP 도구 → Codex `-c` 플래그
+
+기존 MCP 도구(`McpToolPort`)도 Codex에 전달한다. `toMcpConfig()`의 결과를 `-c` 플래그로 변환:
+
+```ts
+// stdio MCP 도구 → Codex -c 플래그
+// -c 'mcp_servers.slack.command=["node", "/path/to/server.js"]'
+
+// http MCP 도구 → Codex -c 플래그
+// -c 'mcp_servers.posthog.url="https://mcp.posthog.com/mcp"'
+```
+
+#### `createStream()` 통합
 
 ```ts
 async *createStream(streamOptions: RuntimeStreamOptions) {
@@ -362,26 +392,34 @@ async *createStream(streamOptions: RuntimeStreamOptions) {
   const inlineTools = tools.filter((t): t is InlineToolPort => t.type === 'inline')
   const mcpTools = tools.filter((t): t is McpToolPort => t.type !== 'inline')
 
-  // MCP 설정 구성
-  const mcpServers: Record<string, McpConfig> = {}
+  // 인라인 → localhost HTTP MCP 서버
+  const inlineBridge = await startInlineMcpHttpServer(inlineTools)
+
+  // Codex app server spawn 시 -c 플래그 구성
+  const configOverrides: string[] = []
+
+  // 인라인 도구 브릿지 URL
+  if (inlineBridge) {
+    configOverrides.push(`mcp_servers.__inline__.url="${inlineBridge.url}"`)
+  }
+
+  // 기존 MCP 도구
   for (const t of mcpTools) {
-    mcpServers[t.name] = t.toMcpConfig({ name: 'codex' })
+    const config = t.toMcpConfig({ name: 'codex' })
+    if (config.url) {
+      configOverrides.push(`mcp_servers.${t.name}.url="${config.url}"`)
+    } else if (config.command) {
+      configOverrides.push(`mcp_servers.${t.name}.command=${JSON.stringify(config.command)}`)
+    }
   }
 
-  // 인라인 → MCP 브릿지
-  const bridgeConfig = setupInlineTools(inlineTools)
-  if (bridgeConfig) {
-    mcpServers['__inline__'] = bridgeConfig
-  }
-
-  // Codex app server에 mcpServers 전달
-  // ...기존 Codex 프로토콜 로직
-
-  // cleanup: turn 종료 시 bridge child process를 kill
   try {
-    // ... yield events ...
+    // Codex app server에 -c 플래그로 MCP 설정 전달
+    // spawn('codex', ['app-server', ...configOverrides.flatMap(c => ['-c', c])])
+    // ...기존 Codex 프로토콜 로직 + yield events
   } finally {
-    if (bridgeChild) bridgeChild.kill('SIGTERM')
+    // HTTP 서버 정리
+    if (inlineBridge) await inlineBridge.close()
   }
 }
 ```
@@ -394,9 +432,9 @@ async *createStream(streamOptions: RuntimeStreamOptions) {
 
 | 패키지 | 변경 내용 |
 |--------|----------|
-| `@sena-ai/core` | `ToolPort` discriminated union으로 변경, `defineTool()`, `toolResult()`, `paramsToJsonSchema()` 추가, `inline-mcp-bridge.ts` 추가, 이름 충돌 검증 추가 |
+| `@sena-ai/core` | `ToolPort` discriminated union으로 변경, `defineTool()`, `toolResult()`, `paramsToJsonSchema()` 추가, 이름 충돌 검증 추가 |
 | `@sena-ai/runtime-claude` | `buildMcpServers()` → `buildToolConfig()`로 확장, 인라인 도구 네이티브 등록, `allowedTools` 패턴 분기 |
-| `@sena-ai/runtime-codex` | **도구 지원 전체 추가** (현재 zero tool support): MCP 도구 → Codex에 mcpServers 전달, 인라인 도구 → MCP 브릿지 child process. `createStream()`에서 tools 처리 로직 신규 작성. |
+| `@sena-ai/runtime-codex` | **도구 지원 전체 추가** (현재 zero tool support): 인라인 도구 → localhost StreamableHTTP MCP 서버로 노출, MCP 도구 → `-c` 플래그로 Codex에 전달. `createStream()`에서 tools 처리 로직 신규 작성. |
 | `@sena-ai/tools-slack` | MCP 서버 방식 → `defineTool` 인라인으로 전환. `mcp-server.ts` 제거. `slackTools()` 반환 타입 `ToolPort` → `ToolPort[]` (breaking change, 아래 참고). |
 
 ### `slackTools()` breaking change
@@ -446,8 +484,10 @@ tools: [...slackTools({ botToken: '...' })]
 - Claude: 인라인 도구가 네이티브 tool로 변환되는지 (input_schema 포함)
 - Claude: 인라인 + MCP 도구 혼합 시 `allowedTools`에 올바른 패턴 생성
 - Claude: `wrapHandler()`가 `ToolContent` → Claude SDK content block 변환 검증
-- Codex: `setupInlineTools()`가 MCP 브릿지 child process 생성
-- Codex: 브릿지를 통한 도구 호출 → IPC → 핸들러 실행 → 결과 반환 검증
+- Codex: `startInlineMcpHttpServer()`가 localhost HTTP MCP 서버 시작, 포트 바인딩 확인
+- Codex: HTTP MCP 서버로 도구 호출 → 핸들러 실행 → MCP content 반환 검증
+- Codex: `createStream()` cleanup 시 HTTP 서버 정상 종료 확인
+- Codex: `-c` 플래그로 MCP 도구 설정이 올바르게 생성되는지 검증
 
 ### 핸들러 직접 테스트
 
@@ -470,3 +510,4 @@ expect(result).toBe('pong')
 | 패키지 | 새 의존성 | 용도 |
 |--------|----------|------|
 | `@sena-ai/core` | `zod-to-json-schema` | params → JSON Schema 변환 |
+| `@sena-ai/runtime-codex` | `@modelcontextprotocol/server`, `@modelcontextprotocol/node` | 인라인 도구를 StreamableHTTP MCP 서버로 노출 |
