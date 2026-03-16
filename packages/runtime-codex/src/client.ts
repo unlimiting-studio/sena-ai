@@ -27,8 +27,14 @@ export class CodexAppServerClient extends EventEmitter {
     this.codexBin = codexBin
   }
 
-  spawn(): void {
-    this.child = spawn(this.codexBin, ['app-server'], {
+  spawn(configOverrides?: string[]): void {
+    const args = ['app-server']
+    if (configOverrides?.length) {
+      for (const c of configOverrides) {
+        args.push('-c', c)
+      }
+    }
+    this.child = spawn(this.codexBin, args, {
       stdio: ['pipe', 'pipe', 'inherit'],
     })
 

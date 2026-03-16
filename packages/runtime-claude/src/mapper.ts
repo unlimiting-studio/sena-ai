@@ -10,6 +10,14 @@ export function mapSdkMessage(msg: any): RuntimeEvent[] {
     case 'system':
       if (msg.subtype === 'init' && msg.session_id) {
         events.push({ type: 'session.init', sessionId: msg.session_id })
+        // Log MCP server connection status
+        if (msg.mcp_servers) {
+          console.log(`[runtime-claude] MCP servers:`, JSON.stringify(msg.mcp_servers))
+        }
+        if (msg.tools) {
+          const mcpTools = (msg.tools as string[]).filter((t: string) => t.startsWith('mcp__'))
+          console.log(`[runtime-claude] MCP tools available: ${mcpTools.length > 0 ? mcpTools.join(', ') : 'NONE'}`)
+        }
       }
       break
 
