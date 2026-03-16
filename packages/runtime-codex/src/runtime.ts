@@ -1,6 +1,7 @@
-import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment } from '@sena-ai/core'
+import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, McpToolPort, InlineToolPort } from '@sena-ai/core'
 import { CodexAppServerClient } from './client.js'
 import { mapCodexNotification } from './mapper.js'
+import { startInlineMcpHttpServer } from './inline-mcp-server.js'
 
 export type CodexRuntimeOptions = {
   model?: string
@@ -9,6 +10,28 @@ export type CodexRuntimeOptions = {
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
   approvalPolicy?: 'never' | 'on-request' | 'always'
   codexBin?: string
+}
+
+export function buildCodexConfigOverrides(
+  inlineBridgeUrl: string | null,
+  mcpTools: McpToolPort[],
+): string[] {
+  const overrides: string[] = []
+  if (inlineBridgeUrl) {
+    overrides.push(`mcp_servers.__inline__.url="${inlineBridgeUrl}"`)
+  }
+  for (const tool of mcpTools) {
+    const config = tool.toMcpConfig({ name: 'codex' }) as Record<string, unknown>
+    if (config['url']) {
+      overrides.push(`mcp_servers.${tool.name}.url="${config['url']}"`)
+    } else if (config['command']) {
+      const cmd = Array.isArray(config['command'])
+        ? config['command']
+        : [config['command'], ...((config['args'] as string[] | undefined) ?? [])]
+      overrides.push(`mcp_servers.${tool.name}.command=${JSON.stringify(cmd)}`)
+    }
+  }
+  return overrides
 }
 
 export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
@@ -31,11 +54,18 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         sessionId,
         cwd,
         abortSignal,
+        tools = [],
       } = streamOptions
 
       if (apiKey) {
         process.env.OPENAI_API_KEY = apiKey
       }
+
+      const inlineTools = tools.filter((t): t is InlineToolPort => t.type === 'inline')
+      const mcpTools = tools.filter((t): t is McpToolPort => t.type === 'mcp-http' || t.type === 'mcp-stdio')
+
+      const bridge = await startInlineMcpHttpServer(inlineTools)
+      const configOverrides = buildCodexConfigOverrides(bridge?.url ?? null, mcpTools)
 
       const client = new CodexAppServerClient(codexBin)
 
@@ -89,7 +119,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
       }, { once: true })
 
       try {
-        client.spawn()
+        client.spawn(configOverrides.length ? configOverrides : undefined)
         await client.initialize('sena-runtime')
 
         const baseInstructions = buildBaseInstructions(contextFragments)
@@ -137,6 +167,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         }
       } finally {
         client.close()
+        if (bridge) await bridge.close()
       }
     },
   }
