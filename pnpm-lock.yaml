@@ -62,6 +62,9 @@ importers:
       '@sena-ai/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       typescript:
         specifier: ^5.8.0
