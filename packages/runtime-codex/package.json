@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@sena-ai/core": "^0.0.1",
+    "@sena-ai/core": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {

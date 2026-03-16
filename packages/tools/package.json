@@ -17,7 +17,7 @@
     "dev": "tsc -b --watch"
   },
   "dependencies": {
-    "@sena-ai/core": "^0.0.1"
+    "@sena-ai/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.0"
