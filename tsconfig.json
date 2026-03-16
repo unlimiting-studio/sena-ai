@@ -17,6 +17,7 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
+  "files": [],
   "references": [
     { "path": "packages/core" },
     { "path": "packages/hooks" },
@@ -24,7 +25,6 @@
     { "path": "packages/runtime-codex" },
     { "path": "packages/tools" },
     { "path": "packages/tools-slack" },
-
     { "path": "packages/connector-slack" }
   ]
 }
