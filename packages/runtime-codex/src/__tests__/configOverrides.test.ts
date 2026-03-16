@@ -49,7 +49,8 @@ describe('buildCodexConfigOverrides', () => {
       makeStdioTool('my-stdio-tool', 'npx', ['some-mcp-server']),
     ])
     expect(overrides).toEqual([
-      'mcp_servers.my-stdio-tool.command=["npx","some-mcp-server"]',
+      'mcp_servers.my-stdio-tool.command="npx"',
+      'mcp_servers.my-stdio-tool.args=["some-mcp-server"]',
     ])
   })
 
@@ -58,7 +59,20 @@ describe('buildCodexConfigOverrides', () => {
       makeStdioTool('bare-tool', 'my-server'),
     ])
     expect(overrides).toEqual([
-      'mcp_servers.bare-tool.command=["my-server"]',
+      'mcp_servers.bare-tool.command="my-server"',
+    ])
+  })
+
+  it('splits array command into command and args overrides', () => {
+    const tool: McpToolPort = {
+      name: 'array-tool',
+      type: 'mcp-stdio',
+      toMcpConfig: () => ({ command: ['node', 'server.js', '--flag'] }),
+    }
+    const overrides = buildCodexConfigOverrides(null, [tool])
+    expect(overrides).toEqual([
+      'mcp_servers.array-tool.command="node"',
+      'mcp_servers.array-tool.args=["server.js","--flag"]',
     ])
   })
 
@@ -70,7 +84,8 @@ describe('buildCodexConfigOverrides', () => {
     expect(overrides).toEqual([
       'mcp_servers.__inline__.url="http://127.0.0.1:9000/mcp"',
       'mcp_servers.tool-a.url="http://a.example.com/mcp"',
-      'mcp_servers.tool-b.command=["run-b","--flag"]',
+      'mcp_servers.tool-b.command="run-b"',
+      'mcp_servers.tool-b.args=["--flag"]',
     ])
   })
 
