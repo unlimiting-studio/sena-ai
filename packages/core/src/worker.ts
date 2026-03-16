@@ -1,4 +1,6 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
 import type { ResolvedSenaConfig } from './config.js'
 import type { Connector, HttpServer, InboundEvent, SessionStore, TurnEngine } from './types.js'
 import { createTurnEngine } from './engine.js'
@@ -9,7 +11,34 @@ export type WorkerOptions = {
   sessionStore?: SessionStore
 }
 
-/** Simple in-memory session store (conversationId → SDK sessionId) */
+/** File-backed session store that survives restarts */
+export function createFileSessionStore(filePath: string): SessionStore {
+  let data: Record<string, string> = {}
+
+  // Load existing data
+  try {
+    data = JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch {
+    // File doesn't exist yet — that's fine
+  }
+
+  function persist() {
+    try {
+      mkdirSync(dirname(filePath), { recursive: true })
+      writeFileSync(filePath, JSON.stringify(data, null, 2))
+    } catch (err) {
+      console.error(`[session-store] failed to persist: ${err}`)
+    }
+  }
+
+  return {
+    async get(conversationId) { return data[conversationId] ?? null },
+    async set(conversationId, sessionId) { data[conversationId] = sessionId; persist() },
+    async delete(conversationId) { delete data[conversationId]; persist() },
+  }
+}
+
+/** Simple in-memory session store (fallback) */
 function createInMemorySessionStore(): SessionStore {
   const map = new Map<string, string>()
   return {
@@ -24,7 +53,10 @@ function createInMemorySessionStore(): SessionStore {
  */
 export function createWorker(options: WorkerOptions) {
   const { config, port = parseInt(process.env.SENA_WORKER_PORT ?? '0', 10) } = options
-  const sessionStore = options.sessionStore ?? createInMemorySessionStore()
+  const sessionStore = options.sessionStore
+    ?? (config.cwd
+      ? createFileSessionStore(resolve(config.cwd, '.sessions.json'))
+      : createInMemorySessionStore())
   let server: Server | null = null
 
   const engine = createTurnEngine({
