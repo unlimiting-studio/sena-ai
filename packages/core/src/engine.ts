@@ -60,6 +60,22 @@ export function createTurnEngine(config: TurnEngineConfig) {
     const hookTraces: HookTrace[] = []
     const allFragments: ContextFragment[] = []
 
+    // === Auto-inject connector context ===
+    if (options.connector) {
+      const c = options.connector
+      // Parse conversationId (format: "channelId:threadTs" for Slack)
+      const [channelId, threadTs] = c.conversationId.includes(':')
+        ? c.conversationId.split(':')
+        : [c.conversationId, undefined]
+      const parts = [
+        `connector: ${c.name}`,
+        `channelId: ${channelId}`,
+        threadTs ? `threadTs: ${threadTs}` : null,
+        `userId: ${c.userId}`,
+      ].filter(Boolean).join(', ')
+      allFragments.push({ source: 'connector-meta', role: 'context', content: `[Current Message Context] ${parts}` })
+    }
+
     // === onTurnStart hooks ===
     for (const hook of hooks.onTurnStart ?? []) {
       const hookStart = performance.now()
@@ -213,6 +229,7 @@ async function executeRuntime(
     switch (event.type) {
       case 'session.init':
         resultSessionId = event.sessionId
+        console.log(`[runtime] session.init: ${event.sessionId}`)
         break
       case 'progress':
         progressText = event.text // Full progress replaces
@@ -222,18 +239,22 @@ async function executeRuntime(
         break
       case 'result':
         resultText = event.text
+        console.log(`[runtime] result: ${event.text.length}ch`)
         break
       case 'tool.start':
         toolStarts.set(event.toolName, performance.now())
+        console.log(`[runtime] tool.start: ${event.toolName}`)
         break
       case 'tool.end': {
         const start = toolStarts.get(event.toolName)
+        const duration = start ? Math.round(performance.now() - start) : 0
         toolCalls.push({
           toolName: event.toolName,
-          durationMs: start ? Math.round(performance.now() - start) : 0,
+          durationMs: duration,
           isError: event.isError,
         })
         toolStarts.delete(event.toolName)
+        console.log(`[runtime] tool.end: ${event.toolName} ${duration}ms ${event.isError ? 'ERROR' : 'ok'}`)
         break
       }
     }
