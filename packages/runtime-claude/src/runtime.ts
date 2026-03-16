@@ -109,7 +109,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         systemPrompt,
-        settingSources: [],
+        settingSources: ['project'],
       }
 
       // Create abort controller from signal
