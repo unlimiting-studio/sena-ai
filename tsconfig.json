@@ -25,6 +25,7 @@
     { "path": "packages/runtime-codex" },
     { "path": "packages/tools" },
     { "path": "packages/tools-slack" },
-    { "path": "packages/connector-slack" }
+    { "path": "packages/connector-slack" },
+    { "path": "packages/cli" }
   ]
 }
