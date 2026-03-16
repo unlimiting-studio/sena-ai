@@ -25,10 +25,19 @@ export function buildCodexConfigOverrides(
     if (config['url']) {
       overrides.push(`mcp_servers.${tool.name}.url="${config['url']}"`)
     } else if (config['command']) {
-      const cmd = Array.isArray(config['command'])
-        ? config['command']
-        : [config['command'], ...((config['args'] as string[] | undefined) ?? [])]
-      overrides.push(`mcp_servers.${tool.name}.command=${JSON.stringify(cmd)}`)
+      const command = Array.isArray(config['command'])
+        ? String(config['command'][0] ?? '')
+        : String(config['command'])
+      const args = Array.isArray(config['command'])
+        ? config['command'].slice(1).map(String)
+        : ((config['args'] as string[] | undefined) ?? [])
+
+      if (command !== '') {
+        overrides.push(`mcp_servers.${tool.name}.command="${command}"`)
+      }
+      if (args.length > 0) {
+        overrides.push(`mcp_servers.${tool.name}.args=${JSON.stringify(args)}`)
+      }
     }
   }
   return overrides
@@ -184,20 +193,16 @@ function buildBaseInstructions(fragments: ContextFragment[]): string {
   return parts.join('\n\n')
 }
 
-/**
- * Convert a simple sandbox mode string to the tagged-union SandboxPolicy
- * format required by the Codex App Server protocol.
- * @see SandboxPolicy.ts from `codex app-server generate-ts`
- */
-function sandboxModeToCodex(mode: string): Record<string, unknown> {
+// codex-cli 0.114.0 expects the legacy string form here, not the newer tagged union.
+function sandboxModeToCodex(mode: string): string {
   switch (mode) {
     case 'danger-full-access':
-      return { type: 'danger-full-access' }
+      return 'danger-full-access'
     case 'read-only':
-      return { type: 'read-only' }
+      return 'read-only'
     case 'workspace-write':
-      return { type: 'workspace-write', network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false }
+      return 'workspace-write'
     default:
-      return { type: 'workspace-write', network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false }
+      return 'workspace-write'
   }
 }
