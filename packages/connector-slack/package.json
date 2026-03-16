@@ -1,6 +1,6 @@
 {
   "name": "@sena-ai/connector-slack",
-  "version": "0.0.15",
+  "version": "1.0.0",
   "type": "module",
   "exports": {
     ".": {
