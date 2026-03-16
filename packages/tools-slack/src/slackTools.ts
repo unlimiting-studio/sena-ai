@@ -32,7 +32,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
           ts: m.ts,
           thread_ts: m.thread_ts,
         }))
-        return { content: [{ type: 'text' as const, text: JSON.stringify(messages, null, 2) }] }
+        return JSON.stringify(messages, null, 2)
       },
     }),
 
@@ -48,7 +48,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         const params: any = { channel: channelId, text }
         if (threadTs) params.thread_ts = threadTs
         const result = await slack.chat.postMessage(params)
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: result.ok, ts: result.ts }) }] }
+        return JSON.stringify({ ok: result.ok, ts: result.ts })
       },
     }),
 
@@ -67,7 +67,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
           is_private: c.is_private,
           num_members: c.num_members,
         }))
-        return { content: [{ type: 'text' as const, text: JSON.stringify(channels, null, 2) }] }
+        return JSON.stringify(channels, null, 2)
       },
     }),
 
@@ -87,7 +87,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
           filename,
           title: title ?? filename,
         })
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, file_id: (result as any).file?.id }) }] }
+        return JSON.stringify({ ok: true, file_id: (result as any).file?.id })
       },
     }),
 
@@ -101,23 +101,18 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         const info = await slack.files.info({ file: fileId })
         const file = info.file as any
         if (!file?.url_private) {
-          return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'File URL not available' }) }] }
+          return JSON.stringify({ error: 'File URL not available' })
         }
         const response = await fetch(file.url_private, {
           headers: { Authorization: `Bearer ${options.botToken}` },
         })
         const text = await response.text()
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({
-              name: file.name,
-              mimetype: file.mimetype,
-              size: file.size,
-              content: text.length > 50000 ? text.slice(0, 50000) + '\n...(truncated)' : text,
-            }),
-          }],
-        }
+        return JSON.stringify({
+          name: file.name,
+          mimetype: file.mimetype,
+          size: file.size,
+          content: text.length > 50000 ? text.slice(0, 50000) + '\n...(truncated)' : text,
+        })
       },
     }),
   ]

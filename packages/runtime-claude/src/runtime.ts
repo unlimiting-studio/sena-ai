@@ -138,8 +138,14 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       if (allowedTools.length > 0) {
         sdkOptions.allowedTools = allowedTools
       }
-      // nativeTools reserved for future SDK native tool support
-      void nativeTools
+      // Native tools are not yet supported by the Claude Agent SDK's query() API.
+      // Fail explicitly rather than silently dropping inline tools.
+      if (nativeTools.length > 0) {
+        throw new Error(
+          `Inline tools require SDK native tool support — not yet implemented. ` +
+          `Affected tools: ${nativeTools.map(t => t.name).join(', ')}`,
+        )
+      }
 
       if (sessionId) {
         sdkOptions.resume = sessionId

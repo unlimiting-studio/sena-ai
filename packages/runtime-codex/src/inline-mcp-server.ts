@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import { isBrandedToolResult } from '@sena-ai/core'
 import type { InlineToolPort, BrandedToolResult, ToolContent } from '@sena-ai/core'
 
 export type InlineMcpBridge = {
@@ -56,8 +57,12 @@ export async function startInlineMcpHttpServer(
             tool.name,
             { description: tool.inline.description, inputSchema },
             async (params: Record<string, unknown>) => {
-              const raw = await tool.inline.handler(params)
-              return normalizeToMcpResult(raw)
+              try {
+                const raw = await tool.inline.handler(params)
+                return normalizeToMcpResult(raw)
+              } catch (err: any) {
+                return { isError: true, content: [{ type: 'text' as const, text: err.message ?? String(err) }] }
+              }
             },
           )
         }
@@ -104,19 +109,8 @@ export async function startInlineMcpHttpServer(
   }
 }
 
-function isBrandedLike(value: unknown): value is BrandedToolResult {
-  // Use duck-typing: BrandedToolResult has a `content` array with `type` items.
-  // We cannot use the unique symbol from @sena-ai/core reliably across module contexts.
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'content' in value &&
-    Array.isArray((value as BrandedToolResult).content)
-  )
-}
-
 function normalizeToMcpResult(raw: unknown): { content: { type: 'text'; text: string }[] } {
-  if (isBrandedLike(raw)) {
+  if (isBrandedToolResult(raw)) {
     const textContent = (raw.content as ToolContent[])
       .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
     if (textContent.length > 0) return { content: textContent }

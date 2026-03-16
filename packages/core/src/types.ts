@@ -174,17 +174,14 @@ export type ToolContent =
   | { type: 'text'; text: string }
   | { type: 'image'; data: string; mimeType: string }
 
+export type { BrandedToolResult } from './tool.js'
+import type { BrandedToolResult } from './tool.js'
+
 export type InlineToolDef = {
   description: string
   params?: Record<string, import('zod').ZodSchema>
   inputSchema: Record<string, unknown>
   handler: (params: any) => string | object | BrandedToolResult | Promise<string | object | BrandedToolResult>
-}
-
-// Forward declaration — the real BrandedToolResult is in tool.ts
-// Using a structural placeholder here; tool.ts re-exports the branded version
-export type BrandedToolResult = {
-  content: ToolContent[]
 }
 
 export type InlineToolPort = {
