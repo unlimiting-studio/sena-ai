@@ -69,7 +69,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 function paramsToJsonSchema(params: Record<string, ZodSchema>): JsonSchema {
   const shape: Record<string, ZodSchema> = params
   const schema = z.object(shape)
-  return zodToJsonSchema(schema, { target: 'openApi3' })
+  return zodToJsonSchema(schema, { target: 'jsonSchema7' })
 }
 ```
 
@@ -182,6 +182,9 @@ type McpToolPort = {
   toMcpConfig(runtime: RuntimeInfo): McpConfig
 }
 
+// 참고: 기존 'builtin' 타입은 사용되지 않으므로 제거한다.
+// 현재 코드베이스에 'builtin' 타입을 가진 도구가 존재하지 않음.
+
 type InlineToolPort = {
   name: string
   type: 'inline'
@@ -248,6 +251,8 @@ function buildToolConfig(tools: ToolPort[], runtimeInfo: RuntimeInfo) {
         input_schema: tool.inline.inputSchema,
         handler: wrapHandler(tool.inline.handler),
       })
+      // Claude Agent SDK는 네이티브 tool을 bare name으로 참조한다 (mcp__ 접두사 없음).
+      // 구현 시 SDK 문서에서 allowedTools 패턴을 재확인할 것.
       allowedTools.push(tool.name)
     } else {
       // MCP 서버로 등록
@@ -275,7 +280,7 @@ function wrapHandler(handler: InlineToolDef['handler']) {
             type: 'image',
             source: { type: 'base64', media_type: c.mimeType, data: c.data },
           }
-          return c
+          throw new Error(`Unknown ToolContent type: ${(c as any).type}`)
         }),
       }
     }
@@ -287,7 +292,7 @@ function wrapHandler(handler: InlineToolDef['handler']) {
 
 ### 3.2 Codex 런타임
 
-현재 Codex 런타임은 `tools`를 사용하지 않는다. 인라인 도구 지원을 위해 다음을 추가한다:
+현재 Codex 런타임은 `tools`를 전혀 사용하지 않는다 (MCP 도구 포함). 이 스펙에서 Codex에 **인라인 도구와 MCP 도구 모두**에 대한 도구 지원을 추가한다:
 
 #### MCP 브릿지: child process 방식
 
@@ -371,6 +376,13 @@ async *createStream(streamOptions: RuntimeStreamOptions) {
 
   // Codex app server에 mcpServers 전달
   // ...기존 Codex 프로토콜 로직
+
+  // cleanup: turn 종료 시 bridge child process를 kill
+  try {
+    // ... yield events ...
+  } finally {
+    if (bridgeChild) bridgeChild.kill('SIGTERM')
+  }
 }
 ```
 
@@ -384,7 +396,7 @@ async *createStream(streamOptions: RuntimeStreamOptions) {
 |--------|----------|
 | `@sena-ai/core` | `ToolPort` discriminated union으로 변경, `defineTool()`, `toolResult()`, `paramsToJsonSchema()` 추가, `inline-mcp-bridge.ts` 추가, 이름 충돌 검증 추가 |
 | `@sena-ai/runtime-claude` | `buildMcpServers()` → `buildToolConfig()`로 확장, 인라인 도구 네이티브 등록, `allowedTools` 패턴 분기 |
-| `@sena-ai/runtime-codex` | `setupInlineTools()` + MCP 브릿지 child process, `createStream()`에서 tools 처리 추가 |
+| `@sena-ai/runtime-codex` | **도구 지원 전체 추가** (현재 zero tool support): MCP 도구 → Codex에 mcpServers 전달, 인라인 도구 → MCP 브릿지 child process. `createStream()`에서 tools 처리 로직 신규 작성. |
 | `@sena-ai/tools-slack` | MCP 서버 방식 → `defineTool` 인라인으로 전환. `mcp-server.ts` 제거. `slackTools()` 반환 타입 `ToolPort` → `ToolPort[]` (breaking change, 아래 참고). |
 
 ### `slackTools()` breaking change
