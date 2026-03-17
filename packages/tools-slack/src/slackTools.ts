@@ -7,31 +7,63 @@ export type SlackToolsOptions = { botToken: string }
 
 export function slackTools(options: SlackToolsOptions): ToolPort[] {
   const slack = new WebClient(options.botToken)
+  const userNameCache = new Map<string, string>()
+
+  async function resolveUserName(userId: string): Promise<string> {
+    if (!userId) return userId
+    const cached = userNameCache.get(userId)
+    if (cached !== undefined) return cached
+    try {
+      const result = await slack.users.info({ user: userId })
+      const profile = result.user?.profile as any
+      const name = profile?.display_name || profile?.real_name || userId
+      userNameCache.set(userId, name)
+      return name
+    } catch {
+      userNameCache.set(userId, userId)
+      return userId
+    }
+  }
 
   return [
     defineTool({
       name: 'slack_get_messages',
-      description: 'Get messages from a Slack channel or thread',
+      description: 'Get messages from a Slack channel or thread. Returns parsed block kit content and attachments.',
       params: {
         channelId: z.string().describe('Channel ID'),
         threadTs: z.string().optional().describe('Thread timestamp (optional)'),
         limit: z.number().optional().default(20).describe('Max messages to return'),
+        mode: z.enum(['thread', 'channel']).optional().default('thread').describe('thread: get thread replies, channel: get channel messages'),
+        oldest: z.string().optional().describe('Only messages after this timestamp'),
+        latest: z.string().optional().describe('Only messages before this timestamp'),
       },
-      handler: async ({ channelId, threadTs, limit }: { channelId: string; threadTs?: string; limit?: number }) => {
+      handler: async ({ channelId, threadTs, limit, mode, oldest, latest }: {
+        channelId: string; threadTs?: string; limit?: number;
+        mode?: 'thread' | 'channel'; oldest?: string; latest?: string
+      }) => {
         const params: any = { channel: channelId, limit }
+        if (oldest) params.oldest = oldest
+        if (latest) params.latest = latest
         let result: any
-        if (threadTs) {
+        if (mode === 'thread' && threadTs) {
           params.ts = threadTs
           result = await slack.conversations.replies(params)
         } else {
           result = await slack.conversations.history(params)
         }
-        const messages = (result.messages ?? []).map((m: any) => ({
-          user: m.user,
-          text: m.text,
-          ts: m.ts,
-          thread_ts: m.thread_ts,
-        }))
+        const userIds: string[] = [...new Set((result.messages ?? []).map((m: any) => m.user).filter(Boolean) as string[])]
+        await Promise.all(userIds.map((uid) => resolveUserName(uid)))
+        const messages = (result.messages ?? []).map((m: any) => {
+          const parsed = parseMessageContent(m)
+          return {
+            user: m.user,
+            userName: m.user ? (userNameCache.get(m.user) ?? m.user) : undefined,
+            text: parsed,
+            ts: m.ts,
+            thread_ts: m.thread_ts,
+            ...(m.files?.length ? { files: m.files.map((f: any) => ({ id: f.id, name: f.name, mimetype: f.mimetype })) } : {}),
+          }
+        })
         return JSON.stringify(messages, null, 2)
       },
     }),
@@ -146,4 +178,128 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
       },
     }),
   ]
+}
+
+// --- Block Kit & Attachment Parser ---
+
+function parseMessageContent(msg: any): string {
+  const parts: string[] = []
+
+  // 1. Parse blocks (Block Kit)
+  if (msg.blocks?.length) {
+    parts.push(parseBlocks(msg.blocks))
+  } else if (msg.text) {
+    // Fallback to plain text if no blocks
+    parts.push(msg.text)
+  }
+
+  // 2. Parse attachments
+  if (msg.attachments?.length) {
+    for (const att of msg.attachments) {
+      parts.push(parseAttachment(att))
+    }
+  }
+
+  return parts.filter(Boolean).join('\n\n') || msg.text || ''
+}
+
+function parseBlocks(blocks: any[]): string {
+  return blocks.map(parseBlock).filter(Boolean).join('\n')
+}
+
+function parseBlock(block: any): string {
+  switch (block.type) {
+    case 'section': {
+      const text = parseTextObject(block.text)
+      const fields = block.fields?.map(parseTextObject).join(' | ') ?? ''
+      return [text, fields].filter(Boolean).join('\n')
+    }
+    case 'header':
+      return parseTextObject(block.text)
+    case 'context':
+      return block.elements?.map((el: any) => {
+        if (el.type === 'image') return `[image: ${el.alt_text ?? ''}]`
+        return parseTextObject(el)
+      }).filter(Boolean).join(' · ') ?? ''
+    case 'rich_text':
+      return block.elements?.map(parseRichTextElement).filter(Boolean).join('\n') ?? ''
+    case 'divider':
+      return '---'
+    case 'image':
+      return `[image: ${block.alt_text ?? block.title?.text ?? ''}]`
+    case 'actions':
+      return block.elements?.map((el: any) => {
+        if (el.text) return `[${parseTextObject(el.text)}]`
+        return ''
+      }).filter(Boolean).join(' ') ?? ''
+    default:
+      // Unknown block type — try extracting text if present
+      if (block.text) return parseTextObject(block.text)
+      return ''
+  }
+}
+
+function parseRichTextElement(element: any): string {
+  switch (element.type) {
+    case 'rich_text_section':
+      return element.elements?.map(parseRichTextPiece).join('') ?? ''
+    case 'rich_text_list': {
+      const style = element.style === 'ordered' ? 'ol' : 'ul'
+      return element.elements?.map((item: any, i: number) => {
+        const content = item.elements?.map(parseRichTextPiece).join('') ?? ''
+        return style === 'ol' ? `${i + 1}. ${content}` : `• ${content}`
+      }).join('\n') ?? ''
+    }
+    case 'rich_text_preformatted':
+      return '```\n' + (element.elements?.map(parseRichTextPiece).join('') ?? '') + '\n```'
+    case 'rich_text_quote':
+      return (element.elements?.map(parseRichTextPiece).join('') ?? '').split('\n').map((l: string) => `> ${l}`).join('\n')
+    default:
+      return ''
+  }
+}
+
+function parseRichTextPiece(piece: any): string {
+  switch (piece.type) {
+    case 'text':
+      return piece.text ?? ''
+    case 'link':
+      return piece.text ? `${piece.text} (${piece.url})` : piece.url ?? ''
+    case 'emoji':
+      return `:${piece.name}:`
+    case 'user':
+      return `<@${piece.user_id}>`
+    case 'channel':
+      return `<#${piece.channel_id}>`
+    case 'usergroup':
+      return `<!subteam^${piece.usergroup_id}>`
+    default:
+      return piece.text ?? ''
+  }
+}
+
+function parseTextObject(textObj: any): string {
+  if (!textObj) return ''
+  if (typeof textObj === 'string') return textObj
+  return textObj.text ?? ''
+}
+
+function parseAttachment(att: any): string {
+  const parts: string[] = []
+  if (att.pretext) parts.push(att.pretext)
+  if (att.title) parts.push(att.title_link ? `${att.title} (${att.title_link})` : att.title)
+  if (att.text) parts.push(att.text)
+  if (att.fields?.length) {
+    for (const f of att.fields) {
+      parts.push(`${f.title}: ${f.value}`)
+    }
+  }
+  if (att.footer) parts.push(`— ${att.footer}`)
+  // Nested message_blocks (unfurled links, etc.)
+  if (att.message_blocks?.length) {
+    for (const mb of att.message_blocks) {
+      if (mb.message?.blocks) parts.push(parseBlocks(mb.message.blocks))
+    }
+  }
+  return parts.filter(Boolean).join('\n')
 }
