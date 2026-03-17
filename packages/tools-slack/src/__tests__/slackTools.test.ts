@@ -6,6 +6,7 @@ const EXPECTED_TOOL_NAMES = [
   'slack_post_message',
   'slack_list_channels',
   'slack_upload_file',
+  'slack_get_users',
   'slack_download_file',
 ]
 
@@ -13,7 +14,7 @@ describe('slackTools', () => {
   it('returns an array of ToolPorts', () => {
     const tools = slackTools({ botToken: 'xoxb-test-token' })
     expect(Array.isArray(tools)).toBe(true)
-    expect(tools.length).toBe(5)
+    expect(tools.length).toBe(6)
   })
 
   it('all tools are inline type', () => {
