@@ -92,6 +92,36 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
     }),
 
     defineTool({
+      name: 'slack_get_users',
+      description: 'Get user profile information for one or more Slack user IDs',
+      params: {
+        userIds: z.array(z.string()).describe('Array of Slack user IDs to look up'),
+      },
+      handler: async ({ userIds }: { userIds: string[] }) => {
+        const results = await Promise.all(
+          userIds.map(async (uid) => {
+            try {
+              const result = await slack.users.info({ user: uid })
+              const u = result.user as any
+              return {
+                id: u?.id,
+                name: u?.name,
+                real_name: u?.real_name,
+                display_name: u?.profile?.display_name,
+                email: u?.profile?.email,
+                is_bot: u?.is_bot,
+                timezone: u?.tz,
+              }
+            } catch {
+              return { id: uid, error: 'not found' }
+            }
+          }),
+        )
+        return JSON.stringify(results, null, 2)
+      },
+    }),
+
+    defineTool({
       name: 'slack_download_file',
       description: 'Download a file from Slack by file ID',
       params: {
