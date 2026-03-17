@@ -73,6 +73,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         `channelId: ${channelId}`,
         threadTs ? `threadTs: ${threadTs}` : null,
         `userId: ${c.userId}`,
+        c.userName && c.userName !== c.userId ? `userName: ${c.userName}` : null,
       ].filter(Boolean).join(', ')
       allFragments.push({ source: 'connector-meta', role: 'context', content: `[Current Message Context] ${parts}` })
     }
