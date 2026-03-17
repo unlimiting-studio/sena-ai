@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { cronSchedule } from '../cronSchedule.js'
-import { heartbeat } from '../heartbeat.js'
+import { cronSchedule } from '@sena-ai/core'
+import { heartbeat } from '@sena-ai/core'
 
 describe('cronSchedule', () => {
   it('creates a cron schedule', () => {
