@@ -6,3 +6,10 @@ coverage/
 .env
 .env.*
 .DS_Store
+.sessions.json
+
+# Root-level build artifacts
+/*.d.ts
+/*.d.ts.map
+/*.js
+/*.js.map
