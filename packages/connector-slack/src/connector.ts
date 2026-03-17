@@ -13,13 +13,14 @@ export type SlackConnectorOptions = {
 export function slackConnector(options: SlackConnectorOptions): Connector {
   const { appId, botToken, signingSecret, thinkingMessage } = options
   const slack = new WebClient(botToken)
+  const userNameCache = new Map<string, string>()
 
   return {
     name: 'slack',
 
     registerRoutes(server: HttpServer, engine: TurnEngine): void {
       server.post('/api/slack/events', (req: any, res: any) => {
-        handleSlackEvent(req, res, engine, signingSecret, appId)
+        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache)
       })
     },
 
@@ -29,12 +30,36 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
   }
 }
 
+async function resolveUserName(
+  slack: WebClient,
+  userId: string,
+  cache: Map<string, string>,
+): Promise<string> {
+  if (!userId) return ''
+  const cached = cache.get(userId)
+  if (cached !== undefined) return cached
+
+  try {
+    const result = await slack.users.info({ user: userId })
+    const profile = result.user?.profile
+    const name = profile?.display_name || profile?.real_name || userId
+    cache.set(userId, name)
+    return name
+  } catch (err) {
+    console.warn(`[slack] failed to resolve username for ${userId}:`, err)
+    cache.set(userId, userId) // cache the fallback to avoid repeated failures
+    return userId
+  }
+}
+
 async function handleSlackEvent(
   req: any,
   res: any,
   engine: TurnEngine,
   signingSecret: string,
   appId: string,
+  slack: WebClient,
+  userNameCache: Map<string, string>,
 ): Promise<void> {
   const body = req.body
 
@@ -73,13 +98,15 @@ async function handleSlackEvent(
   if (event.bot_id) return // Ignore bot messages
   if (event.subtype) return // Ignore message subtypes (edits, deletes, etc.)
 
-  console.log(`[slack] ${event.type} from ${event.user} in ${event.channel}`)
+  const userId = event.user ?? ''
+  const userName = await resolveUserName(slack, userId, userNameCache)
+  console.log(`[slack] ${event.type} from ${userName}(${userId}) in ${event.channel}`)
 
   const inbound: InboundEvent = {
     connector: 'slack',
     conversationId: `${event.channel}:${event.thread_ts ?? event.ts}`, // channel:thread_ts
-    userId: event.user ?? '',
-    userName: event.user ?? '',
+    userId,
+    userName,
     text: event.text ?? '',
     files: event.files?.map((f: any) => ({
       id: f.id,
