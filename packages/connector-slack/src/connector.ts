@@ -16,13 +16,25 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
   const userNameCache = new Map<string, string>()
   // Track threads the bot has participated in (channel:thread_ts → true)
   const activeThreads = new Set<string>()
+  // Resolved bot user ID (lazy, set on first event)
+  let botUserId: string | undefined
 
   return {
     name: 'slack',
 
     registerRoutes(server: HttpServer, engine: TurnEngine): void {
-      server.post('/api/slack/events', (req: any, res: any) => {
-        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache, activeThreads)
+      server.post('/api/slack/events', async (req: any, res: any) => {
+        // Lazily resolve bot user ID on first request
+        if (!botUserId) {
+          try {
+            const auth = await slack.auth.test()
+            botUserId = auth.user_id
+            console.log(`[slack] resolved bot user id: ${botUserId}`)
+          } catch (err) {
+            console.warn('[slack] failed to resolve bot user id:', err)
+          }
+        }
+        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache, activeThreads, botUserId)
       })
     },
 
@@ -56,6 +68,32 @@ async function resolveUserName(
   }
 }
 
+/**
+ * Check if the bot was mentioned in any message in the given thread.
+ * Used as a fallback when activeThreads (in-memory) doesn't have the thread
+ * (e.g. after a restart).
+ */
+async function wasBotMentionedInThread(
+  slack: WebClient,
+  channel: string,
+  threadTs: string,
+  botUserId: string | undefined,
+): Promise<boolean> {
+  if (!botUserId) return false
+  try {
+    const result = await slack.conversations.replies({
+      channel,
+      ts: threadTs,
+      limit: 50, // check up to 50 messages
+    })
+    const mentionPattern = `<@${botUserId}>`
+    return result.messages?.some(m => m.text?.includes(mentionPattern)) ?? false
+  } catch (err) {
+    console.warn(`[slack] failed to check thread history for bot mention:`, err)
+    return false
+  }
+}
+
 async function handleSlackEvent(
   req: any,
   res: any,
@@ -65,6 +103,7 @@ async function handleSlackEvent(
   slack: WebClient,
   userNameCache: Map<string, string>,
   activeThreads: Set<string>,
+  botUserId?: string,
 ): Promise<void> {
   const body = req.body
 
@@ -117,9 +156,15 @@ async function handleSlackEvent(
       return
     }
     if (!activeThreads.has(threadKey)) {
-      // Thread reply, but bot was never mentioned in this thread — ignore
-      console.log(`[slack] ignoring thread reply in inactive thread ${threadKey}`)
-      return
+      // Thread not tracked in memory — check thread history as fallback (e.g. after restart)
+      const mentioned = await wasBotMentionedInThread(slack, event.channel, event.thread_ts, botUserId)
+      if (mentioned) {
+        console.log(`[slack] recovered active thread from history: ${threadKey}`)
+        activeThreads.add(threadKey)
+      } else {
+        console.log(`[slack] ignoring thread reply in inactive thread ${threadKey}`)
+        return
+      }
     }
   }
 
