@@ -14,17 +14,21 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
   const { appId, botToken, signingSecret, thinkingMessage } = options
   const slack = new WebClient(botToken)
   const userNameCache = new Map<string, string>()
+  // Track threads the bot has participated in (channel:thread_ts → true)
+  const activeThreads = new Set<string>()
 
   return {
     name: 'slack',
 
     registerRoutes(server: HttpServer, engine: TurnEngine): void {
       server.post('/api/slack/events', (req: any, res: any) => {
-        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache)
+        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache, activeThreads)
       })
     },
 
     createOutput(context: ConnectorOutputContext): ConnectorOutput {
+      // Mark thread as active when the bot creates output (i.e. responds)
+      activeThreads.add(context.conversationId)
       return createSlackOutput(slack, context, thinkingMessage)
     },
   }
@@ -60,6 +64,7 @@ async function handleSlackEvent(
   appId: string,
   slack: WebClient,
   userNameCache: Map<string, string>,
+  activeThreads: Set<string>,
 ): Promise<void> {
   const body = req.body
 
@@ -90,7 +95,7 @@ async function handleSlackEvent(
     return
   }
 
-  // Only handle app_mention and message events directed at the bot
+  // Only handle app_mention and message events
   if (event.type !== 'app_mention' && event.type !== 'message') {
     console.log('[slack] ignoring event type:', event.type)
     return
@@ -98,13 +103,33 @@ async function handleSlackEvent(
   if (event.bot_id) return // Ignore bot messages
   if (event.subtype) return // Ignore message subtypes (edits, deletes, etc.)
 
+  const threadKey = `${event.channel}:${event.thread_ts ?? event.ts}`
+
+  // For app_mention: always process and track the thread
+  if (event.type === 'app_mention') {
+    activeThreads.add(threadKey)
+  }
+
+  // For message events: only process if it's a reply in an active thread
+  if (event.type === 'message') {
+    if (!event.thread_ts) {
+      // Top-level channel message without mention — ignore
+      return
+    }
+    if (!activeThreads.has(threadKey)) {
+      // Thread reply, but bot was never mentioned in this thread — ignore
+      console.log(`[slack] ignoring thread reply in inactive thread ${threadKey}`)
+      return
+    }
+  }
+
   const userId = event.user ?? ''
   const userName = await resolveUserName(slack, userId, userNameCache)
-  console.log(`[slack] ${event.type} from ${userName}(${userId}) in ${event.channel}`)
+  console.log(`[slack] ${event.type} from ${userName}(${userId}) in ${event.channel} [thread:${event.thread_ts ?? 'none'}]`)
 
   const inbound: InboundEvent = {
     connector: 'slack',
-    conversationId: `${event.channel}:${event.thread_ts ?? event.ts}`, // channel:thread_ts
+    conversationId: threadKey,
     userId,
     userName,
     text: event.text ?? '',
