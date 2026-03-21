@@ -16,6 +16,8 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
   const userNameCache = new Map<string, string>()
   // Track threads the bot has participated in (channel:thread_ts → true)
   const activeThreads = new Set<string>()
+  // Deduplicate events — Slack sends both app_mention and message for the same @mention
+  const processedEvents = new Set<string>()
   // Resolved bot user ID (lazy, set on first event)
   let botUserId: string | undefined
 
@@ -34,7 +36,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
             console.warn('[slack] failed to resolve bot user id:', err)
           }
         }
-        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache, activeThreads, botUserId)
+        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
       })
     },
 
@@ -103,6 +105,7 @@ async function handleSlackEvent(
   slack: WebClient,
   userNameCache: Map<string, string>,
   activeThreads: Set<string>,
+  processedEvents: Set<string>,
   botUserId?: string,
 ): Promise<void> {
   const body = req.body
@@ -141,6 +144,19 @@ async function handleSlackEvent(
   }
   if (event.bot_id) return // Ignore bot messages
   if (event.subtype) return // Ignore message subtypes (edits, deletes, etc.)
+
+  // Deduplicate: Slack sends both app_mention and message for the same @mention
+  const eventId = `${event.channel}:${event.ts}`
+  if (processedEvents.has(eventId)) {
+    console.log(`[slack] skipping duplicate event ${event.type} ${eventId}`)
+    return
+  }
+  processedEvents.add(eventId)
+  // Prevent unbounded growth — keep only last 500 events
+  if (processedEvents.size > 500) {
+    const first = processedEvents.values().next().value
+    if (first) processedEvents.delete(first)
+  }
 
   const threadKey = `${event.channel}:${event.thread_ts ?? event.ts}`
 
