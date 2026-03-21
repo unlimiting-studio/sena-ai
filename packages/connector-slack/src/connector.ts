@@ -146,16 +146,11 @@ async function handleSlackEvent(
   if (event.subtype) return // Ignore message subtypes (edits, deletes, etc.)
 
   // Deduplicate: Slack sends both app_mention and message for the same @mention
+  // Only check here — don't add yet. We add to processedEvents only when we actually process.
   const eventId = `${event.channel}:${event.ts}`
   if (processedEvents.has(eventId)) {
     console.log(`[slack] skipping duplicate event ${event.type} ${eventId}`)
     return
-  }
-  processedEvents.add(eventId)
-  // Prevent unbounded growth — keep only last 500 events
-  if (processedEvents.size > 500) {
-    const first = processedEvents.values().next().value
-    if (first) processedEvents.delete(first)
   }
 
   const threadKey = `${event.channel}:${event.thread_ts ?? event.ts}`
@@ -201,6 +196,19 @@ async function handleSlackEvent(
       url: f.url_private,
     })),
     raw: body,
+  }
+
+  // Mark as processed only now — if we skipped early (e.g. message without thread),
+  // the eventId stays unregistered so the matching app_mention can still be handled.
+  if (processedEvents.has(eventId)) {
+    console.log(`[slack] skipping duplicate event ${event.type} ${eventId} (late check)`)
+    return
+  }
+  processedEvents.add(eventId)
+  // Prevent unbounded growth — keep only last 500 events
+  if (processedEvents.size > 500) {
+    const first = processedEvents.values().next().value
+    if (first) processedEvents.delete(first)
   }
 
   try {
