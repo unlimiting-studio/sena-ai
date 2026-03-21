@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildToolConfig } from '../runtime.js'
+import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+import { buildToolConfig, formatDebugOptionsForLog } from '../runtime.js'
 import { defineTool } from '@sena-ai/core'
 import type { McpToolPort, RuntimeInfo } from '@sena-ai/core'
+import { z } from 'zod'
 
 function makeMcpTool(name: string): McpToolPort {
   return {
@@ -95,5 +97,30 @@ describe('buildToolConfig', () => {
 
     const output = await handler({})
     expect(output).toEqual({ isError: true, content: [{ type: 'text', text: 'something went wrong' }] })
+  })
+
+  it('formats debug options without throwing for SDK native MCP servers', () => {
+    const nativeServer = createSdkMcpServer({
+      name: '__native__',
+      tools: [{
+        name: 'hello',
+        description: 'hello tool',
+        inputSchema: z.object({}),
+        handler: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      }],
+    })
+
+    expect(() => formatDebugOptionsForLog({
+      model: 'claude-opus-4-6',
+      mcpServers: { __native__: nativeServer },
+    }, 'system prompt')).not.toThrow()
+
+    const debugOutput = formatDebugOptionsForLog({
+      model: 'claude-opus-4-6',
+      mcpServers: { __native__: nativeServer },
+    }, 'system prompt')
+
+    expect(debugOutput).toContain('"__native__"')
+    expect(debugOutput).toContain('"type": "sdk"')
   })
 })

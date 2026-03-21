@@ -73,73 +73,98 @@ export function createWorker(options: WorkerOptions) {
     connectorMap.set(c.name, c)
   }
 
+  // Per-conversation serial queue: ensures turns for the same conversation
+  // execute one at a time while different conversations run in parallel.
+  const conversationQueues = new Map<string, Promise<void>>()
+
   const turnEngine: TurnEngine = {
     async submitTurn(event: InboundEvent): Promise<void> {
-      // Create output for the originating connector
-      const connector = connectorMap.get(event.connector)
-      if (!connector) {
-        console.error(`[worker] connector not found: "${event.connector}" (registered: ${[...connectorMap.keys()].join(', ')})`)
-        return
-      }
-      const output = connector.createOutput({
-        conversationId: event.conversationId,
-        connector: event.connector,
+      const convId = event.conversationId
+
+      const prev = conversationQueues.get(convId) ?? Promise.resolve()
+      const current = prev.then(
+        () => executeTurn(event),
+        () => executeTurn(event),  // proceed even if previous turn errored
+      )
+
+      conversationQueues.set(convId, current)
+
+      // Clean up when queue drains to avoid memory leak
+      current.finally(() => {
+        if (conversationQueues.get(convId) === current) {
+          conversationQueues.delete(convId)
+        }
       })
 
-      try {
-        // Look up existing session for this conversation
-        const existingSessionId = await sessionStore.get(event.conversationId)
-        if (existingSessionId) {
-          console.log(`[worker] resuming session ${existingSessionId.slice(0, 8)} for ${event.conversationId}`)
-        }
-
-        const trace = await engine.processTurn({
-          input: event.text,
-          trigger: 'connector',
-          sessionId: existingSessionId,
-          connector: {
-            name: event.connector,
-            conversationId: event.conversationId,
-            userId: event.userId,
-            userName: event.userName,
-            files: event.files,
-            raw: event.raw,
-          },
-          onEvent: output ? (evt) => {
-            if (evt.type === 'progress' || evt.type === 'progress.delta') {
-              output.showProgress(evt.text).catch(() => {})
-            }
-          } : undefined,
-        })
-
-        // Save session ID for future turns in this conversation
-        if (trace.result?.sessionId) {
-          await sessionStore.set(event.conversationId, trace.result.sessionId)
-          console.log(`[worker] saved session ${trace.result.sessionId.slice(0, 8)} for ${event.conversationId}`)
-        }
-
-        // Send result or error to the connector
-        if (trace.result) {
-          console.log(`[worker] sending result to ${event.connector} (${trace.result.text.length}ch)`)
-          await output.sendResult(trace.result.text)
-          console.log(`[worker] result sent`)
-        } else if (trace.error) {
-          console.log(`[worker] sending error to ${event.connector}: ${trace.error}`)
-          await output.sendError(trace.error)
-        } else {
-          console.warn(`[worker] turn finished but no result and no error`)
-        }
-      } catch (err) {
-        console.error(`[worker] submitTurn error:`, err)
-        try {
-          await output.sendError(err instanceof Error ? err.message : String(err))
-        } catch (sendErr) {
-          console.error(`[worker] sendError also failed:`, sendErr)
-        }
-      } finally {
-        await output.dispose()
-      }
+      return current
     },
+  }
+
+  async function executeTurn(event: InboundEvent): Promise<void> {
+    // Create output for the originating connector
+    const connector = connectorMap.get(event.connector)
+    if (!connector) {
+      console.error(`[worker] connector not found: "${event.connector}" (registered: ${[...connectorMap.keys()].join(', ')})`)
+      return
+    }
+    const output = connector.createOutput({
+      conversationId: event.conversationId,
+      connector: event.connector,
+    })
+
+    try {
+      // Look up existing session for this conversation
+      const existingSessionId = await sessionStore.get(event.conversationId)
+      if (existingSessionId) {
+        console.log(`[worker] resuming session ${existingSessionId.slice(0, 8)} for ${event.conversationId}`)
+      }
+
+      const trace = await engine.processTurn({
+        input: event.text,
+        trigger: 'connector',
+        sessionId: existingSessionId,
+        connector: {
+          name: event.connector,
+          conversationId: event.conversationId,
+          userId: event.userId,
+          userName: event.userName,
+          files: event.files,
+          raw: event.raw,
+        },
+        onEvent: output ? (evt) => {
+          if (evt.type === 'progress' || evt.type === 'progress.delta') {
+            output.showProgress(evt.text).catch(() => {})
+          }
+        } : undefined,
+      })
+
+      // Save session ID for future turns in this conversation
+      if (trace.result?.sessionId) {
+        await sessionStore.set(event.conversationId, trace.result.sessionId)
+        console.log(`[worker] saved session ${trace.result.sessionId.slice(0, 8)} for ${event.conversationId}`)
+      }
+
+      // Send result or error to the connector
+      if (trace.result) {
+        console.log(`[worker] sending result to ${event.connector} (${trace.result.text.length}ch)`)
+        await output.sendResult(trace.result.text)
+        console.log(`[worker] result sent`)
+      } else if (trace.error) {
+        console.log(`[worker] sending error to ${event.connector}: ${trace.error}`)
+        await output.sendError(trace.error)
+      } else {
+        console.warn(`[worker] turn finished but no result and no error`)
+      }
+    } catch (err) {
+      console.error(`[worker] submitTurn error:`, err)
+      try {
+        await output.sendError(err instanceof Error ? err.message : String(err))
+      } catch (sendErr) {
+        console.error(`[worker] sendError also failed:`, sendErr)
+      }
+    } finally {
+      await output.dispose()
+    }
   }
 
   // Simple HTTP server adapter

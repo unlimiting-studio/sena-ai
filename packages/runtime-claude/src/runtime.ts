@@ -32,6 +32,56 @@ export function buildToolConfig(tools: ToolPort[], runtimeInfo: RuntimeInfo) {
   return { mcpServers, nativeTools, allowedTools }
 }
 
+export function formatDebugOptionsForLog(sdkOptions: Record<string, any>, systemPrompt: string): string {
+  const debugOpts: Record<string, any> = { ...sdkOptions, systemPrompt: `${systemPrompt.length}ch` }
+  if (debugOpts.mcpServers) {
+    debugOpts.mcpServers = Object.fromEntries(
+      Object.entries(debugOpts.mcpServers as Record<string, any>).map(([name, server]) => [
+        name,
+        summarizeMcpServerForLog(server),
+      ]),
+    )
+  }
+  return safeJsonStringify(debugOpts, 2)
+}
+
+function summarizeMcpServerForLog(server: any): Record<string, any> | string {
+  if (!server || typeof server !== 'object') return server
+
+  const summary: Record<string, any> = {}
+  if ('type' in server) summary.type = server.type
+  if ('command' in server) summary.command = server.command
+  if ('args' in server) summary.args = server.args
+  if ('url' in server) summary.url = server.url
+  if ('transport' in server) summary.transport = server.transport
+  if ('env' in server) summary.env = maskEnvForLog(server.env)
+
+  return Object.keys(summary).length > 0 ? summary : { type: 'sdk-mcp-server' }
+}
+
+function maskEnvForLog(env: unknown): Record<string, string> | undefined {
+  if (!env || typeof env !== 'object') return undefined
+  return Object.fromEntries(
+    Object.entries(env as Record<string, any>).map(([key, value]) => [
+      key,
+      value ? `${String(value).slice(0, 8)}...` : '(empty)',
+    ]),
+  )
+}
+
+function safeJsonStringify(value: unknown, space?: number): string {
+  const seen = new WeakSet<object>()
+  return JSON.stringify(value, (_key, currentValue) => {
+    if (typeof currentValue === 'object' && currentValue !== null) {
+      if (seen.has(currentValue)) {
+        return '[Circular]'
+      }
+      seen.add(currentValue)
+    }
+    return currentValue
+  }, space)
+}
+
 function wrapHandler(handler: (params: any) => any) {
   return async (params: any) => {
     try {
@@ -109,7 +159,10 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         systemPrompt,
-        settingSources: ['project'],
+        settingSources: ['user', 'project'],
+        // Block first-party integrations (Claude AI Slack, etc.) to prevent
+        // the agent from accidentally acting under the human user's identity.
+        disallowedTools: ['mcp__claude_ai_Slack__*'],
       }
 
       // Create abort controller from signal
@@ -174,17 +227,8 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         sdkOptions.resume = sessionId
       }
 
-      // Debug: log SDK options (mask env values)
-      const debugOpts: Record<string, any> = { ...sdkOptions, systemPrompt: `${systemPrompt.length}ch` }
-      if (debugOpts.mcpServers) {
-        debugOpts.mcpServers = Object.fromEntries(
-          Object.entries(debugOpts.mcpServers as Record<string, any>).map(([k, v]: [string, any]) => [
-            k,
-            { ...v, env: v.env ? Object.fromEntries(Object.entries(v.env as Record<string, any>).map(([ek, ev]: [string, any]) => [ek, ev ? `${String(ev).slice(0, 8)}...` : '(empty)'])) : undefined },
-          ]),
-        )
-      }
-      console.log(`[runtime-claude] query options:`, JSON.stringify(debugOpts, null, 2))
+      // Debug: log SDK options without traversing circular SDK-native MCP server objects.
+      console.log(`[runtime-claude] query options:`, formatDebugOptionsForLog(sdkOptions, systemPrompt))
 
       const stream = query({ prompt: userText, options: sdkOptions })
 
@@ -212,4 +256,3 @@ function buildSystemPrompt(fragments: ContextFragment[]): string {
 
   return parts.join('\n\n')
 }
-
