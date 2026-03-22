@@ -92,6 +92,8 @@ export function createScheduler(options: SchedulerOptions) {
 
       if (schedule.type === 'heartbeat') {
         const intervalMs = parseInterval(schedule.expression)
+        // Fire immediately on start, then repeat on interval
+        executeTurn(schedule, entry)
         entry.timer = setInterval(() => executeTurn(schedule, entry), intervalMs)
       } else if (schedule.type === 'cron') {
         // Check every minute for cron matches

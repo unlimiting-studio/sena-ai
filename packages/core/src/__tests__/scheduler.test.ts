@@ -25,7 +25,7 @@ describe('createScheduler', () => {
     vi.useRealTimers()
   })
 
-  it('executes heartbeat on interval', async () => {
+  it('fires immediately on start, then repeats on interval', async () => {
     const onTurn = vi.fn().mockResolvedValue(mockTrace())
 
     const schedule: Schedule = {
@@ -38,8 +38,8 @@ describe('createScheduler', () => {
     const scheduler = createScheduler({ schedules: [schedule], onTurn })
     scheduler.start()
 
-    // Advance 1 second
-    await vi.advanceTimersByTimeAsync(1000)
+    // Immediate fire on start
+    await vi.advanceTimersByTimeAsync(0)
     expect(onTurn).toHaveBeenCalledTimes(1)
     expect(onTurn).toHaveBeenCalledWith(expect.objectContaining({
       input: 'heartbeat check',
@@ -47,9 +47,13 @@ describe('createScheduler', () => {
       schedule: { name: 'test-heartbeat', type: 'heartbeat' },
     }))
 
-    // Advance another second
+    // First interval tick
     await vi.advanceTimersByTimeAsync(1000)
     expect(onTurn).toHaveBeenCalledTimes(2)
+
+    // Second interval tick
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(onTurn).toHaveBeenCalledTimes(3)
 
     scheduler.stop()
   })
@@ -63,13 +67,14 @@ describe('createScheduler', () => {
     })
     scheduler.start()
 
+    // Immediate fire + 1 interval tick
     await vi.advanceTimersByTimeAsync(1000)
-    expect(onTurn).toHaveBeenCalledTimes(1)
+    expect(onTurn).toHaveBeenCalledTimes(2)
 
     scheduler.stop()
 
     await vi.advanceTimersByTimeAsync(5000)
-    expect(onTurn).toHaveBeenCalledTimes(1) // No more calls
+    expect(onTurn).toHaveBeenCalledTimes(2) // No more calls
   })
 
   it('reloads schedules', async () => {
