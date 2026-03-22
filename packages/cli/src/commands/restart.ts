@@ -1,5 +1,5 @@
 import type { Command } from 'commander'
-import { readPid, isProcessAlive } from '../pid.js'
+import { readPid, isProcessAlive, waitForPortFree } from '../pid.js'
 
 export function registerRestart(program: Command): void {
   program
@@ -62,6 +62,15 @@ async function fullRestart(program: Command, configPath?: string): Promise<void>
     const { removePid } = await import('../pid.js')
     removePid()
     console.log('Previous instance stopped')
+  }
+
+  // Wait for port to actually be free before starting new instance
+  const { loadConfig: loadConfigEarly } = await import('../config-loader.js')
+  const earlyConfig = await loadConfigEarly(configPath ?? program.opts().config as string | undefined)
+  const portFree = await waitForPortFree(earlyConfig.port)
+  if (!portFree) {
+    console.error(`Port ${earlyConfig.port} is still in use after shutdown — aborting restart`)
+    process.exit(1)
   }
 
   // Start in daemon mode

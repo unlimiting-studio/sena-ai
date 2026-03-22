@@ -82,34 +82,86 @@ export function createWorker(options: WorkerOptions) {
     connectorMap.set(c.name, c)
   }
 
-  // Per-conversation serial queue: ensures turns for the same conversation
-  // execute one at a time while different conversations run in parallel.
-  const conversationQueues = new Map<string, Promise<void>>()
+  // Per-conversation state: tracks active turns and pending messages for steer.
+  // When a turn is running and a new message arrives for the same conversation,
+  // the message is pushed to the pending queue. The runtime will inject it at
+  // the next step (tool.end) boundary via steer.
+  type ConversationState = {
+    pendingEvents: InboundEvent[]
+    activeTurnPromise: Promise<void>
+  }
+  const activeConversations = new Map<string, ConversationState>()
 
   const turnEngine: TurnEngine = {
     async submitTurn(event: InboundEvent): Promise<void> {
       const convId = event.conversationId
+      const active = activeConversations.get(convId)
 
-      const prev = conversationQueues.get(convId) ?? Promise.resolve()
-      const current = prev.then(
-        () => executeTurn(event),
-        () => executeTurn(event),  // proceed even if previous turn errored
-      )
+      if (active) {
+        // Turn already running — push full event for steer at next step boundary
+        active.pendingEvents.push(event)
+        console.log(`[worker] queued message for steer in ${convId} (${active.pendingEvents.length} pending)`)
+        return active.activeTurnPromise
+      }
 
-      conversationQueues.set(convId, current)
+      // No active turn — start a new one with steer support
+      const pendingEvents: InboundEvent[] = []
+      const state: ConversationState = {
+        pendingEvents,
+        activeTurnPromise: null!,
+      }
 
-      // Clean up when queue drains to avoid memory leak
-      current.finally(() => {
-        if (conversationQueues.get(convId) === current) {
-          conversationQueues.delete(convId)
-        }
-      })
+      state.activeTurnPromise = executeTurnWithSteer(event, pendingEvents)
+        .finally(() => {
+          if (activeConversations.get(convId) === state) {
+            activeConversations.delete(convId)
+          }
+        })
 
-      return current
+      activeConversations.set(convId, state)
+      return state.activeTurnPromise
     },
   }
 
-  async function executeTurn(event: InboundEvent): Promise<void> {
+  /**
+   * Executes a turn with steer support. After the initial turn completes,
+   * any leftover pending messages (that arrived after the last step boundary)
+   * are processed as follow-up turns with their original metadata.
+   */
+  async function executeTurnWithSteer(initialEvent: InboundEvent, pendingEvents: InboundEvent[]): Promise<void> {
+    let event = initialEvent
+
+    // The runtime only sees text strings for steer injection; full InboundEvent
+    // metadata is preserved here and used when leftover events become new turns.
+    const pendingMessages = {
+      drain(): string[] {
+        const msgs = pendingEvents.map(e => e.text)
+        pendingEvents.length = 0
+        return msgs
+      },
+      restore(messages: string[]): void {
+        // Re-create InboundEvents from text strings using the most recent event's metadata.
+        // This is a fallback — ideally steer doesn't fail.
+        for (const text of messages) {
+          pendingEvents.unshift({ ...event, text })
+        }
+      },
+    }
+
+    // Loop: process initial turn, then any leftover pending messages
+    while (true) {
+      await executeTurn(event, pendingMessages)
+
+      if (pendingEvents.length === 0) break
+
+      // Leftover messages that weren't steered — process the next as a follow-up turn
+      // using the original event's full metadata (userId, userName, files, raw)
+      event = pendingEvents.shift()!
+      console.log(`[worker] processing leftover pending message as new turn (${pendingEvents.length} remaining)`)
+    }
+  }
+
+  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource): Promise<void> {
     // Create output for the originating connector
     const connector = connectorMap.get(event.connector)
     if (!connector) {
@@ -140,6 +192,7 @@ export function createWorker(options: WorkerOptions) {
           files: event.files,
           raw: event.raw,
         },
+        pendingMessages,
         onEvent: output ? (evt) => {
           if (evt.type === 'progress' || evt.type === 'progress.delta') {
             output.showProgress(evt.text).catch(() => {})

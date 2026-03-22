@@ -145,7 +145,8 @@ async function handleSlackEvent(
     return
   }
   if (event.bot_id) return // Ignore bot messages
-  if (event.subtype) return // Ignore message subtypes (edits, deletes, etc.)
+  // Ignore message subtypes (edits, deletes, etc.) but allow file_share (image/file attachments)
+  if (event.subtype && event.subtype !== 'file_share') return
 
   // Deduplicate: Slack sends both app_mention and message for the same @mention
   // Only check here — don't add yet. We add to processedEvents only when we actually process.

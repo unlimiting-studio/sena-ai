@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { writeFileSync, readFileSync, unlinkSync } from 'node:fs'
+import { createConnection } from 'node:net'
 
 const PID_FILE = () => resolve(process.cwd(), '.sena.pid')
 
@@ -32,4 +33,28 @@ export function isProcessAlive(pid: number): boolean {
   } catch {
     return false
   }
+}
+
+/** Check if a port is currently bound by attempting a TCP connection */
+export function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host: '127.0.0.1' })
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('error', () => {
+      resolve(false)
+    })
+  })
+}
+
+/** Wait until a port is free, polling at the given interval */
+export async function waitForPortFree(port: number, timeoutMs = 10_000, intervalMs = 200): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!(await isPortInUse(port))) return true
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+  return false
 }

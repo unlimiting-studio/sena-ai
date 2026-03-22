@@ -143,6 +143,15 @@ export class CodexAppServerClient extends EventEmitter {
     return { turnId: result.turn.id }
   }
 
+  async turnSteer(threadId: string, text: string, expectedTurnId: string): Promise<{ turnId: string }> {
+    const result = await this.request('turn/steer', {
+      threadId,
+      input: [{ type: 'text', text }],
+      expectedTurnId,
+    }) as { turnId: string }
+    return { turnId: result.turnId }
+  }
+
   close(): void {
     this.rl?.close()
     this.child?.kill()
