@@ -85,6 +85,29 @@ describe('buildToolConfig', () => {
     expect(output).toEqual({ content: [{ type: 'text', text: JSON.stringify({ foo: 'bar', count: 42 }) }] })
   })
 
+  it('inline tool handler returning BrandedToolResult with image uses MCP content format', async () => {
+    const { toolResult } = await import('@sena-ai/core')
+    const inlineTool = defineTool({
+      name: 'imageTool',
+      description: 'returns image',
+      handler: async () => toolResult([
+        { type: 'text', text: '{"name":"test.png"}' },
+        { type: 'image', data: 'base64data', mimeType: 'image/png' },
+      ]),
+    })
+
+    const result = buildToolConfig([inlineTool], runtimeInfo)
+    const handler = result.nativeTools[0].handler
+
+    const output = await handler({})
+    expect(output).toEqual({
+      content: [
+        { type: 'text', text: '{"name":"test.png"}' },
+        { type: 'image', data: 'base64data', mimeType: 'image/png' },
+      ],
+    })
+  })
+
   it('inline tool handler that throws returns isError result', async () => {
     const inlineTool = defineTool({
       name: 'errorTool',

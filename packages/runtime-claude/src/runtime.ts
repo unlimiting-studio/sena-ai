@@ -92,7 +92,8 @@ function wrapHandler(handler: (params: any) => any) {
             if (c.type === 'text') return { type: 'text', text: c.text }
             if (c.type === 'image') return {
               type: 'image',
-              source: { type: 'base64', media_type: c.mimeType, data: c.data },
+              data: c.data,
+              mimeType: c.mimeType,
             }
             throw new Error(`Unknown ToolContent type: ${c.type}`)
           }),
