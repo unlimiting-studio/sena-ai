@@ -1,6 +1,7 @@
 import type { Connector, InboundEvent, ConnectorOutput, ConnectorOutputContext, HttpServer, TurnEngine } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
 import { verifySignature } from './verify.js'
+import { markdownToMrkdwn } from './mrkdwn.js'
 
 export type SlackConnectorOptions = {
   appId: string
@@ -274,7 +275,8 @@ function createSlackOutput(
 
       console.log(`[slack] sendResult: channel=${channel}, thread_ts=${threadTs}, text.length=${text.length}`)
       try {
-        const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, text })
+        const mrkdwnText = markdownToMrkdwn(text)
+        const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, text: mrkdwnText })
         console.log(`[slack] sendResult ok: ts=${result.ts}, ok=${result.ok}`)
       } catch (err) {
         console.error(`[slack] sendResult failed:`, err)
