@@ -64,6 +64,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         cwd,
         abortSignal,
         tools = [],
+        pendingMessages,
       } = streamOptions
 
       if (apiKey) {
@@ -81,6 +82,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
       const eventQueue: RuntimeEvent[] = []
       let resolveWait: (() => void) | null = null
       let turnDone = false
+      let expectedTurnId: string | null = null
 
       function pushEvent(event: RuntimeEvent) {
         eventQueue.push(event)
@@ -88,17 +90,26 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
       }
 
       client.on('notification', (msg: { method: string; params: unknown }) => {
-        const event = mapCodexNotification(msg.method, msg.params)
-        if (event) pushEvent(event)
+        const params = msg.params as Record<string, unknown> | undefined
 
         if (msg.method === 'turn/completed') {
+          const turnId = (params?.turn as Record<string, unknown> | undefined)?.id as string | undefined
+          if (expectedTurnId && turnId && turnId !== expectedTurnId) {
+            // This turn/completed is for a steered (interrupted) turn — skip it
+            console.log(`[runtime-codex] ignoring turn/completed for steered turn ${turnId?.slice(0, 8)}`)
+            return
+          }
           turnDone = true
           resolveWait?.()
         }
+
         if (msg.method === 'error') {
           turnDone = true
           resolveWait?.()
         }
+
+        const event = mapCodexNotification(msg.method, params)
+        if (event) pushEvent(event)
       })
 
       // Server requests requiring client response (approval, input, etc.)
@@ -158,11 +169,31 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
           break
         }
 
-        await client.turnStart(threadId, userText)
+        const { turnId } = await client.turnStart(threadId, userText)
+        expectedTurnId = turnId
 
         while (!turnDone) {
           while (eventQueue.length > 0) {
-            yield eventQueue.shift()!
+            const event = eventQueue.shift()!
+            yield event
+
+            // After tool.end, check for pending messages to steer
+            if (event.type === 'tool.end' && pendingMessages && expectedTurnId) {
+              const pending = pendingMessages.drain()
+              if (pending.length > 0) {
+                const steerText = pending.join('\n')
+                console.log(`[runtime-codex] steering with ${pending.length} pending message(s)`)
+                try {
+                  const steerResult = await client.turnSteer(threadId, steerText, expectedTurnId)
+                  expectedTurnId = steerResult.turnId
+                  console.log(`[runtime-codex] steered — new turn ${expectedTurnId.slice(0, 8)}`)
+                } catch (err) {
+                  console.error(`[runtime-codex] steer failed, restoring messages to pending:`, err)
+                  // Put messages back so executeTurnWithSteer can process them as follow-up turns
+                  pendingMessages.restore(pending)
+                }
+              }
+            }
           }
           if (turnDone) break
           await new Promise<void>((resolve) => {

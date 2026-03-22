@@ -10,6 +10,7 @@ import type {
   HookTrace,
   ContextFragment,
   RuntimeEvent,
+  PendingMessageSource,
 } from './types.js'
 import { randomUUID } from 'node:crypto'
 
@@ -34,6 +35,8 @@ export type ProcessTurnOptions = {
   metadata?: Record<string, unknown>
   abortSignal?: AbortSignal
   onEvent?: (event: RuntimeEvent) => void
+  /** Pending messages to inject via steer at step (tool.end) boundaries. */
+  pendingMessages?: PendingMessageSource
 }
 
 export function createTurnEngine(config: TurnEngineConfig) {
@@ -75,7 +78,12 @@ export function createTurnEngine(config: TurnEngineConfig) {
         `userId: ${c.userId}`,
         c.userName && c.userName !== c.userId ? `userName: ${c.userName}` : null,
       ].filter(Boolean).join(', ')
-      allFragments.push({ source: 'connector-meta', role: 'context', content: `[Current Message Context] ${parts}` })
+      let contextContent = `[Current Message Context] ${parts}`
+      if (c.files?.length) {
+        const fileDescs = c.files.map(f => `${f.name} (${f.mimeType}, id:${f.id})`).join(', ')
+        contextContent += `\n[Attached Files] ${fileDescs} — Use slack_download_file with the file id to view image contents.`
+      }
+      allFragments.push({ source: 'connector-meta', role: 'context', content: contextContent })
     }
 
     // === onTurnStart hooks ===
@@ -107,6 +115,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         cwd,
         abortSignal: options.abortSignal,
         onEvent: options.onEvent,
+        pendingMessages: options.pendingMessages,
       })
       result = {
         text: runtimeResult.text,
@@ -202,9 +211,10 @@ async function executeRuntime(
     cwd: string
     abortSignal?: AbortSignal
     onEvent?: (event: RuntimeEvent) => void
+    pendingMessages?: PendingMessageSource
   },
 ): Promise<RuntimeExecutionResult> {
-  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent } = options
+  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages } = options
 
   async function* promptIterable() {
     yield { text: input }
@@ -219,6 +229,7 @@ async function executeRuntime(
     cwd,
     env: {},
     abortSignal: abortSignal ?? new AbortController().signal,
+    pendingMessages,
   })
 
   let resultText = ''

@@ -136,6 +136,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         cwd,
         env: envVars,
         abortSignal,
+        pendingMessages,
       } = streamOptions
 
       // Build system prompt from context fragments
@@ -231,12 +232,68 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       // Debug: log SDK options without traversing circular SDK-native MCP server objects.
       console.log(`[runtime-claude] query options:`, formatDebugOptionsForLog(sdkOptions, systemPrompt))
 
-      const stream = query({ prompt: userText, options: sdkOptions })
+      // Steer loop: run query, and if pending messages arrive at a tool boundary,
+      // interrupt + resume with the new message.
+      let currentPrompt = userText
+      let currentSessionId = sessionId
+      let shouldContinue = true
 
-      for await (const msg of stream) {
-        const events = mapSdkMessage(msg)
-        for (const event of events) {
-          yield event
+      while (shouldContinue) {
+        shouldContinue = false
+
+        const currentOptions = { ...sdkOptions }
+        if (currentSessionId) {
+          currentOptions.resume = currentSessionId
+        }
+
+        // Create a per-iteration abort controller that we can interrupt for steer
+        const iterController = new AbortController()
+        if (abortSignal.aborted) {
+          iterController.abort(abortSignal.reason)
+        } else {
+          abortSignal.addEventListener('abort', () => iterController.abort(abortSignal.reason), { once: true })
+        }
+        currentOptions.abortController = iterController
+
+        const stream = query({ prompt: currentPrompt, options: currentOptions })
+        let steerInterrupted = false
+
+        for await (const msg of stream) {
+          const events = mapSdkMessage(msg)
+          for (const event of events) {
+            // Track session ID for resume
+            if (event.type === 'session.init') {
+              currentSessionId = event.sessionId
+            }
+
+            // Suppress error/result events from an interrupted stream
+            if (steerInterrupted && (event.type === 'error' || event.type === 'result')) {
+              continue
+            }
+
+            yield event
+          }
+
+          // Detect tool completion from SDK messages.
+          // `user` messages with tool_result content indicate a tool call finished.
+          const isToolComplete = msg.type === 'user' && Array.isArray((msg as any).content)
+            && (msg as any).content.some((b: any) => b.type === 'tool_result')
+
+          if (isToolComplete && pendingMessages && !steerInterrupted) {
+            const pending = pendingMessages.drain()
+            if (pending.length > 0) {
+              console.log(`[runtime-claude] interrupting for steer with ${pending.length} pending message(s)`)
+              currentPrompt = pending.join('\n')
+              shouldContinue = true
+              steerInterrupted = true
+              try {
+                await stream.interrupt()
+              } catch {
+                // interrupt() may throw if stream already ended
+              }
+              // Continue consuming remaining events from this stream before restart
+            }
+          }
         }
       }
     },

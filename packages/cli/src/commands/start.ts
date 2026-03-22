@@ -4,7 +4,7 @@ import { openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 import { loadConfig } from '../config-loader.js'
-import { writePid, removePid, readPid, isProcessAlive } from '../pid.js'
+import { writePid, removePid, readPid, isProcessAlive, isPortInUse } from '../pid.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -16,10 +16,10 @@ export function registerStart(program: Command): void {
     .option('-d, --daemon', 'run in background (daemon mode)')
     .option('-c, --config <path>', 'path to sena.config.ts')
     .action(async (opts: { daemon?: boolean; config?: string }) => {
-      ensureNoRunningProcess()
-
       const configPath = opts.config ?? program.opts().config as string | undefined
       const { port, configPath: resolvedConfigPath, config } = await loadConfig(configPath)
+
+      await ensureNoRunningProcess(port)
 
       // Set SENA_CONFIG_PATH so forked workers can find the config
       process.env.SENA_CONFIG_PATH = resolvedConfigPath
@@ -34,19 +34,23 @@ export function registerStart(program: Command): void {
     })
 }
 
-function ensureNoRunningProcess(): void {
+async function ensureNoRunningProcess(port: number): Promise<void> {
   const pid = readPid()
-  if (pid === null) {
-    return
-  }
 
-  if (!isProcessAlive(pid)) {
+  if (pid !== null) {
+    if (isProcessAlive(pid)) {
+      console.error(`Sena agent is already running (PID: ${pid})`)
+      process.exit(1)
+    }
+    // PID file exists but process is dead — clean up stale PID
     removePid()
-    return
   }
 
-  console.error(`Sena agent is already running (PID: ${pid})`)
-  process.exit(1)
+  // Even with no PID file, check if the port is actually occupied
+  if (await isPortInUse(port)) {
+    console.error(`Port ${port} is already in use by another process. Run 'lsof -i :${port}' to investigate.`)
+    process.exit(1)
+  }
 }
 
 async function startDaemon(configPath: string, port: number, agentName: string): Promise<void> {

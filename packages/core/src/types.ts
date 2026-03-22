@@ -106,6 +106,17 @@ export type RuntimeInfo = {
   name: string
 }
 
+/**
+ * A channel for injecting pending messages into an active turn.
+ * The worker pushes messages here; the runtime drains them at step boundaries.
+ */
+export type PendingMessageSource = {
+  /** Returns and removes all pending messages. Empty array if none. */
+  drain(): string[]
+  /** Puts messages back into the queue (e.g. when steer fails). */
+  restore(messages: string[]): void
+}
+
 export type RuntimeStreamOptions = {
   model: string
   contextFragments: ContextFragment[]
@@ -115,6 +126,8 @@ export type RuntimeStreamOptions = {
   cwd: string
   env: Record<string, string>
   abortSignal: AbortSignal
+  /** Pending messages to inject via steer at step (tool.end) boundaries. */
+  pendingMessages?: PendingMessageSource
 }
 
 export type Runtime = {
