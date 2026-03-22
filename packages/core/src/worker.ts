@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path'
 import type { ResolvedSenaConfig } from './config.js'
 import type { Connector, HttpServer, InboundEvent, SessionStore, TurnEngine } from './types.js'
 import { createTurnEngine } from './engine.js'
+import { createScheduler } from './scheduler.js'
 
 export type WorkerOptions = {
   config: ResolvedSenaConfig
@@ -66,6 +67,14 @@ export function createWorker(options: WorkerOptions) {
     hooks: config.hooks,
     tools: config.tools,
   })
+
+  // Start scheduler for heartbeat/cron schedules (runs as separate conversations)
+  const scheduler = config.schedules?.length
+    ? createScheduler({
+        schedules: config.schedules,
+        onTurn: (turnOptions) => engine.processTurn(turnOptions),
+      })
+    : null
 
   // Build a TurnEngine adapter that connectors use
   const connectorMap = new Map<string, Connector>()
@@ -232,6 +241,9 @@ export function createWorker(options: WorkerOptions) {
       res.end('Not Found')
     })
 
+    // Start scheduler after server is listening
+    scheduler?.start()
+
     server.listen(port, () => {
       const actualPort = (server!.address() as any)?.port ?? port
       // Notify orchestrator that we're ready, include actual port (important when port=0)
@@ -242,6 +254,7 @@ export function createWorker(options: WorkerOptions) {
   }
 
   async function stop(): Promise<void> {
+    scheduler?.stop()
     server?.close()
   }
 

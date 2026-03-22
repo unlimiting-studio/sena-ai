@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createWorker } from '../worker.js'
 import { defineConfig } from '../config.js'
+import { heartbeat } from '../schedules.js'
 import type { Runtime, RuntimeEvent, Connector, HttpServer, TurnEngine, InboundEvent } from '../types.js'
 
 const mockRuntime: Runtime = {
@@ -171,5 +172,41 @@ describe('createWorker', () => {
     })
 
     expect(receivedBody).toEqual({ key: 'value', nested: { a: 1 } })
+  })
+
+  it('starts and stops scheduler when schedules are configured', async () => {
+    const runtimeCalls: string[] = []
+    const schedulerRuntime: Runtime = {
+      name: 'scheduler-mock',
+      async *createStream(): AsyncGenerator<RuntimeEvent> {
+        runtimeCalls.push('turn')
+        yield { type: 'session.init', sessionId: 'sched-sess' }
+        yield { type: 'result', text: 'heartbeat done' }
+      },
+    }
+
+    const config = defineConfig({
+      name: 'test-scheduler-worker',
+      runtime: schedulerRuntime,
+      schedules: [
+        heartbeat('1s', { name: 'test-hb', prompt: 'test heartbeat' }),
+      ],
+    })
+    const port = 19876 + Math.floor(Math.random() * 1000)
+    const worker = createWorker({ config, port })
+    await worker.start()
+    stopFn = () => worker.stop()
+
+    // Wait enough for at least 1 heartbeat to fire (1s interval)
+    await new Promise(r => setTimeout(r, 1200))
+
+    expect(runtimeCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('does not create scheduler when no schedules configured', () => {
+    const config = defineConfig({ name: 'no-sched', runtime: mockRuntime })
+    // Should not throw — scheduler is null
+    const worker = createWorker({ config, port: 0 })
+    expect(worker).toBeDefined()
   })
 })
