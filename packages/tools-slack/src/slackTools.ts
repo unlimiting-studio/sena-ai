@@ -1,4 +1,4 @@
-import { defineTool } from '@sena-ai/core'
+import { defineTool, toolResult } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
 import { z } from 'zod'
 import type { ToolPort } from '@sena-ai/core'
@@ -155,25 +155,42 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
 
     defineTool({
       name: 'slack_download_file',
-      description: 'Download a file from Slack by file ID',
+      description: 'Download a file from Slack by file ID. Images are returned as visual content; text files are returned as text.',
       params: {
         fileId: z.string().describe('Slack file ID'),
       },
       handler: async ({ fileId }: { fileId: string }) => {
         const info = await slack.files.info({ file: fileId })
-        const file = info.file as any
+        const file = info.file as Record<string, unknown> | undefined
         if (!file?.url_private) {
           return JSON.stringify({ error: 'File URL not available' })
         }
-        const response = await fetch(file.url_private, {
+        const response = await fetch(file.url_private as string, {
           headers: { Authorization: `Bearer ${options.botToken}` },
         })
+        if (!response.ok) {
+          return JSON.stringify({ error: `Download failed: ${response.status} ${response.statusText}` })
+        }
+        const mimeType = (file.mimetype as string) ?? response.headers.get('content-type') ?? 'application/octet-stream'
+        const isImage = mimeType.startsWith('image/')
+
+        if (isImage) {
+          const buf = await response.arrayBuffer()
+          const base64 = Buffer.from(buf).toString('base64')
+          return toolResult([
+            { type: 'text', text: JSON.stringify({ name: file.name, mimetype: mimeType, size: file.size }) },
+            { type: 'image', data: base64, mimeType },
+          ])
+        }
+
+        // Non-image files: return as text
         const text = await response.text()
+        const maxLen = 50000
         return JSON.stringify({
           name: file.name,
-          mimetype: file.mimetype,
+          mimetype: mimeType,
           size: file.size,
-          content: text.length > 50000 ? text.slice(0, 50000) + '\n...(truncated)' : text,
+          content: text.length > maxLen ? text.slice(0, maxLen) + '\n...(truncated)' : text,
         })
       },
     }),
