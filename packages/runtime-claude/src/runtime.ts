@@ -112,6 +112,12 @@ export type ClaudeRuntimeOptions = {
   apiKey?: string
   maxTurns?: number
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions'
+  /**
+   * Additional tool patterns to include in `allowedTools`.
+   * Useful for enabling Claude built-in MCP integrations
+   * (e.g. `'mcp__claude_ai_Google_Calendar__*'`).
+   */
+  additionalAllowedTools?: string[]
 }
 
 export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
@@ -120,6 +126,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
     apiKey,
     maxTurns = 100,
     permissionMode = 'bypassPermissions',
+    additionalAllowedTools = [],
   } = options
 
   return {
@@ -225,6 +232,10 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
 
       if (Object.keys(allMcpServers).length > 0) {
         sdkOptions.mcpServers = allMcpServers
+      }
+      // Merge user-specified additional allowed tool patterns (e.g. built-in MCP integrations)
+      if (additionalAllowedTools.length > 0) {
+        effectiveAllowedTools.push(...additionalAllowedTools)
       }
       if (effectiveAllowedTools.length > 0) {
         sdkOptions.allowedTools = effectiveAllowedTools
