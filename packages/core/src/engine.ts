@@ -37,6 +37,8 @@ export type ProcessTurnOptions = {
   onEvent?: (event: RuntimeEvent) => void
   /** Pending messages to inject via steer at step (tool.end) boundaries. */
   pendingMessages?: PendingMessageSource
+  /** Tool names/patterns to disable for this turn (blocklist). */
+  disabledTools?: string[]
 }
 
 export function createTurnEngine(config: TurnEngineConfig) {
@@ -107,15 +109,24 @@ export function createTurnEngine(config: TurnEngineConfig) {
     let error: string | null = null
 
     try {
+      // Filter out ToolPorts whose name exactly matches a disabledTools entry.
+      // Remaining patterns (wildcards, individual tool names) are forwarded to
+      // the runtime for runtime-specific handling (e.g. built-in tools).
+      const disabledTools = options.disabledTools
+      const effectiveTools = disabledTools?.length
+        ? tools.filter(t => !disabledTools.includes(t.name))
+        : tools
+
       const runtimeResult = await executeRuntime(runtime, {
         contextFragments: allFragments,
         input: options.input,
-        tools,
+        tools: effectiveTools,
         sessionId: options.sessionId ?? null,
         cwd,
         abortSignal: options.abortSignal,
         onEvent: options.onEvent,
         pendingMessages: options.pendingMessages,
+        disabledTools,
       })
       result = {
         text: runtimeResult.text,
@@ -212,9 +223,10 @@ async function executeRuntime(
     abortSignal?: AbortSignal
     onEvent?: (event: RuntimeEvent) => void
     pendingMessages?: PendingMessageSource
+    disabledTools?: string[]
   },
 ): Promise<RuntimeExecutionResult> {
-  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages } = options
+  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages, disabledTools } = options
 
   async function* promptIterable() {
     yield { text: input }
@@ -230,6 +242,7 @@ async function executeRuntime(
     env: {},
     abortSignal: abortSignal ?? new AbortController().signal,
     pendingMessages,
+    disabledTools,
   })
 
   let resultText = ''
