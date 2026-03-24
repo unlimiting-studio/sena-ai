@@ -2,6 +2,7 @@ import { defineTool, toolResult } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
 import { z } from 'zod'
 import type { ToolPort } from '@sena-ai/core'
+import { markdownToMrkdwn } from './mrkdwn.js'
 
 export type SlackToolsOptions = { botToken: string }
 
@@ -77,7 +78,8 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         threadTs: z.string().optional().describe('Thread timestamp (optional, for replying in thread)'),
       },
       handler: async ({ channelId, text, threadTs }: { channelId: string; text: string; threadTs?: string }) => {
-        const params: any = { channel: channelId, text }
+        const mrkdwnText = markdownToMrkdwn(text)
+        const params: any = { channel: channelId, text: mrkdwnText }
         if (threadTs) params.thread_ts = threadTs
         const result = await slack.chat.postMessage(params)
         return JSON.stringify({ ok: result.ok, ts: result.ts })
