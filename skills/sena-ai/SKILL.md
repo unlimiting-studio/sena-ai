@@ -206,6 +206,67 @@ const myConnector: Connector = {
 }
 ```
 
+### disabledTools — 턴별 도구 비활성화
+
+커넥터가 `InboundEvent`에 `disabledTools`를 지정하면 해당 턴에서 특정 도구를 비활성화할 수 있다 (blocklist 방식).
+
+```typescript
+engine.submitTurn({
+  connector: 'my-platform',
+  conversationId: '...',
+  userId: '...',
+  userName: '...',
+  text: '...',
+  raw: {},
+  // 이 턴에서 비활성화할 도구 목록
+  disabledTools: ['Bash', 'Write', 'Edit'],
+})
+```
+
+**동작 방식 (2단계 필터링):**
+
+1. **엔진 레벨**: `disabledTools`에 이름이 정확히 일치하는 ToolPort를 제거한다. MCP 서버나 인라인 도구를 통째로 빼고 싶을 때 사용한다.
+2. **런타임 레벨**: 전체 `disabledTools` 패턴을 런타임에 전달한다. 런타임별로 자체 방식으로 적용한다.
+   - **Claude**: SDK의 `disallowedTools`에 합쳐진다. 와일드카드 패턴(`mcp__server__*`), 개별 도구명, 빌트인 도구(Read, Bash 등) 모두 지원.
+   - **Codex**: ToolPort 레벨 필터링으로 처리.
+
+**패턴 예시:**
+
+```typescript
+disabledTools: [
+  'Bash',                    // Claude 빌트인 도구
+  'Write',                   // Claude 빌트인 도구
+  'mcp__slack-tools__*',     // MCP 서버 와일드카드 (서버 내 모든 도구)
+  'mcp____native____my_tool', // 특정 인라인 도구
+  'my-mcp-server',           // ToolPort 이름으로 MCP 서버 통째로 제거
+]
+```
+
+**활용 예시 — 조건별 도구 제한:**
+
+```typescript
+registerRoutes(server, engine) {
+  server.post('/api/webhook', async (req, res) => {
+    const event = parseEvent(req)
+
+    // emoji 반응에서 트리거된 경우: 읽기 전용 도구만 허용
+    const isEmojiTrigger = event.type === 'reaction_added'
+
+    await engine.submitTurn({
+      connector: 'my-platform',
+      conversationId: event.channelId,
+      userId: event.userId,
+      userName: event.userName,
+      text: event.text,
+      raw: event,
+      disabledTools: isEmojiTrigger
+        ? ['Bash', 'Write', 'Edit', 'NotebookEdit']
+        : undefined,
+    })
+  })
+}
+```
+
 ### 여러 커넥터 동시 사용
 
 ```typescript
@@ -562,6 +623,7 @@ type TurnContext = {
     userName: string
     files?: FileAttachment[]
     raw: unknown              // 원본 이벤트 데이터
+    disabledTools?: string[]  // 이 턴에서 비활성화된 도구 목록
   }
   schedule?: {
     name: string              // 스케줄 이름
