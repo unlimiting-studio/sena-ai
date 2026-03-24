@@ -56,8 +56,10 @@ export function markdownToMrkdwn(md: string): string {
   // 10. Unordered list markers: - item → • item
   text = text.replace(/^(\s*)[-*+]\s+/gm, '$1• ')
 
-  // Restore all placeholders
-  for (let i = 0; i < placeholders.length; i++) {
+  // Restore all placeholders in reverse order.
+  // Later placeholders may contain earlier ones (e.g. bold wrapping inline code),
+  // so we must unwrap outer placeholders first to expose inner ones.
+  for (let i = placeholders.length - 1; i >= 0; i--) {
     text = text.replace(`${PH}PH_${i}${PH}`, placeholders[i])
   }
 
