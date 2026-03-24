@@ -137,6 +137,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         env: envVars,
         abortSignal,
         pendingMessages,
+        disabledTools,
       } = streamOptions
 
       // Build system prompt from context fragments
@@ -164,7 +165,11 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         settingSources: ['user', 'project'],
         // Block first-party integrations (Claude AI Slack, etc.) to prevent
         // the agent from accidentally acting under the human user's identity.
-        disallowedTools: ['mcp__claude_ai_Slack__*'],
+        // Also merge any per-turn disabledTools from the connector.
+        disallowedTools: [
+          'mcp__claude_ai_Slack__*',
+          ...(disabledTools ?? []),
+        ],
       }
 
       // Create abort controller from signal

@@ -128,6 +128,8 @@ export type RuntimeStreamOptions = {
   abortSignal: AbortSignal
   /** Pending messages to inject via steer at step (tool.end) boundaries. */
   pendingMessages?: PendingMessageSource
+  /** Tool names/patterns to disable for this turn (blocklist). Runtimes apply this in their own way. */
+  disabledTools?: string[]
 }
 
 export type Runtime = {
@@ -145,6 +147,8 @@ export type InboundEvent = {
   text: string
   files?: FileAttachment[]
   raw: unknown
+  /** Tool names/patterns to disable for this turn (blocklist). */
+  disabledTools?: string[]
 }
 
 export type ConnectorOutputContext = {

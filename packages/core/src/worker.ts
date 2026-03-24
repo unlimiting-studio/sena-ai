@@ -193,6 +193,7 @@ export function createWorker(options: WorkerOptions) {
           raw: event.raw,
         },
         pendingMessages,
+        disabledTools: event.disabledTools,
         onEvent: output ? (evt) => {
           if (evt.type === 'progress' || evt.type === 'progress.delta') {
             output.showProgress(evt.text).catch(() => {})
