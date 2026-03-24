@@ -120,7 +120,9 @@ export function createOrchestrator(options: OrchestratorOptions) {
 
   async function restart(): Promise<void> {
     const oldWorker = currentWorker
-    const newWorker = spawnWorker(workerPort + (generation % 2)) // Alternate ports
+    // When workerPort is 0 (OS-assigned), always use 0 so the OS picks a free port.
+    // Only alternate when an explicit workerPort is configured.
+    const newWorker = spawnWorker(workerPort === 0 ? 0 : workerPort + (generation % 2))
 
     const ready = await waitForReady(newWorker)
     if (!ready) {
