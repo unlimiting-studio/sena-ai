@@ -26,6 +26,7 @@ export function mcpServer(options: McpServerOptions): McpToolPort {
       type: 'mcp-http',
       toMcpConfig(_runtime: RuntimeInfo): McpConfig {
         return {
+          type: 'http',
           url: options.url,
           ...(options.headers ? { headers: options.headers } : {}),
         }
