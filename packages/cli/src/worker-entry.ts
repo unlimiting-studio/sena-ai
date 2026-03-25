@@ -1,6 +1,16 @@
 import 'dotenv/config'
 import { createWorker } from '@sena-ai/core'
 
+// Register disconnect handler early — before async config loading —
+// so that if the orchestrator dies during boot we don't become an
+// unmanaged orphan.
+let earlyDisconnected = false
+process.on('disconnect', () => {
+  earlyDisconnected = true
+  console.log('[worker-entry] orchestrator disconnected during boot, will exit')
+  process.exit(1)
+})
+
 const configPath = process.env.SENA_CONFIG_PATH
 if (!configPath) {
   console.error('SENA_CONFIG_PATH environment variable is required')

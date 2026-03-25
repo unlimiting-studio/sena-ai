@@ -12,7 +12,11 @@ export type WorkerInfo = {
   process: ChildProcess
   port: number
   ready: boolean
+  exited: boolean
 }
+
+// Grace period before force-killing a draining worker (1 hour)
+const DRAIN_TIMEOUT_MS = 60 * 60 * 1000
 
 export function createOrchestrator(options: OrchestratorOptions) {
   const { port, workerScript, workerPort = 0 } = options
@@ -32,9 +36,10 @@ export function createOrchestrator(options: OrchestratorOptions) {
       : []
 
     const child = fork(workerScript, [], {
+      detached: true,
       env: { ...process.env, SENA_WORKER_PORT: String(wp), SENA_GENERATION: String(gen) },
       execArgv: [...process.execArgv, ...execArgv],
-      stdio: 'inherit',
+      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
     })
 
     const worker: WorkerInfo = {
@@ -42,6 +47,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       process: child,
       port: wp,
       ready: false,
+      exited: false,
     }
 
     child.on('message', (msg: any) => {
@@ -55,6 +61,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
     })
 
     child.on('exit', (code) => {
+      worker.exited = true
       if (currentWorker?.generation === gen) {
         console.error(`Worker gen ${gen} exited with code ${code}, respawning...`)
         currentWorker = spawnWorker(wp)
@@ -62,6 +69,26 @@ export function createOrchestrator(options: OrchestratorOptions) {
     })
 
     return worker
+  }
+
+  /**
+   * Release a worker: send drain, disconnect IPC, and unref so it can
+   * finish in-flight work as an orphan and then exit naturally.
+   */
+  function releaseWorker(worker: WorkerInfo): void {
+    try { worker.process.send({ type: 'drain' }) } catch { /* IPC may already be closed */ }
+    try { worker.process.disconnect() } catch { /* already disconnected */ }
+    worker.process.unref()
+
+    // Safety net: force kill after a long grace period (only if still alive)
+    setTimeout(() => {
+      if (!worker.exited) {
+        try {
+          worker.process.kill()
+          console.error(`Force-killed draining worker gen ${worker.generation} after timeout`)
+        } catch { /* process already exited */ }
+      }
+    }, DRAIN_TIMEOUT_MS).unref()
   }
 
   async function waitForReady(worker: WorkerInfo, timeoutMs = 30000): Promise<boolean> {
@@ -134,21 +161,18 @@ export function createOrchestrator(options: OrchestratorOptions) {
     // Switch traffic
     currentWorker = newWorker
 
-    // Drain old worker
+    // Release old worker — it will drain in-flight work and exit naturally
     if (oldWorker) {
-      oldWorker.process.send({ type: 'drain' })
-      setTimeout(() => {
-        if (!oldWorker.process.killed) {
-          oldWorker.process.kill()
-        }
-      }, 10000)
+      releaseWorker(oldWorker)
     }
   }
 
   async function stop(): Promise<void> {
     server?.close()
-    currentWorker?.process.kill()
-    currentWorker = null
+    if (currentWorker) {
+      releaseWorker(currentWorker)
+      currentWorker = null
+    }
   }
 
   return { start, restart, stop }

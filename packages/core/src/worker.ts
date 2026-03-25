@@ -316,7 +316,25 @@ export function createWorker(options: WorkerOptions) {
   process.on('message', (msg: any) => {
     if (msg?.type === 'drain') {
       stop()
+      setTimeout(() => {
+        console.error('[worker] drain timeout reached, forcing exit')
+        process.exit(1)
+      }, WORKER_DRAIN_TIMEOUT_MS).unref()
     }
+  })
+
+  // If the orchestrator dies (IPC disconnects), gracefully drain and exit.
+  // The worker sets its own safety-net timeout so that even if the
+  // orchestrator's timer disappears (e.g. full restart), this process
+  // won't linger forever.
+  const WORKER_DRAIN_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
+  process.on('disconnect', () => {
+    console.log('[worker] orchestrator disconnected, draining...')
+    stop()
+    setTimeout(() => {
+      console.error('[worker] drain timeout reached, forcing exit')
+      process.exit(1)
+    }, WORKER_DRAIN_TIMEOUT_MS).unref()
   })
 
   return { start, stop, engine }
