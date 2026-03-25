@@ -120,7 +120,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
   const {
     model = 'claude-sonnet-4-5',
     apiKey,
-    maxTurns = 100,
+    maxTurns,
     permissionMode = 'bypassPermissions',
     disallowedTools: staticDisallowedTools = [],
   } = options
@@ -163,7 +163,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       // Build SDK options
       const sdkOptions: Record<string, any> = {
         model: streamOptions.model || model,
-        maxTurns,
+        ...(maxTurns != null && { maxTurns }),
         cwd: cwd || process.cwd(),
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
