@@ -4,11 +4,42 @@ import { z } from 'zod'
 import type { ToolPort } from '@sena-ai/core'
 import { markdownToMrkdwn } from './mrkdwn.js'
 
+/** In-memory TTL cache with sliding expiration. */
+class TtlCache<K, V> {
+  private store = new Map<K, { value: V; expiresAt: number }>()
+  constructor(private ttlMs: number) {}
+
+  get(key: K): V | undefined {
+    const entry = this.store.get(key)
+    if (!entry) return undefined
+    if (Date.now() > entry.expiresAt) {
+      this.store.delete(key)
+      return undefined
+    }
+    // Sliding: extend TTL on access
+    entry.expiresAt = Date.now() + this.ttlMs
+    return entry.value
+  }
+
+  set(key: K, value: V): void {
+    this.store.set(key, { value, expiresAt: Date.now() + this.ttlMs })
+  }
+
+  clear(): void {
+    this.store.clear()
+  }
+}
+
+const ONE_HOUR = 60 * 60 * 1000
+
 export type SlackToolsOptions = { botToken: string }
 
 export function slackTools(options: SlackToolsOptions): ToolPort[] {
   const slack = new WebClient(options.botToken)
   const userNameCache = new Map<string, string>()
+
+  // Cache for conversations.list — keyed by "limit:types"
+  const channelListCache = new TtlCache<string, string>(ONE_HOUR)
 
   async function resolveUserName(userId: string): Promise<string> {
     if (!userId) return userId
@@ -94,6 +125,10 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         types: z.string().optional().default('public_channel,private_channel').describe('Channel types'),
       },
       handler: async ({ limit, types }: { limit?: number; types?: string }) => {
+        const cacheKey = `${limit}:${types}`
+        const cached = channelListCache.get(cacheKey)
+        if (cached) return cached
+
         const result = await slack.conversations.list({ limit, types })
         const channels = (result.channels ?? []).map((c: any) => ({
           id: c.id,
@@ -101,7 +136,9 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
           is_private: c.is_private,
           num_members: c.num_members,
         }))
-        return JSON.stringify(channels, null, 2)
+        const json = JSON.stringify(channels, null, 2)
+        channelListCache.set(cacheKey, json)
+        return json
       },
     }),
 
