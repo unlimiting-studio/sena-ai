@@ -37,7 +37,7 @@ export function matchField(field: string, value: number): boolean {
 }
 
 export function matchesCron(expression: string, date: Date, timezone?: string): boolean {
-  const tz = timezone ?? 'Asia/Seoul'
+  const tz = timezone ?? 'UTC'
   // Convert to timezone
   const tzDate = new Date(date.toLocaleString('en-US', { timeZone: tz }))
   const [minute, hour, dayOfMonth, month, dayOfWeek] = expression.split(' ')
@@ -52,7 +52,7 @@ export function matchesCron(expression: string, date: Date, timezone?: string): 
 }
 
 export function createScheduler(options: SchedulerOptions) {
-  const { onTurn, timezone = 'Asia/Seoul' } = options
+  const { onTurn, timezone = 'UTC' } = options
   const entries: ScheduleEntry[] = []
   let stopped = false
 
@@ -98,7 +98,7 @@ export function createScheduler(options: SchedulerOptions) {
       } else if (schedule.type === 'cron') {
         // Check every minute for cron matches
         entry.timer = setInterval(() => {
-          if (matchesCron(schedule.expression, new Date(), timezone)) {
+          if (matchesCron(schedule.expression, new Date(), schedule.timezone ?? timezone)) {
             executeTurn(schedule, entry)
           }
         }, 60_000)
