@@ -140,17 +140,20 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         disabledTools,
       } = streamOptions
 
-      // Build system prompt from context fragments
+      // Build system prompt from system fragments only
       const systemPrompt = buildSystemPrompt(contextFragments)
+
+      // Build prepend/append wrappers for user message
+      const { prepend, append } = buildMessageWrappers(contextFragments)
 
       // Build tool config splitting inline and MCP tools
       const runtimeInfo: RuntimeInfo = { name: 'claude' }
       const { mcpServers, nativeTools, allowedTools } = buildToolConfig(tools, runtimeInfo)
 
-      // Get first user message from prompt iterable
+      // Get first user message from prompt iterable, wrapped with prepend/append fragments
       let userText = ''
       for await (const msg of promptIterable) {
-        userText = msg.text
+        userText = wrapUserMessage(msg.text, prepend, append)
         break
       }
 
@@ -309,15 +312,36 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
 
 function buildSystemPrompt(fragments: ContextFragment[]): string {
   const systemFragments = fragments.filter(f => f.role === 'system')
-  const contextFragments = fragments.filter(f => f.role === 'context')
 
   const parts: string[] = []
   for (const f of systemFragments) {
     parts.push(`[${f.source}]\n${f.content}`)
   }
-  for (const f of contextFragments) {
-    parts.push(`[${f.source}]\n${f.content}`)
+
+  return parts.join('\n\n')
+}
+
+function buildMessageWrappers(fragments: ContextFragment[]): { prepend: string; append: string } {
+  const prependParts: string[] = []
+  const appendParts: string[] = []
+
+  for (const f of fragments.filter(f => f.role === 'prepend')) {
+    prependParts.push(`[${f.source}]\n${f.content}`)
+  }
+  for (const f of fragments.filter(f => f.role === 'append')) {
+    appendParts.push(`[${f.source}]\n${f.content}`)
   }
 
+  return {
+    prepend: prependParts.join('\n\n'),
+    append: appendParts.join('\n\n'),
+  }
+}
+
+function wrapUserMessage(text: string, prepend: string, append: string): string {
+  const parts: string[] = []
+  if (prepend) parts.push(prepend)
+  parts.push(text)
+  if (append) parts.push(append)
   return parts.join('\n\n')
 }

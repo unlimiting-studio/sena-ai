@@ -85,7 +85,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         const fileDescs = c.files.map(f => `${f.name} (${f.mimeType}, id:${f.id})`).join(', ')
         contextContent += `\n[Attached Files] ${fileDescs} — Use slack_download_file with the file id to view image contents.`
       }
-      allFragments.push({ source: 'connector-meta', role: 'context', content: contextContent })
+      allFragments.push({ source: 'connector-meta', role: 'append', content: contextContent })
     }
 
     // === onTurnStart hooks ===
@@ -192,15 +192,19 @@ export function createTurnEngine(config: TurnEngineConfig) {
 
 function assembleContext(fragments: ContextFragment[]): string {
   const systemFragments = fragments.filter(f => f.role === 'system')
-  const contextFragments = fragments.filter(f => f.role === 'context')
+  const prependFragments = fragments.filter(f => f.role === 'prepend')
+  const appendFragments = fragments.filter(f => f.role === 'append')
 
   const parts: string[] = []
 
   for (const f of systemFragments) {
     parts.push(`[${f.source}]\n${f.content}`)
   }
-  for (const f of contextFragments) {
-    parts.push(`[${f.source}]\n${f.content}`)
+  for (const f of prependFragments) {
+    parts.push(`[prepend:${f.source}]\n${f.content}`)
+  }
+  for (const f of appendFragments) {
+    parts.push(`[append:${f.source}]\n${f.content}`)
   }
 
   return parts.join('\n\n')
