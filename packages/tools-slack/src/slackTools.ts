@@ -119,7 +119,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
 
     defineTool({
       name: 'slack_list_channels',
-      description: 'List accessible Slack channels',
+      description: 'List Slack channels the bot is a member of',
       params: {
         limit: z.number().optional().default(100).describe('Max channels to return'),
         types: z.string().optional().default('public_channel,private_channel').describe('Channel types'),
@@ -129,10 +129,12 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         const cached = channelListCache.get(cacheKey)
         if (cached) return cached
 
-        const result = await slack.conversations.list({ limit, types })
+        const result = await slack.users.conversations({ limit, types })
         const channels = (result.channels ?? []).map((c: any) => ({
           id: c.id,
           name: c.name,
+          topic: c.topic?.value || '',
+          purpose: c.purpose?.value || '',
           is_private: c.is_private,
           num_members: c.num_members,
         }))
