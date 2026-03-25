@@ -1,15 +1,14 @@
 import 'dotenv/config'
 import { createWorker } from '@sena-ai/core'
 
-// Register disconnect handler early — before async config loading —
-// so that if the orchestrator dies during boot we don't become an
-// unmanaged orphan.
-let earlyDisconnected = false
-process.on('disconnect', () => {
-  earlyDisconnected = true
+// Early guard: if the orchestrator dies during config loading (before
+// createWorker registers its own graceful drain handler), exit immediately
+// so we don't become an unmanaged orphan.  Removed once boot completes.
+function earlyDisconnectGuard() {
   console.log('[worker-entry] orchestrator disconnected during boot, will exit')
   process.exit(1)
-})
+}
+process.on('disconnect', earlyDisconnectGuard)
 
 const configPath = process.env.SENA_CONFIG_PATH
 if (!configPath) {
@@ -29,6 +28,9 @@ if (configPath.endsWith('.ts') || configPath.endsWith('.tsx')) {
 }
 
 const port = parseInt(process.env.SENA_WORKER_PORT || '0', 10)
+
+// Remove early guard — createWorker registers its own graceful disconnect handler
+process.removeListener('disconnect', earlyDisconnectGuard)
 
 const worker = createWorker({ config, port })
 worker.start()
