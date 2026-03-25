@@ -13,6 +13,7 @@ export type WorkerInfo = {
   port: number
   ready: boolean
   exited: boolean
+  released: boolean
 }
 
 // Grace period before force-killing a draining worker (1 hour)
@@ -48,6 +49,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       port: wp,
       ready: false,
       exited: false,
+      released: false,
     }
 
     child.on('message', (msg: any) => {
@@ -62,7 +64,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
 
     child.on('exit', (code) => {
       worker.exited = true
-      if (currentWorker?.generation === gen) {
+      if (!worker.released && currentWorker?.generation === gen) {
         console.error(`Worker gen ${gen} exited with code ${code}, respawning...`)
         currentWorker = spawnWorker(wp)
       }
@@ -76,19 +78,25 @@ export function createOrchestrator(options: OrchestratorOptions) {
    * finish in-flight work as an orphan and then exit naturally.
    */
   function releaseWorker(worker: WorkerInfo): void {
+    worker.released = true
+
     try { worker.process.send({ type: 'drain' }) } catch { /* IPC may already be closed */ }
     try { worker.process.disconnect() } catch { /* already disconnected */ }
     worker.process.unref()
 
     // Safety net: force kill after a long grace period (only if still alive)
-    setTimeout(() => {
+    const killTimer = setTimeout(() => {
       if (!worker.exited) {
         try {
           worker.process.kill()
           console.error(`Force-killed draining worker gen ${worker.generation} after timeout`)
         } catch { /* process already exited */ }
       }
-    }, DRAIN_TIMEOUT_MS).unref()
+    }, DRAIN_TIMEOUT_MS)
+    killTimer.unref()
+
+    // Cancel the timer if the worker exits on its own
+    worker.process.on('exit', () => clearTimeout(killTimer))
   }
 
   async function waitForReady(worker: WorkerInfo, timeoutMs = 30000): Promise<boolean> {
@@ -147,6 +155,12 @@ export function createOrchestrator(options: OrchestratorOptions) {
 
   async function restart(): Promise<void> {
     const oldWorker = currentWorker
+
+    // Suppress auto-respawn of old worker during rolling restart.
+    // Without this, if oldWorker crashes while we await the new one,
+    // the exit handler would spawn a third worker that we'd then lose.
+    if (oldWorker) oldWorker.released = true
+
     // When workerPort is 0 (OS-assigned), always use 0 so the OS picks a free port.
     // Only alternate when an explicit workerPort is configured.
     const newWorker = spawnWorker(workerPort === 0 ? 0 : workerPort + (generation % 2))
@@ -155,6 +169,8 @@ export function createOrchestrator(options: OrchestratorOptions) {
     if (!ready) {
       console.error('New worker failed to become ready, keeping old worker')
       newWorker.process.kill()
+      // Restore old worker if still alive
+      if (oldWorker && !oldWorker.exited) oldWorker.released = false
       return
     }
 
