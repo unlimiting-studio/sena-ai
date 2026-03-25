@@ -56,16 +56,6 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
-  packages/connector-sunny:
-    dependencies:
-      '@sena-ai/core':
-        specifier: workspace:*
-        version: link:../core
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
   packages/core:
     dependencies:
       zod:
