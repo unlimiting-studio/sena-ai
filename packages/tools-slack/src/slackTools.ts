@@ -291,6 +291,26 @@ function parseBlock(block: any): string {
       return '---'
     case 'image':
       return `[image: ${block.alt_text ?? block.title?.text ?? ''}]`
+    case 'table': {
+      const rows: string[][] = (block.rows ?? []).map((row: any[]) =>
+        row.map((cell: any) => {
+          if (cell.type === 'rich_text') {
+            return cell.elements?.map(parseRichTextElement).join('') ?? ''
+          }
+          return cell.text ?? ''
+        }),
+      )
+      if (rows.length === 0) return ''
+      // Build markdown table: first row is header, then separator, then data
+      const header = rows[0]
+      const sep = header.map(() => '---')
+      const lines = [
+        `| ${header.join(' | ')} |`,
+        `| ${sep.join(' | ')} |`,
+        ...rows.slice(1).map((r: string[]) => `| ${r.join(' | ')} |`),
+      ]
+      return lines.join('\n')
+    }
     case 'actions':
       return block.elements?.map((el: any) => {
         if (el.text) return `[${parseTextObject(el.text)}]`
