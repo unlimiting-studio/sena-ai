@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { markdownToMrkdwn } from '../mrkdwn.js'
+import { markdownToMrkdwn, markdownToSlack } from '../mrkdwn.js'
 
 describe('markdownToMrkdwn', () => {
   it('converts bold', () => {
@@ -66,5 +66,93 @@ describe('markdownToMrkdwn', () => {
   it('preserves blockquotes', () => {
     const input = '> this is a quote'
     expect(markdownToMrkdwn(input)).toBe('> this is a quote')
+  })
+})
+
+describe('markdownToSlack', () => {
+  it('returns plain text when no tables', () => {
+    const result = markdownToSlack('just **bold** text')
+    expect(result).toEqual({ text: 'just *bold* text' })
+    expect(result.blocks).toBeUndefined()
+  })
+
+  it('converts a simple markdown table to a table block', () => {
+    const md = '| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |'
+    const result = markdownToSlack(md)
+    expect(result.blocks).toBeDefined()
+    expect(result.blocks).toHaveLength(1)
+
+    const table = result.blocks![0]
+    expect(table.type).toBe('table')
+    expect(table.rows).toHaveLength(3) // header + 2 data rows
+    expect(table.column_settings).toEqual([{ align: 'left' }, { align: 'left' }])
+
+    const rows = table.rows as Array<Array<{ type: string; text: string }>>
+    expect(rows[0]).toEqual([
+      { type: 'raw_text', text: 'Name' },
+      { type: 'raw_text', text: 'Age' },
+    ])
+    expect(rows[1]).toEqual([
+      { type: 'raw_text', text: 'Alice' },
+      { type: 'raw_text', text: '30' },
+    ])
+  })
+
+  it('respects column alignment from separator row', () => {
+    const md = '| Left | Center | Right |\n|:-----|:------:|------:|\n| a | b | c |'
+    const result = markdownToSlack(md)
+    const table = result.blocks![0]
+    expect(table.column_settings).toEqual([
+      { align: 'left' },
+      { align: 'center' },
+      { align: 'right' },
+    ])
+  })
+
+  it('wraps surrounding text in section blocks', () => {
+    const md = 'Before table\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAfter table'
+    const result = markdownToSlack(md)
+    expect(result.blocks).toHaveLength(3)
+    expect(result.blocks![0].type).toBe('section')
+    expect(result.blocks![1].type).toBe('table')
+    expect(result.blocks![2].type).toBe('section')
+  })
+
+  it('does not convert tables inside code blocks', () => {
+    const md = '```\n| A | B |\n|---|---|\n| 1 | 2 |\n```'
+    const result = markdownToSlack(md)
+    expect(result.blocks).toBeUndefined()
+  })
+
+  it('converts only first table to block, extras become code blocks', () => {
+    const md = '| A | B |\n|---|---|\n| 1 | 2 |\n\n| C | D |\n|---|---|\n| 3 | 4 |'
+    const result = markdownToSlack(md)
+    expect(result.blocks).toBeDefined()
+    const tableBlocks = result.blocks!.filter(b => b.type === 'table')
+    expect(tableBlocks).toHaveLength(1) // only first table is a real table block
+
+    const sectionBlocks = result.blocks!.filter(b => b.type === 'section')
+    // second table should be in a section as a code block
+    const hasCodeBlock = sectionBlocks.some(b => {
+      const text = (b.text as { text: string })?.text ?? ''
+      return text.includes('```')
+    })
+    expect(hasCodeBlock).toBe(true)
+  })
+
+  it('pads rows with fewer cells than header', () => {
+    const md = '| A | B | C |\n|---|---|---|\n| 1 |'
+    const result = markdownToSlack(md)
+    const rows = result.blocks![0].rows as Array<Array<{ type: string; text: string }>>
+    expect(rows[1]).toHaveLength(3) // padded to match header count
+    expect(rows[1][1].text).toBe('')
+    expect(rows[1][2].text).toBe('')
+  })
+
+  it('includes fallback text for notifications', () => {
+    const md = '| A | B |\n|---|---|\n| 1 | 2 |'
+    const result = markdownToSlack(md)
+    expect(typeof result.text).toBe('string')
+    expect(result.text.length).toBeGreaterThan(0)
   })
 })

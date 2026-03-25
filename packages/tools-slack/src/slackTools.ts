@@ -2,7 +2,7 @@ import { defineTool, toolResult } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
 import { z } from 'zod'
 import type { ToolPort } from '@sena-ai/core'
-import { markdownToMrkdwn } from './mrkdwn.js'
+import { markdownToSlack } from './mrkdwn.js'
 
 /** In-memory TTL cache with sliding expiration. */
 class TtlCache<K, V> {
@@ -109,10 +109,12 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         threadTs: z.string().optional().describe('Thread timestamp (optional, for replying in thread)'),
       },
       handler: async ({ channelId, text, threadTs }: { channelId: string; text: string; threadTs?: string }) => {
-        const mrkdwnText = markdownToMrkdwn(text)
-        const params: any = { channel: channelId, text: mrkdwnText }
-        if (threadTs) params.thread_ts = threadTs
-        const result = await slack.chat.postMessage(params)
+        const payload = markdownToSlack(text)
+        const result = await slack.chat.postMessage({
+          channel: channelId,
+          ...(threadTs ? { thread_ts: threadTs } : {}),
+          ...payload,
+        })
         return JSON.stringify({ ok: result.ok, ts: result.ts })
       },
     }),
