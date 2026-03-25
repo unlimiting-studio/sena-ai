@@ -112,6 +112,8 @@ export type ClaudeRuntimeOptions = {
   apiKey?: string
   maxTurns?: number
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions'
+  /** Tool name patterns to always disallow (e.g. 'mcp__some_server__*'). Merged with per-turn disabledTools. */
+  disallowedTools?: string[]
 }
 
 export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
@@ -120,6 +122,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
     apiKey,
     maxTurns = 100,
     permissionMode = 'bypassPermissions',
+    disallowedTools: staticDisallowedTools = [],
   } = options
 
   return {
@@ -171,6 +174,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         // Also merge any per-turn disabledTools from the connector.
         disallowedTools: [
           'mcp__claude_ai_Slack__*',
+          ...staticDisallowedTools,
           ...(disabledTools ?? []),
         ],
       }
