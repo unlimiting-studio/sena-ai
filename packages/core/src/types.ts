@@ -216,6 +216,7 @@ export type Schedule = {
   type: 'cron' | 'heartbeat'
   expression: string
   prompt: string
+  timezone?: string
 }
 
 // === SessionStore (Part 8) ===
