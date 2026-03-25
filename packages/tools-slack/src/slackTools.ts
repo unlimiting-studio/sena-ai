@@ -146,20 +146,24 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
 
     defineTool({
       name: 'slack_upload_file',
-      description: 'Upload content as a file to a Slack channel',
+      description: 'Upload content as a file to a Slack channel or thread',
       params: {
         channelId: z.string().describe('Channel ID'),
         content: z.string().describe('File content'),
         filename: z.string().describe('Filename'),
         title: z.string().optional().describe('File title'),
+        threadTs: z.string().optional().describe('Thread timestamp to upload as a reply'),
       },
-      handler: async ({ channelId, content, filename, title }: { channelId: string; content: string; filename: string; title?: string }) => {
-        const result = await slack.filesUploadV2({
+      handler: async ({ channelId, content, filename, title, threadTs }: { channelId: string; content: string; filename: string; title?: string; threadTs?: string }) => {
+        const baseArgs = {
           channel_id: channelId,
           content,
           filename,
           title: title ?? filename,
-        })
+        }
+        const result = threadTs
+          ? await slack.filesUploadV2({ ...baseArgs, thread_ts: threadTs })
+          : await slack.filesUploadV2(baseArgs)
         return JSON.stringify({ ok: true, file_id: (result as any).file?.id })
       },
     }),
