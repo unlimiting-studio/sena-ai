@@ -54,7 +54,7 @@ describe('TurnEngine', () => {
       hooks: {
         onTurnStart: [
           createMockHook('hook-a', [{ source: 'a', role: 'system', content: 'AAA' }]),
-          createMockHook('hook-b', [{ source: 'b', role: 'context', content: 'BBB' }]),
+          createMockHook('hook-b', [{ source: 'b', role: 'append', content: 'BBB' }]),
         ],
       },
       tools: [],

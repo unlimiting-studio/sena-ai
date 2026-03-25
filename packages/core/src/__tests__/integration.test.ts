@@ -3,7 +3,7 @@ import { defineConfig, createAgent } from '../index.js'
 import { createMockRuntime } from './helpers.js'
 import type { TurnStartHook, ContextFragment } from '../types.js'
 
-function inlineContext(content: string, role: 'system' | 'context' = 'system'): TurnStartHook {
+function inlineContext(content: string, role: 'system' | 'prepend' | 'append' = 'system'): TurnStartHook {
   return {
     name: 'inline',
     async execute() {
@@ -20,7 +20,7 @@ describe('E2E: defineConfig → createAgent → processTurn', () => {
       hooks: {
         onTurnStart: [
           inlineContext('당신은 세나입니다.', 'system'),
-          inlineContext('오늘의 기억: 테스트 중', 'context'),
+          inlineContext('오늘의 기억: 테스트 중', 'append'),
         ],
       },
     })
@@ -37,7 +37,7 @@ describe('E2E: defineConfig → createAgent → processTurn', () => {
     // Hook traces
     expect(trace.hooks).toHaveLength(2)
 
-    // Assembled context: system before context
+    // Assembled context: system before append
     expect(trace.assembledContext).toContain('당신은 세나입니다.')
     expect(trace.assembledContext).toContain('오늘의 기억: 테스트 중')
     const sysIdx = trace.assembledContext.indexOf('세나')

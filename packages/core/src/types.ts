@@ -2,7 +2,7 @@
 
 export type ContextFragment = {
   source: string
-  role: 'system' | 'context'
+  role: 'system' | 'prepend' | 'append'
   content: string
 }
 

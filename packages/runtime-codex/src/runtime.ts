@@ -143,6 +143,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         await client.initialize('sena-runtime')
 
         const baseInstructions = buildBaseInstructions(contextFragments)
+        const { prepend, append } = buildMessageWrappers(contextFragments)
         const resolvedModel = streamOptions.model || model
 
         const threadParams: Record<string, unknown> = {
@@ -165,7 +166,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
 
         let userText = ''
         for await (const msg of promptIterable) {
-          userText = msg.text
+          userText = wrapUserMessage(msg.text, prepend, append)
           break
         }
 
@@ -218,9 +219,31 @@ function buildBaseInstructions(fragments: ContextFragment[]): string {
   for (const f of fragments.filter(f => f.role === 'system')) {
     parts.push(`[${f.source}]\n${f.content}`)
   }
-  for (const f of fragments.filter(f => f.role === 'context')) {
-    parts.push(`[${f.source}]\n${f.content}`)
+  return parts.join('\n\n')
+}
+
+function buildMessageWrappers(fragments: ContextFragment[]): { prepend: string; append: string } {
+  const prependParts: string[] = []
+  const appendParts: string[] = []
+
+  for (const f of fragments.filter(f => f.role === 'prepend')) {
+    prependParts.push(`[${f.source}]\n${f.content}`)
   }
+  for (const f of fragments.filter(f => f.role === 'append')) {
+    appendParts.push(`[${f.source}]\n${f.content}`)
+  }
+
+  return {
+    prepend: prependParts.join('\n\n'),
+    append: appendParts.join('\n\n'),
+  }
+}
+
+function wrapUserMessage(text: string, prepend: string, append: string): string {
+  const parts: string[] = []
+  if (prepend) parts.push(prepend)
+  parts.push(text)
+  if (append) parts.push(append)
   return parts.join('\n\n')
 }
 

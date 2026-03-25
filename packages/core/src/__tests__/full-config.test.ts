@@ -25,7 +25,7 @@ describe('Full sena.config.ts pattern', () => {
             { source: 'file:soul.md', role: 'system', content: '따뜻하고 친절한 성격입니다.' },
           ]),
           createMockHook('memory', [
-            { source: 'file:memory/today.md', role: 'context', content: '오늘 할 일: 테스트 작성' },
+            { source: 'file:memory/today.md', role: 'append', content: '오늘 할 일: 테스트 작성' },
           ]),
         ],
         onTurnEnd: [
@@ -59,13 +59,13 @@ describe('Full sena.config.ts pattern', () => {
     expect(trace.trigger).toBe('programmatic')
     expect(trace.input).toBe('안녕하세요')
 
-    // Verify context assembly order: system fragments first, then context
+    // Verify context assembly order: system fragments first, then append
     expect(trace.assembledContext).toContain('유능한 비서')
     expect(trace.assembledContext).toContain('따뜻하고 친절한')
     expect(trace.assembledContext).toContain('오늘 할 일')
     const sysIdx = trace.assembledContext.indexOf('비서')
     const ctxIdx = trace.assembledContext.indexOf('오늘 할 일')
-    expect(sysIdx).toBeLessThan(ctxIdx) // system before context
+    expect(sysIdx).toBeLessThan(ctxIdx) // system before append
 
     // Verify hook traces
     expect(trace.hooks).toHaveLength(4) // 3 onTurnStart + 1 onTurnEnd

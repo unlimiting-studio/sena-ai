@@ -34,13 +34,13 @@ describe('fileContext', () => {
   it('loads directory with glob filter', async () => {
     const hook = fileContext({
       path: join(fixturesDir, 'memory'),
-      as: 'context',
+      as: 'append',
       glob: '*.md',
     })
     const fragments = await hook.execute(mockContext())
 
     expect(fragments).toHaveLength(2)
-    expect(fragments.every(f => f.role === 'context')).toBe(true)
+    expect(fragments.every(f => f.role === 'append')).toBe(true)
     expect(fragments.every(f => !f.content.includes('무시'))).toBe(true)
   })
 

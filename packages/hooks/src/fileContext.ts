@@ -4,7 +4,7 @@ import { join, basename } from 'node:path'
 
 export type FileContextOptions = {
   path: string
-  as: 'system' | 'context'
+  as: 'system' | 'prepend' | 'append'
   glob?: string
   when?: (ctx: TurnContext) => boolean
   maxLength?: number
@@ -49,7 +49,7 @@ export function fileContext(options: FileContextOptions): TurnStartHook {
 
 function makeFragment(
   filePath: string,
-  role: 'system' | 'context',
+  role: 'system' | 'prepend' | 'append',
   content: string,
   maxLength?: number,
 ): ContextFragment {
