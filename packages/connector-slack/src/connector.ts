@@ -163,9 +163,9 @@ async function handleSlackEvent(
       const aborted = engine.abortConversation(conversationId)
       if (aborted) {
         console.log(`[slack] :x: reaction aborted conversation ${conversationId}`)
-        // React with :white_check_mark: to confirm abort
+        // React with :x: to confirm abort
         try {
-          await slack.reactions.add({ channel, name: 'white_check_mark', timestamp: messageTs })
+          await slack.reactions.add({ channel, name: 'x', timestamp: messageTs })
         } catch { /* ignore */ }
       } else {
         console.log(`[slack] :x: reaction on ${conversationId} — no active turn to abort`)
