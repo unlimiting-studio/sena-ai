@@ -148,9 +148,17 @@ export function createWorker(options: WorkerOptions) {
       },
     }
 
-    // Loop: process initial turn, then any leftover pending messages
+    // Loop: process initial turn, then any leftover pending messages.
+    // IMPORTANT: if a turn errors, catch it and continue processing remaining
+    // pending messages so they are not permanently lost.
+    let lastError: unknown = null
     while (true) {
-      await executeTurn(event, pendingMessages)
+      try {
+        await executeTurn(event, pendingMessages)
+      } catch (err) {
+        console.error(`[worker] turn error in ${event.conversationId}, will process remaining pending messages (${pendingEvents.length} left):`, err)
+        lastError = err
+      }
 
       if (pendingEvents.length === 0) break
 
@@ -159,6 +167,12 @@ export function createWorker(options: WorkerOptions) {
       event = pendingEvents.shift()!
       console.log(`[worker] processing leftover pending message as new turn (${pendingEvents.length} remaining)`)
     }
+
+    // Note: we intentionally do NOT re-throw lastError here.
+    // executeTurn() already handles errors internally via sendError(),
+    // and re-throwing would reject the shared activeTurnPromise, causing
+    // all queued callers (who called submitTurn for the same conversation)
+    // to see a failure — even if their specific turn succeeded.
   }
 
   async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource): Promise<void> {
