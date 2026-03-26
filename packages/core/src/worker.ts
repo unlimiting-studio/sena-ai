@@ -249,19 +249,29 @@ export function createWorker(options: WorkerOptions) {
         await output.sendResult(trace.result.text)
         console.log(`[worker] result sent`)
       } else if (trace.error) {
-        console.log(`[worker] sending error to ${event.connector}: ${trace.error}`)
-        await output.sendError(trace.error)
+        // Suppress error message when turn was aborted by user
+        if (abortSignal?.aborted) {
+          console.log(`[worker] turn aborted, suppressing error: ${trace.error}`)
+        } else {
+          console.log(`[worker] sending error to ${event.connector}: ${trace.error}`)
+          await output.sendError(trace.error)
+        }
       } else {
         console.warn(`[worker] turn finished but no result and no error`)
       }
 
       return trace.followUps ?? []
     } catch (err) {
-      console.error(`[worker] submitTurn error:`, err)
-      try {
-        await output.sendError(err instanceof Error ? err.message : String(err))
-      } catch (sendErr) {
-        console.error(`[worker] sendError also failed:`, sendErr)
+      // Suppress error message when turn was aborted by user
+      if (abortSignal?.aborted) {
+        console.log(`[worker] turn aborted, suppressing catch error`)
+      } else {
+        console.error(`[worker] submitTurn error:`, err)
+        try {
+          await output.sendError(err instanceof Error ? err.message : String(err))
+        } catch (sendErr) {
+          console.error(`[worker] sendError also failed:`, sendErr)
+        }
       }
       return []
     } finally {
