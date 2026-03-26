@@ -140,6 +140,42 @@ async function handleSlackEvent(
     return
   }
 
+  // Handle reaction_added: :x: emoji aborts in-flight turn
+  if (event.type === 'reaction_added' && event.reaction === 'x') {
+    const item = event.item
+    if (item?.type !== 'message') return
+
+    // Resolve the thread_ts of the reacted-to message
+    const channel = item.channel as string
+    const messageTs = item.ts as string
+
+    try {
+      const result = await slack.conversations.replies({
+        channel,
+        ts: messageTs,
+        limit: 1,
+        inclusive: true,
+      })
+      const msg = result.messages?.[0]
+      const threadTs = msg?.thread_ts ?? msg?.ts ?? messageTs
+      const conversationId = `${channel}:${threadTs}`
+
+      const aborted = engine.abortConversation(conversationId)
+      if (aborted) {
+        console.log(`[slack] :x: reaction aborted conversation ${conversationId}`)
+        // React with :white_check_mark: to confirm abort
+        try {
+          await slack.reactions.add({ channel, name: 'white_check_mark', timestamp: messageTs })
+        } catch { /* ignore */ }
+      } else {
+        console.log(`[slack] :x: reaction on ${conversationId} — no active turn to abort`)
+      }
+    } catch (err) {
+      console.warn('[slack] failed to handle :x: reaction:', err)
+    }
+    return
+  }
+
   // Only handle app_mention and message events
   if (event.type !== 'app_mention' && event.type !== 'message') {
     console.log('[slack] ignoring event type:', event.type)

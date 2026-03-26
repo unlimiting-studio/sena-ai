@@ -15,7 +15,11 @@ export type TurnStartHook = {
 
 export type TurnEndHook = {
   name: string
-  execute(context: TurnContext, result: TurnResult): Promise<void>
+  /**
+   * Called after a successful turn. Return a string to trigger a follow-up turn
+   * with that string as the prompt. Return void to do nothing.
+   */
+  execute(context: TurnContext, result: TurnResult): Promise<string | void>
 }
 
 export type ErrorHook = {
@@ -84,6 +88,8 @@ export type TurnTrace = {
   assembledContext: string
   result: TurnResult | null
   error: string | null
+  /** Follow-up prompts from onTurnEnd hooks. Worker will process these as continuation turns. */
+  followUps?: string[]
 }
 
 // === Runtime (Part 5) ===
@@ -169,6 +175,8 @@ export type HttpServer = {
 
 export type TurnEngine = {
   submitTurn(event: InboundEvent): Promise<void>
+  /** Abort an in-flight turn for the given conversationId. Returns true if a turn was aborted. */
+  abortConversation(conversationId: string): boolean
 }
 
 export type Connector = {
