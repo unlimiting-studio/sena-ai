@@ -233,6 +233,15 @@ function createSlackOutput(
   let lastProgressTime = 0
   let thinkingReady: Promise<void> | undefined
   const THROTTLE_MS = 1500
+  const THINKING_TIMEOUT_MS = 3000
+
+  /** Wait for thinking indicator with timeout — never blocks result delivery for long */
+  async function awaitThinking(): Promise<void> {
+    if (!thinkingReady) return
+    const timeout = new Promise<void>(resolve => setTimeout(resolve, THINKING_TIMEOUT_MS))
+    await Promise.race([thinkingReady, timeout])
+    thinkingReady = undefined
+  }
 
   // Send thinking indicator immediately on creation (context block = small text, like v1)
   if (thinkingMessage && thinkingMessage !== '') {
@@ -248,11 +257,7 @@ function createSlackOutput(
 
   return {
     async showProgress(text: string): Promise<void> {
-      // Wait for thinkingMessage to finish so progressTs is available
-      if (thinkingReady) {
-        await thinkingReady
-        thinkingReady = undefined
-      }
+      await awaitThinking()
 
       const now = Date.now()
       if (now - lastProgressTime < THROTTLE_MS && progressTs) return
@@ -271,11 +276,7 @@ function createSlackOutput(
     },
 
     async sendResult(text: string): Promise<void> {
-      // Wait for thinkingMessage to finish so progressTs is available
-      if (thinkingReady) {
-        await thinkingReady
-        thinkingReady = undefined
-      }
+      await awaitThinking()
 
       // Delete progress/thinking message if exists
       if (progressTs) {
