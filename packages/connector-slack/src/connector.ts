@@ -231,22 +231,29 @@ function createSlackOutput(
   const [channel, threadTs] = context.conversationId.split(':')
   let progressTs: string | undefined
   let lastProgressTime = 0
+  let thinkingReady: Promise<void> | undefined
   const THROTTLE_MS = 1500
 
   // Send thinking indicator immediately on creation (context block = small text, like v1)
   if (thinkingMessage && thinkingMessage !== '') {
-    slack.chat.postMessage({
+    thinkingReady = slack.chat.postMessage({
       channel,
       thread_ts: threadTs,
       text: thinkingMessage,
       blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage }] }],
     })
       .then(r => { progressTs = r.ts; lastProgressTime = Date.now() })
-      .catch(() => {})
+      .catch((err) => { console.warn('[slack] thinkingMessage failed:', err) })
   }
 
   return {
     async showProgress(text: string): Promise<void> {
+      // Wait for thinkingMessage to finish so progressTs is available
+      if (thinkingReady) {
+        await thinkingReady
+        thinkingReady = undefined
+      }
+
       const now = Date.now()
       if (now - lastProgressTime < THROTTLE_MS && progressTs) return
 
@@ -258,12 +265,18 @@ function createSlackOutput(
           progressTs = result.ts
         }
         lastProgressTime = now
-      } catch {
-        // Swallow progress errors
+      } catch (err) {
+        console.warn('[slack] showProgress failed:', err)
       }
     },
 
     async sendResult(text: string): Promise<void> {
+      // Wait for thinkingMessage to finish so progressTs is available
+      if (thinkingReady) {
+        await thinkingReady
+        thinkingReady = undefined
+      }
+
       // Delete progress/thinking message if exists
       if (progressTs) {
         try {
@@ -271,6 +284,13 @@ function createSlackOutput(
         } catch {
           // Ignore
         }
+        progressTs = undefined
+      }
+
+      // Guard against empty text — Slack API rejects empty messages with no_text
+      if (!text.trim()) {
+        console.warn('[slack] sendResult skipped: empty text')
+        return
       }
 
       console.log(`[slack] sendResult: channel=${channel}, thread_ts=${threadTs}, text.length=${text.length}`)
