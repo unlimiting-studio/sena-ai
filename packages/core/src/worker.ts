@@ -89,10 +89,19 @@ export function createWorker(options: WorkerOptions) {
   type ConversationState = {
     pendingEvents: InboundEvent[]
     activeTurnPromise: Promise<void>
+    abortController: AbortController
   }
   const activeConversations = new Map<string, ConversationState>()
 
   const turnEngine: TurnEngine = {
+    abortConversation(conversationId: string): boolean {
+      const state = activeConversations.get(conversationId)
+      if (!state) return false
+      console.log(`[worker] aborting conversation ${conversationId}`)
+      state.abortController.abort('reaction:x')
+      return true
+    },
+
     async submitTurn(event: InboundEvent): Promise<void> {
       const convId = event.conversationId
       const active = activeConversations.get(convId)
@@ -106,12 +115,14 @@ export function createWorker(options: WorkerOptions) {
 
       // No active turn — start a new one with steer support
       const pendingEvents: InboundEvent[] = []
+      const abortController = new AbortController()
       const state: ConversationState = {
         pendingEvents,
         activeTurnPromise: null!,
+        abortController,
       }
 
-      state.activeTurnPromise = executeTurnWithSteer(event, pendingEvents)
+      state.activeTurnPromise = executeTurnWithSteer(event, pendingEvents, abortController.signal)
         .finally(() => {
           if (activeConversations.get(convId) === state) {
             activeConversations.delete(convId)
@@ -128,7 +139,7 @@ export function createWorker(options: WorkerOptions) {
    * any leftover pending messages (that arrived after the last step boundary)
    * are processed as follow-up turns with their original metadata.
    */
-  async function executeTurnWithSteer(initialEvent: InboundEvent, pendingEvents: InboundEvent[]): Promise<void> {
+  async function executeTurnWithSteer(initialEvent: InboundEvent, pendingEvents: InboundEvent[], abortSignal: AbortSignal): Promise<void> {
     let event = initialEvent
 
     // The runtime only sees text strings for steer injection; full InboundEvent
@@ -148,24 +159,31 @@ export function createWorker(options: WorkerOptions) {
       },
     }
 
-    // Loop: process initial turn, then any leftover pending messages.
+    // Loop: process initial turn, then any leftover pending messages and follow-ups.
     // IMPORTANT: if a turn errors, catch it and continue processing remaining
     // pending messages so they are not permanently lost.
     let lastError: unknown = null
     while (true) {
+      let followUps: string[] = []
       try {
-        await executeTurn(event, pendingMessages)
+        followUps = await executeTurn(event, pendingMessages, abortSignal)
       } catch (err) {
         console.error(`[worker] turn error in ${event.conversationId}, will process remaining pending messages (${pendingEvents.length} left):`, err)
         lastError = err
       }
 
+      // onTurnEnd hooks may request follow-up turns — enqueue them
+      for (const text of followUps) {
+        pendingEvents.push({ ...event, text })
+        console.log(`[worker] enqueued follow-up from onTurnEnd hook`)
+      }
+
       if (pendingEvents.length === 0) break
 
-      // Leftover messages that weren't steered — process the next as a follow-up turn
+      // Leftover messages that weren't steered or follow-ups — process as new turn
       // using the original event's full metadata (userId, userName, files, raw)
       event = pendingEvents.shift()!
-      console.log(`[worker] processing leftover pending message as new turn (${pendingEvents.length} remaining)`)
+      console.log(`[worker] processing next pending message as new turn (${pendingEvents.length} remaining)`)
     }
 
     // Note: we intentionally do NOT re-throw lastError here.
@@ -175,12 +193,15 @@ export function createWorker(options: WorkerOptions) {
     // to see a failure — even if their specific turn succeeded.
   }
 
-  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource): Promise<void> {
+  /**
+   * Executes a single turn. Returns follow-up prompts from onTurnEnd hooks (if any).
+   */
+  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource, abortSignal?: AbortSignal): Promise<string[]> {
     // Create output for the originating connector
     const connector = connectorMap.get(event.connector)
     if (!connector) {
       console.error(`[worker] connector not found: "${event.connector}" (registered: ${[...connectorMap.keys()].join(', ')})`)
-      return
+      return []
     }
     const output = connector.createOutput({
       conversationId: event.conversationId,
@@ -198,6 +219,7 @@ export function createWorker(options: WorkerOptions) {
         input: event.text,
         trigger: 'connector',
         sessionId: existingSessionId,
+        abortSignal,
         connector: {
           name: event.connector,
           conversationId: event.conversationId,
@@ -232,6 +254,8 @@ export function createWorker(options: WorkerOptions) {
       } else {
         console.warn(`[worker] turn finished but no result and no error`)
       }
+
+      return trace.followUps ?? []
     } catch (err) {
       console.error(`[worker] submitTurn error:`, err)
       try {
@@ -239,6 +263,7 @@ export function createWorker(options: WorkerOptions) {
       } catch (sendErr) {
         console.error(`[worker] sendError also failed:`, sendErr)
       }
+      return []
     } finally {
       await output.dispose()
     }
