@@ -93,6 +93,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
             text: parsed,
             ts: m.ts,
             thread_ts: m.thread_ts,
+            ...(m.reply_count != null ? { reply_count: m.reply_count } : {}),
             ...(m.files?.length ? { files: m.files.map((f: any) => ({ id: f.id, name: f.name, mimetype: f.mimetype })) } : {}),
           }
         })
