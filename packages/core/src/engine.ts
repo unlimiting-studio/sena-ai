@@ -143,8 +143,8 @@ export function createTurnEngine(config: TurnEngineConfig) {
         const hookStart = performance.now()
         try {
           await hook.execute(context, err instanceof Error ? err : new Error(String(err)))
-        } catch {
-          // error hooks should not throw
+        } catch (hookErr) {
+          console.error(`[engine] onError hook "${hook.name}" threw:`, hookErr)
         }
         hookTraces.push({
           phase: 'onError',
@@ -156,10 +156,15 @@ export function createTurnEngine(config: TurnEngineConfig) {
     }
 
     // === onTurnEnd hooks ===
+    const followUps: string[] = []
     if (result) {
       for (const hook of hooks.onTurnEnd ?? []) {
         const hookStart = performance.now()
-        await hook.execute(context, result)
+        const followUp = await hook.execute(context, result)
+        if (typeof followUp === 'string') {
+          followUps.push(followUp)
+          console.log(`[engine] onTurnEnd hook "${hook.name}" requested follow-up`)
+        }
         hookTraces.push({
           phase: 'onTurnEnd',
           name: hook.name,
@@ -182,6 +187,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
       assembledContext,
       result,
       error,
+      followUps: followUps.length > 0 ? followUps : undefined,
     }
   }
 
