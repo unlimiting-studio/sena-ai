@@ -245,10 +245,15 @@ async function handleSlackEvent(
     return
   }
   processedEvents.add(eventId)
-  // Prevent unbounded growth — keep only last 500 events
+  // Prevent unbounded growth — evict oldest entries when exceeding 500
   if (processedEvents.size > 500) {
-    const first = processedEvents.values().next().value
-    if (first) processedEvents.delete(first)
+    const excess = processedEvents.size - 500
+    let removed = 0
+    for (const entry of processedEvents) {
+      if (removed >= excess) break
+      processedEvents.delete(entry)
+      removed++
+    }
   }
 
   try {
