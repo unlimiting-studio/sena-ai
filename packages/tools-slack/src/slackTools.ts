@@ -26,6 +26,25 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
     }
   }
 
+  /** Extract all <@UXXXX> user mention IDs from text */
+  function extractMentionedUserIds(text: string): string[] {
+    const ids = new Set<string>()
+    const regex = /<@(U[A-Z0-9]+)>/g
+    let match
+    while ((match = regex.exec(text)) !== null) {
+      ids.add(match[1])
+    }
+    return [...ids]
+  }
+
+  /** Replace <@UXXXX> mentions with <@UXXXX>(DisplayName) using cached names */
+  function normalizeMentions(text: string): string {
+    return text.replace(/<@(U[A-Z0-9]+)>/g, (original, userId) => {
+      const name = userNameCache.get(userId)
+      return name && name !== userId ? `<@${userId}>(${name})` : original
+    })
+  }
+
   return [
     defineTool({
       name: 'slack_get_messages',
@@ -52,19 +71,33 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
         } else {
           result = await slack.conversations.history(params)
         }
-        const userIds: string[] = [...new Set((result.messages ?? []).map((m: any) => m.user).filter(Boolean) as string[])]
-        await Promise.all(userIds.map((uid) => resolveUserName(uid)))
-        const messages = (result.messages ?? []).map((m: any) => {
-          const parsed = parseMessageContent(m)
-          return {
-            user: m.user,
-            userName: m.user ? (userNameCache.get(m.user) ?? m.user) : undefined,
-            text: parsed,
-            ts: m.ts,
-            thread_ts: m.thread_ts,
-            ...(m.files?.length ? { files: m.files.map((f: any) => ({ id: f.id, name: f.name, mimetype: f.mimetype })) } : {}),
-          }
-        })
+        // 1. Resolve sender user IDs
+        const senderIds: string[] = [...new Set((result.messages ?? []).map((m: any) => m.user).filter(Boolean) as string[])]
+        await Promise.all(senderIds.map((uid) => resolveUserName(uid)))
+
+        // 2. Parse messages and collect mentioned user IDs
+        const parsed: Array<{ raw: any; text: string }> = (result.messages ?? []).map((m: any) => ({
+          raw: m,
+          text: parseMessageContent(m),
+        }))
+
+        // 3. Resolve mentioned user IDs found in message text (cap to avoid rate limits)
+        const allMentionedIds = parsed.flatMap(p => extractMentionedUserIds(p.text))
+        const mentionedIds = [...new Set(allMentionedIds)].filter(id => !userNameCache.has(id)).slice(0, 20)
+        if (mentionedIds.length > 0) {
+          await Promise.all(mentionedIds.map(uid => resolveUserName(uid)))
+        }
+
+        // 4. Build final messages with normalized mentions
+        const messages = parsed.map(({ raw: m, text }: { raw: any; text: string }) => ({
+          user: m.user,
+          userName: m.user ? (userNameCache.get(m.user) ?? m.user) : undefined,
+          text: normalizeMentions(text),
+          ts: m.ts,
+          thread_ts: m.thread_ts,
+          ...(m.reply_count != null ? { reply_count: m.reply_count } : {}),
+          ...(m.files?.length ? { files: m.files.map((f: any) => ({ id: f.id, name: f.name, mimetype: f.mimetype })) } : {}),
+        }))
         return JSON.stringify(messages, null, 2)
       },
     }),
