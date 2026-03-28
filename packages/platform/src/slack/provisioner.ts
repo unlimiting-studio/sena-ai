@@ -101,6 +101,11 @@ export interface Provisioner {
     workspaceId: string,
     appId: string,
   ): Promise<{ ok: boolean; error?: string }>
+  setAppIcon(
+    workspaceId: string,
+    appId: string,
+    imageBuffer: ArrayBuffer,
+  ): Promise<{ ok: boolean; error?: string }>
   SLACK_MANIFEST_TEMPLATE: typeof SLACK_MANIFEST_TEMPLATE
 }
 
@@ -247,10 +252,59 @@ export function createProvisioner(
     return { ok: true }
   }
 
+  /** 비공식 Slack API를 사용하여 앱 아이콘 설정 */
+  async function setAppIcon(
+    workspaceId: string,
+    appId: string,
+    imageBuffer: ArrayBuffer,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const tokenRow = await configTokenRepo.findByWorkspaceId(workspaceId)
+    if (!tokenRow) {
+      return { ok: false, error: 'no config token for workspace' }
+    }
+
+    const configToken = await vault.decrypt(tokenRow.accessTokenEnc)
+
+    const formData = new FormData()
+    formData.append('app_id', appId)
+    formData.append(
+      'image',
+      new Blob([imageBuffer], { type: 'image/png' }),
+      'icon.png',
+    )
+
+    try {
+      const res = await fetch('https://slack.com/api/apps.icon.set', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${configToken}`,
+        },
+        body: formData,
+      })
+
+      const data = (await res.json()) as { ok: boolean; error?: string }
+
+      if (!data.ok) {
+        console.error(
+          `[provisioner] setAppIcon failed for ${appId}:`,
+          data.error,
+        )
+        return { ok: false, error: data.error }
+      }
+
+      return { ok: true }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[provisioner] setAppIcon error for ${appId}:`, message)
+      return { ok: false, error: message }
+    }
+  }
+
   return {
     rotateConfigToken,
     createApp,
     deleteApp,
+    setAppIcon,
     SLACK_MANIFEST_TEMPLATE,
   }
 }
