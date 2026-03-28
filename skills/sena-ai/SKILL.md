@@ -73,7 +73,7 @@ export default defineConfig({
   runtime: claudeRuntime({
     model: 'claude-opus-4-6',
     maxTurns: 100,                    // 기본값 100
-    permissionMode: 'bypassPermissions', // 기본값 'bypassPermissions'
+    permissionMode: 'bypassPermissions', // 기본값 'dontAsk' — 기존 에이전트는 명시적으로 지정
   }),
 
   connectors: [
@@ -142,19 +142,59 @@ validateEnv()  // 누락된 env가 있으면 에러 throw (보통 직접 호출 
 ### Claude Runtime
 
 ```typescript
-import { claudeRuntime } from '@sena-ai/runtime-claude'
+import { claudeRuntime, DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
 
 claudeRuntime({
   model?: string,           // 기본: 'claude-sonnet-4-5'
   apiKey?: string,          // 기본: ANTHROPIC_API_KEY 환경 변수
   maxTurns?: number,        // 기본: 100
-  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions',  // 기본: 'bypassPermissions'
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk',  // 기본: 'dontAsk'
+  allowedTools?: string[],  // dontAsk 모드에서 자동 승인할 도구 (기본: DEFAULT_ALLOWED_TOOLS)
+  disallowedTools?: string[], // 항상 차단할 도구 패턴 (per-turn disabledTools와 합산)
 })
 ```
 
 - Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)를 사용한다.
-- `bypassPermissions`이면 bash, 파일 수정 등에 대한 확인 없이 실행한다.
 - 인라인 도구는 내부적으로 in-process MCP 서버(`__native__`)로 변환된다.
+
+#### permissionMode
+
+| 모드 | 동작 |
+|---|---|
+| `default` | 위험 작업마다 터미널 프롬프트 (비대화형 환경에서 사용 불가) |
+| `acceptEdits` | 파일 수정 자동 승인, 나머지 프롬프트 |
+| **`dontAsk`** | **기본값.** 프롬프트 없음. `allowedTools`에 없으면 자동 거부 |
+| `bypassPermissions` | 전부 스킵. 기존 에이전트는 이걸 명시적으로 지정해야 기존 동작 유지 |
+| `plan` | 도구 실행 안 함, 계획만 |
+
+#### DEFAULT_ALLOWED_TOOLS
+
+`dontAsk` 모드에서 `allowedTools`를 지정하지 않으면 자동으로 적용되는 프리셋:
+
+```typescript
+import { DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
+
+// DEFAULT_ALLOWED_TOOLS 내용:
+// File operations: Read, Write, Edit, MultiEdit
+// Search & navigation: Glob, Grep, LS
+// Execution: Bash
+// Notebooks: NotebookRead, NotebookEdit
+// Agent & planning: Agent, ToolSearch
+```
+
+Slack 도구 등 추가 도구가 필요하면 `allowedTools`에 합쳐서 지정:
+
+```typescript
+import { DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
+import { ALLOWED_SLACK_TOOLS } from '@sena-ai/tools-slack'
+
+claudeRuntime({
+  permissionMode: 'dontAsk',
+  allowedTools: [...DEFAULT_ALLOWED_TOOLS, ...ALLOWED_SLACK_TOOLS],
+})
+```
+
+MCP 서버로 등록된 도구(`tools` config)는 자동으로 허용되므로 별도 추가 불필요.
 
 ## Connectors
 
@@ -397,10 +437,18 @@ const screenshotTool = defineTool({
 ### Slack 도구
 
 ```typescript
-import { slackTools } from '@sena-ai/tools-slack'
+import { slackTools, ALLOWED_SLACK_TOOLS } from '@sena-ai/tools-slack'
 
 // 6개 도구를 한 번에 등록
 const tools = slackTools({ botToken: env('SLACK_BOT_TOKEN') })
+```
+
+`ALLOWED_SLACK_TOOLS`는 `dontAsk` 모드에서 Slack 도구를 허용 목록에 추가할 때 사용:
+
+```typescript
+claudeRuntime({
+  allowedTools: [...DEFAULT_ALLOWED_TOOLS, ...ALLOWED_SLACK_TOOLS],
+})
 ```
 
 | 도구 | 설명 |
