@@ -122,6 +122,7 @@ function createD1BotRepository(db: D1Db): BotRepository {
       await db.insert(schema.bots).values({
         id: bot.id,
         name: bot.name,
+        botUsername: bot.botUsername,
         profileImageUrl: bot.profileImageUrl,
         connectKey: bot.connectKey,
         slackAppId: bot.slackAppId,
