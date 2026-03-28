@@ -6,7 +6,6 @@
     "@sena-ai/cli": "latest",
     "@sena-ai/core": "latest",
     "@sena-ai/runtime-claude": "latest",
-    "@sena-ai/connector-slack": "latest",
-    "@sena-ai/tools-slack": "latest"
+    "@sena-ai/platform-connector": "latest"
   }
 }
