@@ -19,7 +19,7 @@ export type PlatformConnectorOptions = {
   connectKey: string
   /** Thinking message (optional) */
   thinkingMessage?: string
-  /** Transport type: 'sse' (default), 'websocket', or 'auto' */
+  /** Transport type: 'websocket' (default), 'sse', or 'auto' */
   transport?: TransportType
 }
 
@@ -33,7 +33,7 @@ export type PlatformConnectorOptions = {
  */
 export function platformConnector(options: PlatformConnectorOptions): Connector {
   const { platformUrl, connectKey, thinkingMessage } = options
-  const transportType = options.transport ?? 'sse'
+  const transportType = options.transport ?? 'websocket'
   const baseUrl = platformUrl.replace(/\/$/, '')
 
   let transport: Transport | null = null
@@ -101,9 +101,8 @@ export function platformConnector(options: PlatformConnectorOptions): Connector 
       return createWebSocketTransport(streamUrl)
     }
     if (transportType === 'auto') {
-      // Auto-detect: try WebSocket first, fall back to SSE
-      // For now, default to SSE as it's more widely supported
-      return createSSETransport(streamUrl)
+      // Auto-detect: prefer WebSocket (required for CF Workers relay)
+      return createWebSocketTransport(streamUrl)
     }
     return createSSETransport(streamUrl)
   }
