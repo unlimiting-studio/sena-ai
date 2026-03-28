@@ -1,6 +1,6 @@
 import { isBrandedToolResult } from '@sena-ai/core'
 import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, McpConfig, RuntimeInfo, InlineToolPort } from '@sena-ai/core'
-import { mapSdkMessage } from './mapper.js'
+import { SdkMessageMapper } from './mapper.js'
 
 type NativeTool = {
   name: string
@@ -107,11 +107,36 @@ function wrapHandler(handler: (params: any) => any) {
   }
 }
 
+/**
+ * Default set of allowed tools for `dontAsk` mode.
+ * Covers all built-in Claude Code tools that are safe for typical agent workflows.
+ * MCP tools registered via `tools` config are auto-allowed separately.
+ */
+export const DEFAULT_ALLOWED_TOOLS: readonly string[] = [
+  // File operations
+  'Read', 'Write', 'Edit', 'MultiEdit',
+  // Search & navigation
+  'Glob', 'Grep', 'LS',
+  // Execution
+  'Bash',
+  // Notebooks
+  'NotebookRead', 'NotebookEdit',
+  // Agent & planning
+  'Agent', 'ToolSearch',
+]
+
 export type ClaudeRuntimeOptions = {
   model?: string
   apiKey?: string
   maxTurns?: number
-  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions'
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
+  /**
+   * Tool name patterns to auto-allow without permission prompts (e.g. 'Read', 'Bash', 'mcp__*').
+   * Only meaningful when permissionMode is NOT 'bypassPermissions'.
+   * Defaults to `DEFAULT_ALLOWED_TOOLS` when not specified and permissionMode is 'dontAsk'.
+   * Pass an empty array `[]` to start with no pre-approved tools.
+   */
+  allowedTools?: string[]
   /** Tool name patterns to always disallow (e.g. 'mcp__some_server__*'). Merged with per-turn disabledTools. */
   disallowedTools?: string[]
 }
@@ -121,7 +146,8 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
     model = 'claude-sonnet-4-5',
     apiKey,
     maxTurns,
-    permissionMode = 'bypassPermissions',
+    permissionMode = 'dontAsk',
+    allowedTools: configAllowedTools = permissionMode === 'dontAsk' ? [...DEFAULT_ALLOWED_TOOLS] : undefined,
     disallowedTools: staticDisallowedTools = [],
   } = options
 
@@ -233,11 +259,16 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       if (Object.keys(allMcpServers).length > 0) {
         sdkOptions.mcpServers = allMcpServers
       }
-      // Note: allowedTools is intentionally NOT sent to the SDK.
-      // It only controls permission auto-approval, not tool availability,
-      // and bypassPermissions mode already approves everything.
-      // Sending allowedTools would prevent built-in MCP integrations
-      // (e.g. mcp__claude_ai_Google_Calendar__*) from being auto-approved.
+      // Pass allowedTools to the SDK so it knows which tools to auto-approve.
+      // When bypassPermissions is active this is redundant but harmless.
+      // Merge tool-config patterns (MCP wildcards, native server wildcard)
+      // with any user-supplied patterns from the runtime config.
+      if (configAllowedTools) {
+        effectiveAllowedTools.push(...configAllowedTools)
+      }
+      if (effectiveAllowedTools.length > 0) {
+        sdkOptions.allowedTools = effectiveAllowedTools
+      }
 
       if (sessionId) {
         sdkOptions.resume = sessionId
@@ -251,6 +282,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       let currentPrompt = userText
       let currentSessionId = sessionId
       let shouldContinue = true
+      const mapper = new SdkMessageMapper()
 
       while (shouldContinue) {
         shouldContinue = false
@@ -273,7 +305,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         let steerInterrupted = false
 
         for await (const msg of stream) {
-          const events = mapSdkMessage(msg)
+          const events = mapper.map(msg)
           for (const event of events) {
             // Track session ID for resume
             if (event.type === 'session.init') {
