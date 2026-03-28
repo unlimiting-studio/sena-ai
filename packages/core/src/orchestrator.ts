@@ -157,6 +157,12 @@ export function createOrchestrator(options: OrchestratorOptions) {
     currentWorker = spawnWorker()
     await waitForReady(currentWorker)
 
+    // If worker has no HTTP routes (port=0), skip proxy server entirely
+    if (currentWorker.port === 0) {
+      console.log('Orchestrator ready (no HTTP server — connectors are outbound-only)')
+      return
+    }
+
     server = createServer(proxyRequest)
     server.listen(port, () => {
       console.log(`Orchestrator listening on port ${port}`)
