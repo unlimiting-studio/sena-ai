@@ -296,14 +296,21 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
         ${
           !hasSlackApp
             ? `<script>
-                // Poll for status update if Slack app not yet created
+                let pollCount = 0;
+                let retried = false;
                 (async function poll() {
                   try {
+                    pollCount++;
                     const res = await fetch('/api/bots/${bot.id}');
                     const data = await res.json();
                     if (data.bot && data.bot.slackAppId) {
                       window.location.reload();
                     } else {
+                      // After 10s of polling with no result, retry provisioning once
+                      if (pollCount >= 5 && !retried) {
+                        retried = true;
+                        await fetch('/api/bots/${bot.id}/provision', { method: 'POST' });
+                      }
                       setTimeout(poll, 2000);
                     }
                   } catch { setTimeout(poll, 3000); }
