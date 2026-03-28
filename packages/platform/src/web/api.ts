@@ -16,7 +16,7 @@ export function createWebApi(
 
   // POST /api/bots - Create a new bot
   app.post('/api/bots', async (c) => {
-    const body = await c.req.json<{ name: string }>()
+    const body = await c.req.json<{ name: string; botUsername: string }>()
 
     if (
       !body.name ||
@@ -24,6 +24,19 @@ export function createWebApi(
       body.name.trim().length === 0
     ) {
       return c.json({ error: '봇 이름을 입력해주세요.' }, 400)
+    }
+
+    const botUsername = (body.botUsername ?? '').trim()
+    if (
+      !botUsername ||
+      botUsername.length < 2 ||
+      botUsername.length > 80 ||
+      !/^[a-z0-9][a-z0-9-]*$/.test(botUsername)
+    ) {
+      return c.json(
+        { error: '봇 유저네임은 영문 소문자, 숫자, 하이픈만 사용 가능하며 2-80자여야 합니다.' },
+        400,
+      )
     }
 
     const botId = crypto.uuid()
@@ -34,6 +47,7 @@ export function createWebApi(
     await botRepo.create({
       id: botId,
       name,
+      botUsername,
       profileImageUrl: null,
       connectKey,
       slackAppId: null,
@@ -47,7 +61,7 @@ export function createWebApi(
     })
 
     // Provision Slack app asynchronously (CF Workers needs waitUntil to keep alive)
-    const provisionPromise = provisionSlackApp(botId, name).catch(
+    const provisionPromise = provisionSlackApp(botId, name, botUsername).catch(
       (err: unknown) => {
         console.error(
           `[api] failed to provision Slack app for bot ${botId}:`,
@@ -94,7 +108,7 @@ export function createWebApi(
     if (!bot) return c.json({ error: 'bot not found' }, 404)
     if (bot.slackAppId) return c.json({ ok: true, appId: bot.slackAppId })
 
-    const provisionPromise = provisionSlackApp(botId, bot.name).catch(
+    const provisionPromise = provisionSlackApp(botId, bot.name, bot.botUsername).catch(
       (err: unknown) => {
         console.error(`[api] retry provision failed for ${botId}:`, err)
       },
@@ -105,8 +119,8 @@ export function createWebApi(
     return c.json({ ok: true, message: 'provisioning started' })
   })
 
-  async function provisionSlackApp(botId: string, botName: string) {
-    const result = await provisioner.createApp(workspaceId, botId, botName)
+  async function provisionSlackApp(botId: string, botName: string, botUsername: string) {
+    const result = await provisioner.createApp(workspaceId, botId, botName, botUsername)
     if (!result.ok) {
       console.error(
         `[provisioner] failed to create Slack app: ${result.error}`,

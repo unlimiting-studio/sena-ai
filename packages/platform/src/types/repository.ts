@@ -6,6 +6,7 @@
 export interface BotRow {
   id: string
   name: string
+  botUsername: string
   profileImageUrl: string | null
   connectKey: string
   slackAppId: string | null

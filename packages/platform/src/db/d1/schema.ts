@@ -8,6 +8,7 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
 export const bots = sqliteTable('bots', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  botUsername: text('bot_username').notNull().default(''),
   profileImageUrl: text('profile_image_url'),
   connectKey: text('connect_key').notNull().unique(),
   slackAppId: text('slack_app_id'),

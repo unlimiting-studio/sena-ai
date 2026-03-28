@@ -4,33 +4,25 @@ import type {
   ConfigTokenRepository,
 } from '../types/repository.js'
 
-/**
- * Slack bot_user.display_name must be convertible to a username (ASCII only).
- * If name has non-ASCII chars, use botId prefix as fallback.
- */
-function toBotDisplayName(name: string, botId: string): string {
-  const ascii = name.replace(/[^\x20-\x7E]/g, '')
-  if (ascii.trim().length >= 2) return ascii.trim().slice(0, 80)
-  return `bot-${botId.slice(0, 8)}`
-}
-
-const SLACK_MANIFEST_TEMPLATE = (
-  botName: string,
-  botId: string,
-  eventUrl: string,
-) => ({
+const SLACK_MANIFEST_TEMPLATE = (opts: {
+  botName: string
+  botUsername: string
+  eventUrl: string
+  redirectUrl: string
+}) => ({
   display_information: {
-    name: botName,
-    description: `${botName} -- powered by sena-ai`,
+    name: opts.botName,
+    description: `${opts.botName} -- powered by sena-ai`,
     background_color: '#1a1a2e',
   },
   features: {
     bot_user: {
-      display_name: toBotDisplayName(botName, botId),
+      display_name: opts.botUsername,
       always_online: true,
     },
   },
   oauth_config: {
+    redirect_urls: [opts.redirectUrl],
     scopes: {
       bot: [
         'app_mentions:read',
@@ -54,7 +46,7 @@ const SLACK_MANIFEST_TEMPLATE = (
   },
   settings: {
     event_subscriptions: {
-      request_url: eventUrl,
+      request_url: opts.eventUrl,
       bot_events: [
         'app_mention',
         'message.channels',
@@ -96,6 +88,7 @@ export interface Provisioner {
     workspaceId: string,
     botId: string,
     botName: string,
+    botUsername: string,
   ): Promise<{
     ok: boolean
     appId?: string
@@ -153,6 +146,7 @@ export function createProvisioner(
     workspaceId: string,
     botId: string,
     botName: string,
+    botUsername: string,
   ): Promise<{
     ok: boolean
     appId?: string
@@ -168,7 +162,13 @@ export function createProvisioner(
 
     const configToken = await vault.decrypt(tokenRow.accessTokenEnc)
     const eventUrl = `${platformBaseUrl}/slack/events/${botId}`
-    const manifest = SLACK_MANIFEST_TEMPLATE(botName, botId, eventUrl)
+    const redirectUrl = `${platformBaseUrl}/oauth/callback`
+    const manifest = SLACK_MANIFEST_TEMPLATE({
+      botName,
+      botUsername,
+      eventUrl,
+      redirectUrl,
+    })
 
     const res = await fetch('https://slack.com/api/apps.manifest.create', {
       method: 'POST',

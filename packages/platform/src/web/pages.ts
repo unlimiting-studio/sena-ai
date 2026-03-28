@@ -147,6 +147,15 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
               <p class="mt-1 text-xs text-gray-400">Slack에 표시될 봇 이름입니다.</p>
             </div>
 
+            <div>
+              <label for="botUsername" class="block text-sm font-medium text-gray-700 mb-1">봇 유저네임 <span class="text-red-500">*</span></label>
+              <input type="text" id="botUsername" name="botUsername" required
+                     pattern="[a-z0-9][a-z0-9-]*"
+                     placeholder="예: lily-bot"
+                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors">
+              <p class="mt-1 text-xs text-gray-400">영문, 숫자, 하이픈만 사용 가능. Slack 내부 username으로 사용됩니다.</p>
+            </div>
+
             <div id="error-msg" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
 
             <button type="submit" id="submit-btn"
@@ -169,11 +178,13 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
           try {
             const name = document.getElementById('name').value.trim();
             if (!name) throw new Error('봇 이름을 입력해주세요.');
+            const botUsername = document.getElementById('botUsername').value.trim();
+            if (!botUsername) throw new Error('봇 유저네임을 입력해주세요.');
 
             const res = await fetch('/api/bots', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name }),
+              body: JSON.stringify({ name, botUsername }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || '봇 생성에 실패했습니다.');
