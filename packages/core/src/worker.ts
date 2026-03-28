@@ -5,6 +5,7 @@ import type { ResolvedSenaConfig } from './config.js'
 import type { Connector, HttpServer, InboundEvent, SessionStore, TurnEngine } from './types.js'
 import { createTurnEngine } from './engine.js'
 import { createScheduler } from './scheduler.js'
+import { defineTool } from './tool.js'
 
 /**
  * Module-level restart request. Can be called from anywhere in the worker process
@@ -78,12 +79,26 @@ export function createWorker(options: WorkerOptions) {
       : createInMemorySessionStore())
   let server: Server | null = null
 
+  // Built-in tools provided by the framework.
+  const builtinTools = [
+    defineTool({
+      name: 'restart_agent',
+      description: '에이전트 프로세스를 안전하게 재시작합니다. 설정 변경 후 반영이 필요할 때 사용하세요.',
+      handler: () => {
+        const ok = requestWorkerRestart()
+        return ok
+          ? '재시작 요청을 오케스트레이터에 전달했습니다. 현재 턴이 끝나면 새 워커로 교체됩니다.'
+          : '오케스트레이터 IPC 채널이 없어서 재시작할 수 없습니다.'
+      },
+    }),
+  ]
+
   const engine = createTurnEngine({
     name: config.name,
     cwd: config.cwd,
     runtime: config.runtime,
     hooks: config.hooks,
-    tools: config.tools,
+    tools: [...builtinTools, ...(config.tools ?? [])],
   })
 
   // Start scheduler for heartbeat/cron schedules (runs as separate conversations)
