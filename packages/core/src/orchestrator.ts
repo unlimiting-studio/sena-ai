@@ -61,6 +61,13 @@ export function createOrchestrator(options: OrchestratorOptions) {
         if (typeof msg.port === 'number') {
           worker.port = msg.port
         }
+      } else if (msg?.type === 'request-restart') {
+        // Deferred restart: worker requests a rolling restart via IPC.
+        // The orchestrator spawns a new worker, then drains the old one
+        // (which waits for its active turn to finish before exiting).
+        // This is safe even when called from within an active turn.
+        console.log(`[orchestrator] worker gen ${gen} requested restart, performing rolling restart...`)
+        void restart()
       }
     })
 
