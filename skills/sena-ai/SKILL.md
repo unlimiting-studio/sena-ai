@@ -162,22 +162,86 @@ claudeRuntime({
 
 ### Slack Connector
 
+HTTP Events API와 Socket Mode 두 가지 모드를 지원한다.
+
+#### HTTP Mode (기본)
+
+공인 엔드포인트가 있는 서버에서 사용. Slack이 직접 POST 요청을 보낸다.
+
 ```typescript
 import { slackConnector } from '@sena-ai/connector-slack'
 
 slackConnector({
-  appId: string,
-  botToken: string,
-  signingSecret: string,
-  thinkingMessage?: string | false,  // 기본: ':loading-dots: 세나가 생각중이에요'
+  appId: env('SLACK_APP_ID'),
+  botToken: env('SLACK_BOT_TOKEN'),
+  signingSecret: env('SLACK_SIGNING_SECRET'),
+  // mode: 'http',  // 생략 가능 (기본값)
+  thinkingMessage: ':thinking: 생각 중...',  // false로 비활성화
 })
 ```
 
 - `POST /api/slack/events` 라우트를 등록한다.
-- `app_mention`과 `message` 이벤트를 처리한다 (봇 메시지, 편집/삭제는 무시).
 - HMAC-SHA256 서명 검증 (5분 리플레이 보호).
-- 즉시 200 응답 후 비동기로 턴을 처리한다.
+
+#### Socket Mode
+
+방화벽 뒤 서버나 로컬 개발 환경에서 사용. 공인 엔드포인트 불필요.
+
+```typescript
+slackConnector({
+  appId: env('SLACK_APP_ID'),
+  botToken: env('SLACK_BOT_TOKEN'),
+  mode: 'socket',
+  appToken: env('SLACK_APP_TOKEN'),  // xapp-… (App-Level Token)
+  thinkingMessage: ':thinking: 생각 중...',
+})
+```
+
+`.env`:
+
+```env
+SLACK_APP_TOKEN=xapp-1-...
+```
+
+**App-Level Token 발급:**
+1. https://api.slack.com/apps → 앱 선택
+2. Settings > Basic Information > App-Level Tokens
+3. `connections:write` scope로 토큰 생성 → `xapp-` 접두사 토큰 발급
+
+**Slack 앱에서 Socket Mode 활성화:**
+1. Settings > Socket Mode → Enable Socket Mode 토글 ON
+2. Event Subscriptions는 그대로 유지 (Request URL은 Socket Mode에서 무시됨)
+
+#### 모드 선택 기준
+
+| | HTTP Mode | Socket Mode |
+|---|---|---|
+| 공개 엔드포인트 | 필요 | 불필요 |
+| 필요한 키 | `signingSecret` | `appToken` (xapp-…) |
+| 방화벽 뒤 | 불가 | 가능 |
+| 권장 환경 | 프로덕션 | 로컬, 방화벽 뒤 서버 |
+
+#### 타입 정의
+
+`mode`에 따라 필요한 키가 달라지는 discriminated union:
+
+```typescript
+type SlackConnectorOptions = {
+  appId: string
+  botToken: string
+  thinkingMessage?: string | false
+} & (
+  | { mode?: 'http'; signingSecret: string; appToken?: never }
+  | { mode: 'socket'; appToken: string; signingSecret?: never }
+)
+```
+
+#### 공통 동작
+
+- `app_mention`, `message`, `reaction_added` 이벤트를 처리한다 (봇 메시지, 편집/삭제는 무시).
+- 즉시 응답 후 비동기로 턴을 처리한다.
 - 스레드 기반 세션: `conversationId = channelId:threadTs`.
+- `stop()` 라이프사이클: Socket Mode에서 drain 시 WebSocket을 정상 종료한다.
 
 ### 커스텀 커넥터 작성
 
