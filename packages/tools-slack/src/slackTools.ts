@@ -1,8 +1,11 @@
-import { defineTool, toolResult } from '@sena-ai/core'
+import { defineTool } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
 import { z } from 'zod'
 import type { ToolPort } from '@sena-ai/core'
 import { markdownToSlack } from './mrkdwn.js'
+import { writeFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 /** In-memory TTL cache with sliding expiration. */
 class TtlCache<K, V> {
@@ -227,7 +230,7 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
 
     defineTool({
       name: 'slack_download_file',
-      description: 'Download a file from Slack by file ID. Images are returned as visual content; text files are returned as text.',
+      description: 'Download a file from Slack by file ID. Returns the local file path so you can read it with the Read tool.',
       params: {
         fileId: z.string().describe('Slack file ID'),
       },
@@ -244,25 +247,22 @@ export function slackTools(options: SlackToolsOptions): ToolPort[] {
           return JSON.stringify({ error: `Download failed: ${response.status} ${response.statusText}` })
         }
         const mimeType = (file.mimetype as string) ?? response.headers.get('content-type') ?? 'application/octet-stream'
-        const isImage = mimeType.startsWith('image/')
+        const buf = Buffer.from(await response.arrayBuffer())
 
-        if (isImage) {
-          const buf = await response.arrayBuffer()
-          const base64 = Buffer.from(buf).toString('base64')
-          return toolResult([
-            { type: 'text', text: JSON.stringify({ name: file.name, mimetype: mimeType, size: file.size }) },
-            { type: 'image', data: base64, mimeType },
-          ])
-        }
+        const dir = join(tmpdir(), 'slack-files')
+        await mkdir(dir, { recursive: true })
+        const fileName = (file.name as string) ?? 'file'
+        const localPath = join(dir, `${fileId}_${fileName}`)
+        await writeFile(localPath, buf)
 
-        // Non-image files: return as text
-        const text = await response.text()
-        const maxLen = 50000
         return JSON.stringify({
           name: file.name,
           mimetype: mimeType,
           size: file.size,
-          content: text.length > maxLen ? text.slice(0, maxLen) + '\n...(truncated)' : text,
+          localPath,
+          hint: mimeType.startsWith('image/')
+            ? 'Use the Read tool to view this image.'
+            : 'Use the Read tool to view this file.',
         })
       },
     }),

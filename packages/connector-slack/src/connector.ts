@@ -1,8 +1,11 @@
-import type { Connector, InboundEvent, ConnectorOutput, ConnectorOutputContext, HttpServer, TurnEngine } from '@sena-ai/core'
+import type { Connector, InboundEvent, ConnectorOutput, ConnectorOutputContext, HttpServer, TurnEngine, FileAttachment } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
 import { SocketModeClient } from '@slack/socket-mode'
 import { verifySignature } from './verify.js'
 import { markdownToSlack } from './mrkdwn.js'
+import { writeFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 export type SlackConnectorOptions = {
   appId: string
@@ -69,7 +72,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
           // Acknowledge immediately (Socket Mode requires ack within 3 s)
           await ack()
           await resolveBotUserId()
-          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, processingEvents, botUserId)
+          processSlackEvent(body, engine, appId, slack, botToken, userNameCache, activeThreads, processedEvents, processingEvents, botUserId)
         }
         socketClient.on('app_mention', handleSocketEvent)
         socketClient.on('message', handleSocketEvent)
@@ -109,7 +112,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
           // Acknowledge immediately (Slack 3s timeout)
           res.status(200).send()
 
-          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, processingEvents, botUserId)
+          processSlackEvent(body, engine, appId, slack, botToken, userNameCache, activeThreads, processedEvents, processingEvents, botUserId)
         })
       }
     },
@@ -190,11 +193,52 @@ async function wasBotInThread(
  * Shared event processor — works identically for HTTP and Socket Mode payloads.
  * The outer envelope (`body`) has the same shape in both modes.
  */
+/** Download Slack files to a local temp directory and return FileAttachments with localPath. */
+async function downloadSlackFiles(
+  files: any[],
+  botToken: string,
+): Promise<FileAttachment[]> {
+  const dir = join(tmpdir(), 'slack-files')
+  await mkdir(dir, { recursive: true })
+
+  return Promise.all(
+    files.map(async (f: any): Promise<FileAttachment> => {
+      const base: FileAttachment = {
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimetype,
+        url: f.url_private,
+      }
+      if (!f.url_private) return base
+
+      try {
+        const response = await fetch(f.url_private, {
+          headers: { Authorization: `Bearer ${botToken}` },
+        })
+        if (!response.ok) {
+          console.warn(`[slack] file download failed for ${f.id}: ${response.status}`)
+          return base
+        }
+        const buf = Buffer.from(await response.arrayBuffer())
+        const ext = f.name?.includes('.') ? '' : `.${(f.mimetype ?? '').split('/')[1] ?? 'bin'}`
+        const localPath = join(dir, `${f.id}_${f.name ?? 'file'}${ext}`)
+        await writeFile(localPath, buf)
+        console.log(`[slack] downloaded file ${f.id} → ${localPath} (${buf.length} bytes)`)
+        return { ...base, localPath }
+      } catch (err) {
+        console.warn(`[slack] file download error for ${f.id}:`, err)
+        return base
+      }
+    }),
+  )
+}
+
 async function processSlackEvent(
   body: Record<string, unknown>,
   engine: TurnEngine,
   appId: string,
   slack: WebClient,
+  botToken: string,
   userNameCache: Map<string, string>,
   activeThreads: Set<string>,
   processedEvents: Set<string>,
@@ -325,18 +369,18 @@ async function processSlackEvent(
   const userName = await resolveUserName(slack, userId, userNameCache)
   console.log(`[slack] ${event.type} from ${userName}(${userId}) in ${event.channel} [thread:${event.thread_ts ?? 'none'}]`)
 
+  // Download attached files to local temp directory
+  const files: FileAttachment[] | undefined = event.files?.length
+    ? await downloadSlackFiles(event.files, botToken)
+    : undefined
+
   const inbound: InboundEvent = {
     connector: 'slack',
     conversationId: threadKey,
     userId,
     userName,
     text: event.text ?? '',
-    files: event.files?.map((f: any) => ({
-      id: f.id,
-      name: f.name,
-      mimeType: f.mimetype,
-      url: f.url_private,
-    })),
+    files,
     raw: body,
   }
 

@@ -34,6 +34,8 @@ export type FileAttachment = {
   name: string
   mimeType: string
   url?: string
+  /** Local file path after download. When present, the file can be read directly without further API calls. */
+  localPath?: string
 }
 
 export type TurnContext = {
