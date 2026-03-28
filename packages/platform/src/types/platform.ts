@@ -26,6 +26,4 @@ export interface Platform {
 export interface AppConfig {
   platformBaseUrl: string
   workspaceId: string
-  /** Optional bootstrap script content (Node.js reads from fs, CF can inline). */
-  bootstrapScript?: string
 }

@@ -1,9 +1,7 @@
 import 'dotenv/config'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { join, dirname } from 'node:path'
-import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { createApp } from '@sena-ai/platform'
 import { createNodeRuntime } from '@sena-ai/platform/node'
 import { initMySQLDb, createMySQLRepositories } from '@sena-ai/platform/db/mysql'
@@ -26,24 +24,6 @@ async function main() {
   const UPLOADS_DIR =
     process.env.UPLOADS_DIR || join(process.cwd(), 'data', 'uploads')
 
-  // --- Read bootstrap script ---
-  const scriptPath = join(
-    dirname(fileURLToPath(import.meta.url)),
-    '..',
-    '..',
-    '..',
-    'scripts',
-    'bootstrap.sh',
-  )
-  let bootstrapScript: string | undefined
-  try {
-    bootstrapScript = await readFile(scriptPath, 'utf-8')
-  } catch {
-    console.warn(
-      '[server] bootstrap.sh not found, /install.sh will be unavailable',
-    )
-  }
-
   // --- Create runtime (vault, relay, crypto, storage) ---
   const runtime = createNodeRuntime({
     vaultMasterKey: VAULT_MASTER_KEY,
@@ -61,7 +41,6 @@ async function main() {
   const { app, provisioner } = createApp(platform, {
     platformBaseUrl: PLATFORM_BASE_URL,
     workspaceId: WORKSPACE_ID,
-    bootstrapScript,
   })
 
   // Static files (uploaded images) -- Node.js specific
