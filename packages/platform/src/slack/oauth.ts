@@ -26,7 +26,6 @@ export function createOAuthHandler(
   vault: Vault,
   crypto: CryptoProvider,
   oauthStates: OAuthStateRepository,
-  platformBaseUrl: string,
 ) {
   const app = new Hono()
 
@@ -48,7 +47,6 @@ export function createOAuthHandler(
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
     })
 
-    const redirectUri = `${platformBaseUrl}/oauth/callback`
     const scopes = [
       'app_mentions:read',
       'chat:write',
@@ -72,7 +70,6 @@ export function createOAuthHandler(
     slackUrl.searchParams.set('client_id', bot.clientId)
     slackUrl.searchParams.set('scope', scopes)
     slackUrl.searchParams.set('state', state)
-    slackUrl.searchParams.set('redirect_uri', redirectUri)
 
     return c.redirect(slackUrl.toString())
   })
@@ -97,7 +94,6 @@ export function createOAuthHandler(
     }
 
     const clientSecret = await vault.decrypt(bot.clientSecretEnc)
-    const redirectUri = `${platformBaseUrl}/oauth/callback`
 
     // Exchange code for token
     const res = await fetch('https://slack.com/api/oauth.v2.access', {
@@ -107,7 +103,6 @@ export function createOAuthHandler(
         client_id: bot.clientId,
         client_secret: clientSecret,
         code,
-        redirect_uri: redirectUri,
       }),
     })
 

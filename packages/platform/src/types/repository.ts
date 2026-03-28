@@ -60,6 +60,7 @@ export interface BotRepository {
   >
   create(bot: Omit<BotRow, 'createdAt' | 'updatedAt'>): Promise<void>
   update(id: string, data: Partial<Omit<BotRow, 'id'>>): Promise<void>
+  delete(id: string): Promise<void>
 }
 
 export interface ConfigTokenRepository {

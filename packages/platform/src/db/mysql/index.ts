@@ -148,6 +148,10 @@ function createBotRepository(db: MySQLDatabase): BotRepository {
         .set(data)
         .where(eq(schema.bots.id, id))
     },
+
+    async delete(id) {
+      await db.delete(schema.bots).where(eq(schema.bots.id, id))
+    },
   }
 }
 
