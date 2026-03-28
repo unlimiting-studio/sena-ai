@@ -20,7 +20,8 @@ npm install @sena-ai/connector-slack @sena-ai/tools-slack @sena-ai/hooks
 ```env
 SLACK_APP_ID=A0XXXXXXXXX
 SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...
+SLACK_SIGNING_SECRET=...          # HTTP mode (기본)
+# SLACK_APP_TOKEN=xapp-1-...     # Socket mode (방화벽 뒤 서버용)
 ```
 
 `sena.config.ts` 작성 후 실행:
@@ -60,7 +61,8 @@ export default defineConfig({
     slackConnector({
       appId: env('SLACK_APP_ID'),
       botToken: env('SLACK_BOT_TOKEN'),
-      signingSecret: env('SLACK_SIGNING_SECRET'),
+      signingSecret: env('SLACK_SIGNING_SECRET'),  // HTTP mode
+      // mode: 'socket', appToken: env('SLACK_APP_TOKEN'),  // Socket mode (방화벽 뒤)
       thinkingMessage: ':thinking: 생각 중...',
     }),
   ],
@@ -127,7 +129,7 @@ Orchestrator (public port)
 | `@sena-ai/hooks` | 기본 제공 훅 — `fileContext`, `traceLogger`, `cronSchedule`, `heartbeat` |
 | `@sena-ai/tools` | 외부 MCP 서버 연결 헬퍼 — `mcpServer` |
 | `@sena-ai/tools-slack` | Slack MCP 도구 — 메시지 조회/전송, 파일 업로드/다운로드 |
-| `@sena-ai/connector-slack` | Slack 커넥터 — Events API 수신 + 스레드 응답 |
+| `@sena-ai/connector-slack` | Slack 커넥터 — HTTP Events API + Socket Mode 지원 |
 | `@sena-ai/runtime-claude` | Claude Agent SDK 기반 런타임 |
 | `@sena-ai/runtime-codex` | Codex App Server 기반 런타임 |
 | `@sena-ai/cli` | CLI — `start`, `stop`, `restart`, `status`, `logs` |
