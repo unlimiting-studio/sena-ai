@@ -32,6 +32,30 @@ class TtlCache<K, V> {
 
 const ONE_HOUR = 60 * 60 * 1000
 
+/**
+ * Tool names registered by slackTools().
+ * Use with runtime-claude's `allowedTools` to grant Slack access in dontAsk mode.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
+ * import { ALLOWED_SLACK_TOOLS } from '@sena-ai/tools-slack'
+ *
+ * claudeRuntime({
+ *   permissionMode: 'dontAsk',
+ *   allowedTools: [...DEFAULT_ALLOWED_TOOLS, ...ALLOWED_SLACK_TOOLS],
+ * })
+ * ```
+ */
+export const ALLOWED_SLACK_TOOLS: readonly string[] = [
+  'slack_get_messages',
+  'slack_post_message',
+  'slack_list_channels',
+  'slack_upload_file',
+  'slack_get_users',
+  'slack_download_file',
+]
+
 export type SlackToolsOptions = { botToken: string }
 
 export function slackTools(options: SlackToolsOptions): ToolPort[] {
