@@ -136,7 +136,7 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
           <h1 class="text-xl font-bold text-gray-900 mb-1">새 슬랙 봇 만들기</h1>
-          <p class="text-gray-500 text-sm mb-6">봇의 이름과 프로필 사진을 설정하세요.</p>
+          <p class="text-gray-500 text-sm mb-6">봇의 이름을 설정하세요.</p>
 
           <form id="create-bot-form" class="space-y-5">
             <div>
@@ -145,20 +145,6 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
                      placeholder="예: my-assistant"
                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors">
               <p class="mt-1 text-xs text-gray-400">Slack에 표시될 봇 이름입니다.</p>
-            </div>
-
-            <div>
-              <label for="profile-image" class="block text-sm font-medium text-gray-700 mb-1">프로필 사진</label>
-              <div class="flex items-center gap-4">
-                <div id="preview" class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-2xl overflow-hidden">
-                  ?
-                </div>
-                <div class="flex-1">
-                  <input type="file" id="profile-image" name="profile-image" accept="image/*"
-                         class="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100">
-                  <p class="mt-1 text-xs text-gray-400">선택사항. PNG, JPG, 최대 2MB.</p>
-                </div>
-              </div>
             </div>
 
             <div id="error-msg" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
@@ -172,19 +158,6 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
       </div>
 
       <script>
-        // Preview image
-        document.getElementById('profile-image').addEventListener('change', function(e) {
-          const file = e.target.files[0];
-          const preview = document.getElementById('preview');
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = function(ev) {
-              preview.innerHTML = '<img src="' + ev.target.result + '" class="w-full h-full object-cover">';
-            };
-            reader.readAsDataURL(file);
-          }
-        });
-
         document.getElementById('create-bot-form').addEventListener('submit', async function(e) {
           e.preventDefault();
           const btn = document.getElementById('submit-btn');
@@ -197,30 +170,15 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
             const name = document.getElementById('name').value.trim();
             if (!name) throw new Error('봇 이름을 입력해주세요.');
 
-            // 1. Create bot
-            const createRes = await fetch('/api/bots', {
+            const res = await fetch('/api/bots', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ name }),
             });
-            const createData = await createRes.json();
-            if (!createRes.ok) throw new Error(createData.error || '봇 생성에 실패했습니다.');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '봇 생성에 실패했습니다.');
 
-            const botId = createData.botId;
-
-            // 2. Upload profile image if selected
-            const fileInput = document.getElementById('profile-image');
-            if (fileInput.files.length > 0) {
-              const formData = new FormData();
-              formData.append('image', fileInput.files[0]);
-              await fetch('/api/bots/' + botId + '/profile-image', {
-                method: 'POST',
-                body: formData,
-              });
-            }
-
-            // 3. Redirect to setup page
-            window.location.href = '/bots/' + botId + '/setup';
+            window.location.href = '/bots/' + data.botId + '/setup';
           } catch (err) {
             errDiv.textContent = err.message;
             errDiv.classList.remove('hidden');
