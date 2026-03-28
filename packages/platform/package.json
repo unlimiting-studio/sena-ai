@@ -1,0 +1,46 @@
+{
+  "name": "@sena-ai/platform",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./db/mysql": "./src/db/mysql/index.ts",
+    "./db/postgresql": "./src/db/postgresql/index.ts",
+    "./db/d1": "./src/db/d1/index.ts",
+    "./node": "./src/runtime/node/index.ts",
+    "./cf": "./src/runtime/cf/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.4"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.38.0",
+    "mysql2": ">=3.0.0",
+    "postgres": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250321.0",
+    "@types/node": "^22.12.0",
+    "@types/uuid": "^10.0.0",
+    "drizzle-orm": "^0.38.4",
+    "mysql2": "^3.12.0",
+    "postgres": "^3.4.5",
+    "typescript": "^5.8.0",
+    "uuid": "^11.1.0"
+  }
+}

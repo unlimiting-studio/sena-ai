@@ -1,0 +1,27 @@
+{
+  "name": "@sena-ai/platform-connector",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "eventsource": "^3.0.0"
+  },
+  "peerDependencies": {
+    "@sena-ai/core": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@sena-ai/core": "workspace:*",
+    "typescript": "^5.8.0"
+  }
+}
