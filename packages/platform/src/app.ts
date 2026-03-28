@@ -101,7 +101,6 @@ export function createApp(
       platform.bots,
       provisioner,
       platform.crypto,
-      platform.storage,
       config.workspaceId,
     ),
   )
@@ -120,33 +119,6 @@ export function createApp(
       connected: platform.relay.connectedBots(),
       count: platform.relay.connectedBots().length,
     })
-  })
-
-  // Config Token setup endpoint
-  app.post('/admin/config-token', async (c) => {
-    const body = await c.req.json<{
-      workspaceId: string
-      accessToken: string
-      refreshToken: string
-    }>()
-
-    if (!body.workspaceId || !body.accessToken || !body.refreshToken) {
-      return c.json(
-        { error: 'workspaceId, accessToken, refreshToken required' },
-        400,
-      )
-    }
-
-    const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000)
-
-    await platform.configTokens.upsert({
-      workspaceId: body.workspaceId,
-      accessTokenEnc: await platform.vault.encrypt(body.accessToken),
-      refreshTokenEnc: await platform.vault.encrypt(body.refreshToken),
-      expiresAt,
-    })
-
-    return c.json({ ok: true, expiresAt: expiresAt.toISOString() })
   })
 
   return { app, provisioner }

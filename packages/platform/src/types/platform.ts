@@ -1,7 +1,6 @@
 import type { Vault } from './vault.js'
 import type { RelayHub } from './relay.js'
 import type { CryptoProvider } from './crypto.js'
-import type { FileStorage } from './storage.js'
 import type {
   BotRepository,
   ConfigTokenRepository,
@@ -16,7 +15,6 @@ export interface Platform {
   vault: Vault
   relay: RelayHub
   crypto: CryptoProvider
-  storage: FileStorage
   bots: BotRepository
   configTokens: ConfigTokenRepository
   oauthStates: OAuthStateRepository

@@ -7,11 +7,13 @@ export { RelayDurableObject } from './relay-do.js'
 export interface Env extends CfEnv {
   DB: D1Database
   BOOTSTRAP_SCRIPT?: string
+  SLACK_CONFIG_TOKEN?: string
+  SLACK_CONFIG_REFRESH_TOKEN?: string
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // --- Create runtime (vault, relay, crypto, storage) ---
+    // --- Create runtime (vault, relay, crypto) ---
     const runtime = await createCfRuntime(env)
 
     // --- Create DB repositories ---
@@ -21,28 +23,25 @@ export default {
     // --- Compose platform ---
     const platform = { ...runtime, ...repos }
 
+    // Bootstrap config token from env vars if DB is empty
+    if (env.SLACK_CONFIG_TOKEN && env.SLACK_CONFIG_REFRESH_TOKEN) {
+      const existing = await repos.configTokens.findByWorkspaceId(env.SLACK_WORKSPACE_ID)
+      if (!existing) {
+        await repos.configTokens.upsert({
+          workspaceId: env.SLACK_WORKSPACE_ID,
+          accessTokenEnc: await runtime.vault.encrypt(env.SLACK_CONFIG_TOKEN),
+          refreshTokenEnc: await runtime.vault.encrypt(env.SLACK_CONFIG_REFRESH_TOKEN),
+          expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
+        })
+        console.log('[bootstrap] config token seeded from env vars')
+      }
+    }
+
     const { app } = createApp(platform, {
       platformBaseUrl: env.PLATFORM_BASE_URL,
       workspaceId: env.SLACK_WORKSPACE_ID,
       bootstrapScript: env.BOOTSTRAP_SCRIPT,
     })
-
-    // Serve R2 uploads for /uploads/* paths
-    const url = new URL(request.url)
-    if (url.pathname.startsWith('/uploads/')) {
-      const key = url.pathname.slice(1) // "uploads/filename"
-      const obj = await env.UPLOADS.get(key)
-      if (!obj) {
-        return new Response('not found', { status: 404 })
-      }
-      const headers = new Headers()
-      const ct = obj.httpMetadata?.contentType
-      if (ct) {
-        headers.set('Content-Type', ct)
-      }
-      headers.set('Cache-Control', 'public, max-age=86400')
-      return new Response(obj.body, { headers })
-    }
 
     return app.fetch(request)
   },
