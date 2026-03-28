@@ -8,7 +8,6 @@ export type {
   Vault,
   RelayHub,
   CryptoProvider,
-  FileStorage,
   BotRow,
   ConfigTokenRow,
   OAuthStateRow,
