@@ -9,6 +9,7 @@ import type {
 import type { Transport } from './transports/types.js'
 import { createSSETransport } from './transports/sse.js'
 import { createWebSocketTransport } from './transports/websocket.js'
+import { createAutoTransport } from './transports/auto.js'
 
 export type TransportType = 'sse' | 'websocket' | 'auto'
 
@@ -19,7 +20,7 @@ export type PlatformConnectorOptions = {
   connectKey: string
   /** Thinking message (optional) */
   thinkingMessage?: string
-  /** Transport type: 'websocket' (default), 'sse', or 'auto' */
+  /** Transport type: 'auto' (default), 'websocket', or 'sse' */
   transport?: TransportType
 }
 
@@ -33,7 +34,7 @@ export type PlatformConnectorOptions = {
  */
 export function platformConnector(options: PlatformConnectorOptions): Connector {
   const { platformUrl, connectKey, thinkingMessage } = options
-  const transportType = options.transport ?? 'websocket'
+  const transportType = options.transport ?? 'auto'
   const baseUrl = platformUrl.replace(/\/$/, '')
 
   let transport: Transport | null = null
@@ -101,8 +102,7 @@ export function platformConnector(options: PlatformConnectorOptions): Connector 
       return createWebSocketTransport(streamUrl)
     }
     if (transportType === 'auto') {
-      // Auto-detect: prefer WebSocket (required for CF Workers relay)
-      return createWebSocketTransport(streamUrl)
+      return createAutoTransport(streamUrl)
     }
     return createSSETransport(streamUrl)
   }
