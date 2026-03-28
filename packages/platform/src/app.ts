@@ -17,6 +17,72 @@ export interface CreateAppResult {
  * Create the main Hono application with all routes wired up.
  * Works in both Node.js and CF Workers environments.
  */
+function generateInstallScript(): string {
+  return `#!/bin/sh
+set -e
+
+# sena-ai bot bootstrap script
+# Usage: curl -fsSL <platform-url>/install.sh | sh -s -- --name "봇이름" --bot-username "lily-bot" --connect-key "cpk_..." --platform-url "https://..."
+
+BOT_NAME=""
+BOT_USERNAME=""
+CONNECT_KEY=""
+PLATFORM_URL=""
+
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --name) BOT_NAME="\$2"; shift 2;;
+    --bot-username) BOT_USERNAME="\$2"; shift 2;;
+    --connect-key) CONNECT_KEY="\$2"; shift 2;;
+    --platform-url) PLATFORM_URL="\$2"; shift 2;;
+    *) echo "Unknown option: \$1"; exit 1;;
+  esac
+done
+
+if [ -z "\$BOT_NAME" ] || [ -z "\$BOT_USERNAME" ] || [ -z "\$CONNECT_KEY" ] || [ -z "\$PLATFORM_URL" ]; then
+  echo "Error: --name, --bot-username, --connect-key, --platform-url are all required."
+  exit 1
+fi
+
+DIR_NAME="\$BOT_USERNAME"
+
+echo "🤖 Setting up bot: \$BOT_NAME"
+echo "   Directory: ./\$DIR_NAME"
+echo ""
+
+# Download template from GitHub
+echo "📦 Downloading bot template..."
+TMPDIR_DL=\$(mktemp -d)
+curl -fsSL https://github.com/unlimiting-studio/sena-ai/archive/refs/heads/main.tar.gz -o "\$TMPDIR_DL/repo.tar.gz"
+tar xzf "\$TMPDIR_DL/repo.tar.gz" -C "\$TMPDIR_DL"
+
+# Copy template directory
+cp -r "\$TMPDIR_DL/sena-ai-main/templates/bot-starter" "\$DIR_NAME"
+rm -rf "\$TMPDIR_DL"
+
+cd "\$DIR_NAME"
+
+# Customize package.json name
+sed -i.bak "s/\\"sena-bot\\"/\\"\$DIR_NAME\\"/" package.json && rm -f package.json.bak
+
+# Replace bot name placeholder in sena.config.ts
+sed -i.bak "s/%%BOT_NAME%%/\$BOT_NAME/" sena.config.ts && rm -f sena.config.ts.bak
+
+# Create .env from template
+sed -e "s/%%CONNECT_KEY%%/\$CONNECT_KEY/" -e "s|%%PLATFORM_URL%%|\$PLATFORM_URL|" .env.template > .env
+rm -f .env.template
+
+echo ""
+echo "✅ Bot scaffolding complete!"
+echo ""
+echo "Next steps:"
+echo "  cd \$DIR_NAME"
+echo "  pnpm install"
+echo "  npx sena start"
+echo ""
+`
+}
+
 export function createApp(
   platform: Platform,
   config: AppConfig,
@@ -32,13 +98,10 @@ export function createApp(
   )
 
   // Serve bootstrap script at /install.sh
-  if (config.bootstrapScript) {
-    const scriptContent = config.bootstrapScript
-    app.get('/install.sh', (c) => {
-      c.header('Content-Type', 'text/plain; charset=utf-8')
-      return c.body(scriptContent)
-    })
-  }
+  app.get('/install.sh', (c) => {
+    c.header('Content-Type', 'text/plain; charset=utf-8')
+    return c.body(generateInstallScript())
+  })
 
   // Health check
   app.get('/health', (c) =>
@@ -90,7 +153,6 @@ export function createApp(
       platform.vault,
       platform.crypto,
       platform.oauthStates,
-      config.platformBaseUrl,
     ),
   )
 

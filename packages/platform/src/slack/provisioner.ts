@@ -97,6 +97,10 @@ export interface Provisioner {
     signingSecret?: string
     error?: string
   }>
+  deleteApp(
+    workspaceId: string,
+    appId: string,
+  ): Promise<{ ok: boolean; error?: string }>
   SLACK_MANIFEST_TEMPLATE: typeof SLACK_MANIFEST_TEMPLATE
 }
 
@@ -210,9 +214,43 @@ export function createProvisioner(
     }
   }
 
+  async function deleteApp(
+    workspaceId: string,
+    appId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const tokenRow = await configTokenRepo.findByWorkspaceId(workspaceId)
+    if (!tokenRow) {
+      return { ok: false, error: 'no config token for workspace' }
+    }
+
+    const configToken = await vault.decrypt(tokenRow.accessTokenEnc)
+
+    const res = await fetch('https://slack.com/api/apps.manifest.delete', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${configToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ app_id: appId }),
+    })
+
+    const data = (await res.json()) as { ok: boolean; error?: string }
+
+    if (!data.ok) {
+      console.error(
+        `[provisioner] Slack app delete failed for ${appId}:`,
+        JSON.stringify(data),
+      )
+      return { ok: false, error: data.error }
+    }
+
+    return { ok: true }
+  }
+
   return {
     rotateConfigToken,
     createApp,
+    deleteApp,
     SLACK_MANIFEST_TEMPLATE,
   }
 }

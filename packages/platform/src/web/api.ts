@@ -119,6 +119,25 @@ export function createWebApi(
     return c.json({ ok: true, message: 'provisioning started' })
   })
 
+  // DELETE /api/bots/:botId - Delete a bot and its Slack app
+  app.delete('/api/bots/:botId', async (c) => {
+    const botId = c.req.param('botId')
+    const bot = await botRepo.findById(botId)
+    if (!bot) return c.json({ error: 'bot not found' }, 404)
+
+    // Delete Slack app if it exists
+    if (bot.slackAppId) {
+      const result = await provisioner.deleteApp(workspaceId, bot.slackAppId)
+      if (!result.ok) {
+        console.error(`[api] failed to delete Slack app ${bot.slackAppId}: ${result.error}`)
+        // Continue to delete from DB even if Slack deletion fails
+      }
+    }
+
+    await botRepo.delete(botId)
+    return c.json({ ok: true, deleted: botId })
+  })
+
   async function provisionSlackApp(botId: string, botName: string, botUsername: string) {
     const result = await provisioner.createApp(workspaceId, botId, botName, botUsername)
     if (!result.ok) {

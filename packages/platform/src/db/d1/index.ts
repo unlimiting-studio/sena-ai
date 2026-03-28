@@ -141,6 +141,10 @@ function createD1BotRepository(db: D1Db): BotRepository {
         .set({ ...data, updatedAt: new Date() })
         .where(eq(schema.bots.id, id))
     },
+
+    async delete(id) {
+      await db.delete(schema.bots).where(eq(schema.bots.id, id))
+    },
   }
 }
 

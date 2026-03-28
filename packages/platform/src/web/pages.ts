@@ -140,20 +140,20 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
 
           <form id="create-bot-form" class="space-y-5">
             <div>
-              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">봇 이름 <span class="text-red-500">*</span></label>
+              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">표시 이름 <span class="text-red-500">*</span></label>
               <input type="text" id="name" name="name" required
-                     placeholder="예: my-assistant"
+                     placeholder="예: 릴리"
                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors">
-              <p class="mt-1 text-xs text-gray-400">Slack에 표시될 봇 이름입니다.</p>
+              <p class="mt-1 text-xs text-gray-400">Slack에서 보이는 봇 이름이에요. 한글도 사용할 수 있어요.</p>
             </div>
 
             <div>
-              <label for="botUsername" class="block text-sm font-medium text-gray-700 mb-1">봇 유저네임 <span class="text-red-500">*</span></label>
+              <label for="botUsername" class="block text-sm font-medium text-gray-700 mb-1">유저네임 <span class="text-red-500">*</span></label>
               <input type="text" id="botUsername" name="botUsername" required
                      pattern="[a-z0-9][a-z0-9-]*"
                      placeholder="예: lily-bot"
                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors">
-              <p class="mt-1 text-xs text-gray-400">영문, 숫자, 하이픈만 사용 가능. Slack 내부 username으로 사용됩니다.</p>
+              <p class="mt-1 text-xs text-gray-400">영문 소문자, 숫자, 하이픈만 가능. Slack 내부에서 사용되는 @username이에요.</p>
             </div>
 
             <div id="error-msg" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
@@ -350,6 +350,7 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
 
     const bootstrapScript = `curl -fsSL ${platformBaseUrl}/install.sh | sh -s -- \\
   --name "${bot.name}" \\
+  --bot-username "${bot.botUsername}" \\
   --connect-key "${bot.connectKey}" \\
   --platform-url "${platformBaseUrl}"`
 
