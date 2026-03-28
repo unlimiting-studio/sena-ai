@@ -22,6 +22,7 @@ export const bots = mysqlTable(
   {
     id: varchar('id', { length: 36 }).primaryKey(),
     name: varchar('name', { length: 255 }).notNull(),
+    botUsername: varchar('bot_username', { length: 80 }).notNull().default(''),
     profileImageUrl: varchar('profile_image_url', { length: 512 }),
     connectKey: varchar('connect_key', { length: 255 }).notNull(),
     slackAppId: varchar('slack_app_id', { length: 64 }),

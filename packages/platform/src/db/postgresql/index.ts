@@ -21,6 +21,7 @@ function rowToBot(row: typeof schema.bots.$inferSelect): BotRow {
   return {
     id: row.id,
     name: row.name,
+    botUsername: row.botUsername,
     profileImageUrl: row.profileImageUrl,
     connectKey: row.connectKey,
     slackAppId: row.slackAppId,
