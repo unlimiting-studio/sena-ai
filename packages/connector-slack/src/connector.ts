@@ -58,13 +58,17 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
         const { appToken } = options as Extract<SlackConnectorOptions, { mode: 'socket' }>
         const socketClient = new SocketModeClient({ appToken })
 
-        // events_api — app_mention, message, reaction_added, etc.
-        socketClient.on('events_api', async ({ body, ack }: { body: Record<string, unknown>; ack: () => Promise<void> }) => {
+        // @slack/socket-mode v2 emits events_api messages using the inner event type
+        // name (e.g. 'app_mention', 'message', 'reaction_added'), NOT 'events_api'.
+        const handleSocketEvent = async ({ body, ack }: { body: Record<string, unknown>; ack: () => Promise<void> }) => {
           // Acknowledge immediately (Socket Mode requires ack within 3 s)
           await ack()
           await resolveBotUserId()
           processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
-        })
+        }
+        socketClient.on('app_mention', handleSocketEvent)
+        socketClient.on('message', handleSocketEvent)
+        socketClient.on('reaction_added', handleSocketEvent)
 
         // Start connection (fire-and-forget; logs errors internally)
         socketClient.start().then(() => {
