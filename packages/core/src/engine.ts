@@ -82,8 +82,15 @@ export function createTurnEngine(config: TurnEngineConfig) {
       ].filter(Boolean).join(', ')
       let contextContent = `[Current Message Context] ${parts}`
       if (c.files?.length) {
-        const fileDescs = c.files.map(f => `${f.name} (${f.mimeType}, id:${f.id})`).join(', ')
-        contextContent += `\n[Attached Files] ${fileDescs} — Use slack_download_file with the file id to view image contents.`
+        const fileDescs = c.files.map(f => {
+          if (f.localPath) return `${f.name} (${f.mimeType}) → ${f.localPath}`
+          return `${f.name} (${f.mimeType}, id:${f.id})`
+        }).join(', ')
+        const hasLocal = c.files.some(f => f.localPath)
+        const hint = hasLocal
+          ? 'Use the Read tool to view the file contents directly.'
+          : 'Use slack_download_file with the file id to download and view file contents.'
+        contextContent += `\n[Attached Files] ${fileDescs} — ${hint}`
       }
       allFragments.push({ source: 'connector-meta', role: 'append', content: contextContent })
     }
