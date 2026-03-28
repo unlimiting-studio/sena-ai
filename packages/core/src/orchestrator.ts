@@ -16,8 +16,9 @@ export type WorkerInfo = {
   released: boolean
 }
 
-// Grace period before force-killing a draining worker (1 hour)
-const DRAIN_TIMEOUT_MS = 60 * 60 * 1000
+// Grace period before force-killing a draining worker.
+// Workers now call connector.stop() (closes WebSocket etc.) so 30s is enough.
+const DRAIN_TIMEOUT_MS = 30_000
 
 export function createOrchestrator(options: OrchestratorOptions) {
   const { port, workerScript, workerPort = 0 } = options
@@ -186,8 +187,30 @@ export function createOrchestrator(options: OrchestratorOptions) {
   async function stop(): Promise<void> {
     server?.close()
     if (currentWorker) {
-      releaseWorker(currentWorker)
+      const worker = currentWorker
       currentWorker = null
+      worker.released = true
+
+      // Send drain signal so the worker calls connector.stop() (closes WebSocket etc.)
+      try { worker.process.send({ type: 'drain' }) } catch { /* IPC may already be closed */ }
+
+      // Wait for the worker to exit, with a hard timeout
+      const STOP_TIMEOUT_MS = 10_000
+      await new Promise<void>((resolve) => {
+        if (worker.exited) { resolve(); return }
+        const timer = setTimeout(() => {
+          if (!worker.exited) {
+            try {
+              worker.process.kill('SIGKILL')
+              console.error(`[orchestrator] force-killed worker gen ${worker.generation} on stop`)
+            } catch { /* already exited */ }
+          }
+          resolve()
+        }, STOP_TIMEOUT_MS)
+        worker.process.on('exit', () => { clearTimeout(timer); resolve() })
+      })
+
+      try { worker.process.disconnect() } catch { /* already disconnected */ }
     }
   }
 

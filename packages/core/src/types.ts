@@ -183,6 +183,8 @@ export type Connector = {
   name: string
   registerRoutes(server: HttpServer, engine: TurnEngine): void
   createOutput(context: ConnectorOutputContext): ConnectorOutput
+  /** Optional cleanup — called during worker drain to close persistent connections (e.g. WebSocket). */
+  stop?(): Promise<void> | void
 }
 
 // === ToolPort (Part 6) ===
