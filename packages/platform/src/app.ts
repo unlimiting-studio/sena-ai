@@ -62,14 +62,22 @@ rm -rf "\$TMPDIR_DL"
 
 cd "\$DIR_NAME"
 
+# Escape special characters for sed replacement
+escape_sed() {
+  printf '%s' "\$1" | sed 's/[&/\\\\]/\\\\&/g'
+}
+
 # Customize package.json name
-sed -i.bak "s/\\"sena-bot\\"/\\"\$DIR_NAME\\"/" package.json && rm -f package.json.bak
+ESCAPED_DIR=\$(escape_sed "\$DIR_NAME")
+sed -i.bak "s/\\"sena-bot\\"/\\"\$ESCAPED_DIR\\"/" package.json && rm -f package.json.bak
 
 # Replace bot name placeholder in sena.config.ts
-sed -i.bak "s/%%BOT_NAME%%/\$BOT_NAME/" sena.config.ts && rm -f sena.config.ts.bak
+ESCAPED_NAME=\$(escape_sed "\$BOT_NAME")
+sed -i.bak "s/%%BOT_NAME%%/\$ESCAPED_NAME/" sena.config.ts && rm -f sena.config.ts.bak
 
 # Create .env from template
-sed -e "s/%%CONNECT_KEY%%/\$CONNECT_KEY/" -e "s|%%PLATFORM_URL%%|\$PLATFORM_URL|" .env.template > .env
+ESCAPED_KEY=\$(escape_sed "\$CONNECT_KEY")
+sed -e "s/%%CONNECT_KEY%%/\$ESCAPED_KEY/" -e "s|%%PLATFORM_URL%%|\$PLATFORM_URL|" .env.template > .env
 rm -f .env.template
 
 echo ""

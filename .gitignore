@@ -5,6 +5,7 @@ dist/
 coverage/
 .env
 .env.*
+!.env.template
 .DS_Store
 .sessions.json
 *.tgz

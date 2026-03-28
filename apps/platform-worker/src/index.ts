@@ -6,7 +6,6 @@ export { RelayDurableObject } from './relay-do.js'
 
 export interface Env extends CfEnv {
   DB: D1Database
-  BOOTSTRAP_SCRIPT?: string
   SLACK_CONFIG_TOKEN?: string
   SLACK_CONFIG_REFRESH_TOKEN?: string
 }
@@ -40,7 +39,6 @@ export default {
     const { app } = createApp(platform, {
       platformBaseUrl: env.PLATFORM_BASE_URL,
       workspaceId: env.SLACK_WORKSPACE_ID,
-      bootstrapScript: env.BOOTSTRAP_SCRIPT,
     })
 
     return app.fetch(request, env, ctx)

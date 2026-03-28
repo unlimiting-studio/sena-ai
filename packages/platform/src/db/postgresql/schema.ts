@@ -29,7 +29,7 @@ export const bots = pgTable(
     id: varchar('id', { length: 36 }).primaryKey(),
     name: varchar('name', { length: 255 }).notNull(),
     botUsername: varchar('bot_username', { length: 80 }).notNull().default(''),
-    profileImageUrl: varchar('profile_image_url', { length: 512 }),
+    profileImageUrl: text('profile_image_url'),
     connectKey: varchar('connect_key', { length: 255 }).notNull(),
     slackAppId: varchar('slack_app_id', { length: 64 }),
     slackTeamId: varchar('slack_team_id', { length: 64 }),
