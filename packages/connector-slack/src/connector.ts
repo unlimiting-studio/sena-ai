@@ -1,18 +1,32 @@
 import type { Connector, InboundEvent, ConnectorOutput, ConnectorOutputContext, HttpServer, TurnEngine } from '@sena-ai/core'
 import { WebClient } from '@slack/web-api'
+import { SocketModeClient } from '@slack/socket-mode'
 import { verifySignature } from './verify.js'
 import { markdownToSlack } from './mrkdwn.js'
 
 export type SlackConnectorOptions = {
   appId: string
   botToken: string
-  signingSecret: string
   /** Message shown immediately when a turn starts (e.g. ":loading-dots: *세나가 생각중이에요*"). Set to false to disable. */
   thinkingMessage?: string | false
-}
+} & (
+  | {
+      /** HTTP Events API mode (default). Requires a public endpoint + signingSecret. */
+      mode?: 'http'
+      signingSecret: string
+      appToken?: never
+    }
+  | {
+      /** Socket Mode — no public endpoint needed. Requires an app-level token (xapp-…). */
+      mode: 'socket'
+      /** App-level token for Socket Mode (starts with xapp-). */
+      appToken: string
+      signingSecret?: never
+    }
+)
 
 export function slackConnector(options: SlackConnectorOptions): Connector {
-  const { appId, botToken, signingSecret, thinkingMessage } = options
+  const { appId, botToken, thinkingMessage } = options
   const slack = new WebClient(botToken)
   const userNameCache = new Map<string, string>()
   // Track threads the bot has participated in (channel:thread_ts → true)
@@ -26,19 +40,69 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
     name: 'slack',
 
     registerRoutes(server: HttpServer, engine: TurnEngine): void {
-      server.post('/api/slack/events', async (req: any, res: any) => {
-        // Lazily resolve bot user ID on first request
-        if (!botUserId) {
-          try {
-            const auth = await slack.auth.test()
-            botUserId = auth.user_id
-            console.log(`[slack] resolved bot user id: ${botUserId}`)
-          } catch (err) {
-            console.warn('[slack] failed to resolve bot user id:', err)
-          }
+      // Lazily resolve bot user ID
+      const resolveBotUserId = async () => {
+        if (botUserId) return
+        try {
+          const auth = await slack.auth.test()
+          botUserId = auth.user_id
+          console.log(`[slack] resolved bot user id: ${botUserId}`)
+        } catch (err) {
+          console.warn('[slack] failed to resolve bot user id:', err)
         }
-        handleSlackEvent(req, res, engine, signingSecret, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
-      })
+      }
+
+      const mode = options.mode ?? 'http'
+
+      if (mode === 'socket') {
+        const { appToken } = options as Extract<SlackConnectorOptions, { mode: 'socket' }>
+        const socketClient = new SocketModeClient({ appToken })
+
+        // events_api — app_mention, message, reaction_added, etc.
+        socketClient.on('events_api', async ({ body, ack }: { body: Record<string, unknown>; ack: () => Promise<void> }) => {
+          // Acknowledge immediately (Socket Mode requires ack within 3 s)
+          await ack()
+          await resolveBotUserId()
+          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
+        })
+
+        // Start connection (fire-and-forget; logs errors internally)
+        socketClient.start().then(() => {
+          console.log('[slack] socket mode connected')
+        }).catch((err: unknown) => {
+          console.error('[slack] socket mode connection failed:', err)
+        })
+      } else {
+        // HTTP Events API mode
+        const { signingSecret } = options as Extract<SlackConnectorOptions, { mode?: 'http' }>
+        server.post('/api/slack/events', async (req: any, res: any) => {
+          await resolveBotUserId()
+
+          const body = req.body
+
+          // URL verification challenge
+          if (body?.type === 'url_verification') {
+            res.status(200).json({ challenge: body.challenge })
+            return
+          }
+
+          // Verify signature
+          const timestamp = req.headers['x-slack-request-timestamp']
+          const signature = req.headers['x-slack-signature']
+          const rawBody = req.rawBody ?? JSON.stringify(body)
+
+          if (!verifySignature(signingSecret, timestamp, rawBody, signature)) {
+            console.warn('[slack] signature verification failed')
+            res.status(401).send('Invalid signature')
+            return
+          }
+
+          // Acknowledge immediately (Slack 3s timeout)
+          res.status(200).send()
+
+          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
+        })
+      }
     },
 
     createOutput(context: ConnectorOutputContext): ConnectorOutput {
@@ -48,6 +112,8 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
     },
   }
 }
+
+// ─── Shared event processing ────────────────────────────────────────────────
 
 async function resolveUserName(
   slack: WebClient,
@@ -99,11 +165,13 @@ async function wasBotInThread(
   }
 }
 
-async function handleSlackEvent(
-  req: any,
-  res: any,
+/**
+ * Shared event processor — works identically for HTTP and Socket Mode payloads.
+ * The outer envelope (`body`) has the same shape in both modes.
+ */
+async function processSlackEvent(
+  body: Record<string, unknown>,
   engine: TurnEngine,
-  signingSecret: string,
   appId: string,
   slack: WebClient,
   userNameCache: Map<string, string>,
@@ -111,32 +179,9 @@ async function handleSlackEvent(
   processedEvents: Set<string>,
   botUserId?: string,
 ): Promise<void> {
-  const body = req.body
-
-  // URL verification challenge
-  if (body?.type === 'url_verification') {
-    res.status(200).json({ challenge: body.challenge })
-    return
-  }
-
-  // Verify signature
-  const timestamp = req.headers['x-slack-request-timestamp']
-  const signature = req.headers['x-slack-signature']
-  const rawBody = req.rawBody ?? JSON.stringify(body)
-
-  if (!verifySignature(signingSecret, timestamp, rawBody, signature)) {
-    console.warn('[slack] signature verification failed')
-    res.status(401).send('Invalid signature')
-    return
-  }
-
-  // Acknowledge immediately (Slack 3s timeout)
-  res.status(200).send()
-
-  // Process event
-  const event = body?.event
+  const event = (body as any)?.event
   if (!event) {
-    console.log('[slack] no event in body, type:', body?.type)
+    console.log('[slack] no event in body, type:', (body as any)?.type)
     return
   }
 
@@ -262,6 +307,8 @@ async function handleSlackEvent(
     console.error('[slack] submitTurn error:', err)
   }
 }
+
+// ─── Output ─────────────────────────────────────────────────────────────────
 
 function createSlackOutput(
   slack: WebClient,
