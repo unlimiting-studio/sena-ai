@@ -46,13 +46,18 @@ export function createWebApi(
       status: 'pending',
     })
 
-    // Provision Slack app asynchronously
-    provisionSlackApp(botId, name).catch((err: unknown) => {
-      console.error(
-        `[api] failed to provision Slack app for bot ${botId}:`,
-        err,
-      )
-    })
+    // Provision Slack app asynchronously (CF Workers needs waitUntil to keep alive)
+    const provisionPromise = provisionSlackApp(botId, name).catch(
+      (err: unknown) => {
+        console.error(
+          `[api] failed to provision Slack app for bot ${botId}:`,
+          err,
+        )
+      },
+    )
+    if (c.executionCtx?.waitUntil) {
+      c.executionCtx.waitUntil(provisionPromise)
+    }
 
     return c.json({ ok: true, botId, connectKey })
   })
@@ -80,6 +85,24 @@ export function createWebApi(
         updatedAt: bot.updatedAt,
       },
     })
+  })
+
+  // POST /api/bots/:botId/provision - Retry provisioning
+  app.post('/api/bots/:botId/provision', async (c) => {
+    const botId = c.req.param('botId')
+    const bot = await botRepo.findById(botId)
+    if (!bot) return c.json({ error: 'bot not found' }, 404)
+    if (bot.slackAppId) return c.json({ ok: true, appId: bot.slackAppId })
+
+    const provisionPromise = provisionSlackApp(botId, bot.name).catch(
+      (err: unknown) => {
+        console.error(`[api] retry provision failed for ${botId}:`, err)
+      },
+    )
+    if (c.executionCtx?.waitUntil) {
+      c.executionCtx.waitUntil(provisionPromise)
+    }
+    return c.json({ ok: true, message: 'provisioning started' })
   })
 
   async function provisionSlackApp(botId: string, botName: string) {

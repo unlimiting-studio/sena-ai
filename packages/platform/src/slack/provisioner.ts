@@ -4,7 +4,21 @@ import type {
   ConfigTokenRepository,
 } from '../types/repository.js'
 
-const SLACK_MANIFEST_TEMPLATE = (botName: string, eventUrl: string) => ({
+/**
+ * Slack bot_user.display_name must be convertible to a username (ASCII only).
+ * If name has non-ASCII chars, use botId prefix as fallback.
+ */
+function toBotDisplayName(name: string, botId: string): string {
+  const ascii = name.replace(/[^\x20-\x7E]/g, '')
+  if (ascii.trim().length >= 2) return ascii.trim().slice(0, 80)
+  return `bot-${botId.slice(0, 8)}`
+}
+
+const SLACK_MANIFEST_TEMPLATE = (
+  botName: string,
+  botId: string,
+  eventUrl: string,
+) => ({
   display_information: {
     name: botName,
     description: `${botName} -- powered by sena-ai`,
@@ -12,7 +26,7 @@ const SLACK_MANIFEST_TEMPLATE = (botName: string, eventUrl: string) => ({
   },
   features: {
     bot_user: {
-      display_name: botName,
+      display_name: toBotDisplayName(botName, botId),
       always_online: true,
     },
   },
@@ -154,7 +168,7 @@ export function createProvisioner(
 
     const configToken = await vault.decrypt(tokenRow.accessTokenEnc)
     const eventUrl = `${platformBaseUrl}/slack/events/${botId}`
-    const manifest = SLACK_MANIFEST_TEMPLATE(botName, eventUrl)
+    const manifest = SLACK_MANIFEST_TEMPLATE(botName, botId, eventUrl)
 
     const res = await fetch('https://slack.com/api/apps.manifest.create', {
       method: 'POST',
@@ -168,6 +182,10 @@ export function createProvisioner(
     const data = (await res.json()) as ManifestCreateResponse
 
     if (!data.ok) {
+      console.error(
+        `[provisioner] Slack API error detail:`,
+        JSON.stringify(data),
+      )
       return { ok: false, error: data.error }
     }
 

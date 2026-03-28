@@ -12,7 +12,7 @@ export interface Env extends CfEnv {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // --- Create runtime (vault, relay, crypto) ---
     const runtime = await createCfRuntime(env)
 
@@ -43,7 +43,7 @@ export default {
       bootstrapScript: env.BOOTSTRAP_SCRIPT,
     })
 
-    return app.fetch(request)
+    return app.fetch(request, env, ctx)
   },
 
   async scheduled(
