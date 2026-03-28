@@ -1,6 +1,6 @@
 {
   "name": "@sena-ai/core",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "type": "module",
   "exports": {
     ".": {

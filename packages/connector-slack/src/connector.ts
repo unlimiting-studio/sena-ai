@@ -35,6 +35,8 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
   const processedEvents = new Set<string>()
   // Resolved bot user ID (lazy, set on first event)
   let botUserId: string | undefined
+  // Socket Mode client reference for stop() lifecycle
+  let socketClient: SocketModeClient | undefined
 
   return {
     name: 'slack',
@@ -56,7 +58,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
 
       if (mode === 'socket') {
         const { appToken } = options as Extract<SlackConnectorOptions, { mode: 'socket' }>
-        const socketClient = new SocketModeClient({ appToken })
+        socketClient = new SocketModeClient({ appToken })
 
         // @slack/socket-mode v2 emits events_api messages using the inner event type
         // name (e.g. 'app_mention', 'message', 'reaction_added'), NOT 'events_api'.
@@ -113,6 +115,18 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
       // Mark thread as active when the bot creates output (i.e. responds)
       activeThreads.add(context.conversationId)
       return createSlackOutput(slack, context, thinkingMessage)
+    },
+
+    async stop(): Promise<void> {
+      if (socketClient) {
+        try {
+          socketClient.disconnect()
+          console.log('[slack] socket mode disconnected')
+        } catch (err) {
+          console.warn('[slack] socket mode disconnect failed:', err)
+        }
+        socketClient = undefined
+      }
     },
   }
 }
@@ -234,12 +248,25 @@ async function processSlackEvent(
   // Ignore message subtypes (edits, deletes, etc.) but allow file_share (image/file attachments)
   if (event.subtype && event.subtype !== 'file_share') return
 
-  // Deduplicate: Slack sends both app_mention and message for the same @mention
-  // Only check here — don't add yet. We add to processedEvents only when we actually process.
+  // Deduplicate: Slack sends both app_mention and message for the same @mention.
+  // Register immediately (before any await) to prevent race conditions where
+  // two concurrent events both pass the check before either registers.
   const eventId = `${event.channel}:${event.ts}`
   if (processedEvents.has(eventId)) {
     console.log(`[slack] skipping duplicate event ${event.type} ${eventId}`)
     return
+  }
+  processedEvents.add(eventId)
+
+  // Evict oldest entries when exceeding 500 to prevent unbounded growth
+  if (processedEvents.size > 500) {
+    const excess = processedEvents.size - 500
+    let removed = 0
+    for (const entry of processedEvents) {
+      if (removed >= excess) break
+      processedEvents.delete(entry)
+      removed++
+    }
   }
 
   const threadKey = `${event.channel}:${event.thread_ts ?? event.ts}`
@@ -285,24 +312,6 @@ async function processSlackEvent(
       url: f.url_private,
     })),
     raw: body,
-  }
-
-  // Mark as processed only now — if we skipped early (e.g. message without thread),
-  // the eventId stays unregistered so the matching app_mention can still be handled.
-  if (processedEvents.has(eventId)) {
-    console.log(`[slack] skipping duplicate event ${event.type} ${eventId} (late check)`)
-    return
-  }
-  processedEvents.add(eventId)
-  // Prevent unbounded growth — evict oldest entries when exceeding 500
-  if (processedEvents.size > 500) {
-    const excess = processedEvents.size - 500
-    let removed = 0
-    for (const entry of processedEvents) {
-      if (removed >= excess) break
-      processedEvents.delete(entry)
-      removed++
-    }
   }
 
   try {

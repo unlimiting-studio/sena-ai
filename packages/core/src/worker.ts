@@ -359,6 +359,10 @@ export function createWorker(options: WorkerOptions) {
   async function stop(): Promise<void> {
     scheduler?.stop()
     server?.close()
+    // Stop all connectors (closes persistent connections like Socket Mode WebSocket)
+    await Promise.allSettled(
+      config.connectors.map(c => Promise.resolve(c.stop?.())),
+    )
   }
 
   // Listen for drain signal from orchestrator
@@ -376,7 +380,7 @@ export function createWorker(options: WorkerOptions) {
   // The worker sets its own safety-net timeout so that even if the
   // orchestrator's timer disappears (e.g. full restart), this process
   // won't linger forever.
-  const WORKER_DRAIN_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
+  const WORKER_DRAIN_TIMEOUT_MS = 30_000 // 30 seconds — connectors close persistent connections in stop()
   process.on('disconnect', () => {
     console.log('[worker] orchestrator disconnected, draining...')
     stop()
