@@ -156,6 +156,13 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
               <p class="mt-1 text-xs text-gray-400">영문 소문자, 숫자, 하이픈만 가능. Slack 내부에서 사용되는 @username이에요.</p>
             </div>
 
+            <div>
+              <label for="profileImage" class="block text-sm font-medium text-gray-700 mb-1">프로필 이미지 (선택)</label>
+              <input type="file" id="profileImage" accept="image/png,image/jpeg,image/gif"
+                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors text-sm text-gray-500 file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+              <p class="mt-1 text-xs text-gray-400">512x512px 권장. PNG, JPEG, GIF 지원.</p>
+            </div>
+
             <div id="error-msg" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
 
             <button type="submit" id="submit-btn"
@@ -181,10 +188,21 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
             const botUsername = document.getElementById('botUsername').value.trim();
             if (!botUsername) throw new Error('봇 유저네임을 입력해주세요.');
 
+            let profileImage = null;
+            const fileInput = document.getElementById('profileImage');
+            if (fileInput.files && fileInput.files.length > 0) {
+              profileImage = await new Promise(function(resolve, reject) {
+                const reader = new FileReader();
+                reader.onload = function() { resolve(reader.result); };
+                reader.onerror = function() { reject(new Error('이미지 읽기에 실패했습니다.')); };
+                reader.readAsDataURL(fileInput.files[0]);
+              });
+            }
+
             const res = await fetch('/api/bots', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name, botUsername }),
+              body: JSON.stringify({ name, botUsername, profileImage }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || '봇 생성에 실패했습니다.');
