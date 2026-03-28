@@ -6,6 +6,24 @@ import type { Connector, HttpServer, InboundEvent, SessionStore, TurnEngine } fr
 import { createTurnEngine } from './engine.js'
 import { createScheduler } from './scheduler.js'
 
+/**
+ * Module-level restart request. Can be called from anywhere in the worker process
+ * (e.g. from an inline tool handler) to trigger a safe rolling restart.
+ *
+ * This sends an IPC message to the orchestrator, which spawns a new worker
+ * and drains the current one only after all active turns complete.
+ * Returns false if not running under an orchestrator (no IPC channel).
+ */
+export function requestWorkerRestart(): boolean {
+  if (!process.send) {
+    console.warn('[worker] requestWorkerRestart() called but no IPC channel (not running under orchestrator)')
+    return false
+  }
+  console.log('[worker] requesting rolling restart from orchestrator')
+  process.send({ type: 'request-restart' })
+  return true
+}
+
 export type WorkerOptions = {
   config: ResolvedSenaConfig
   port?: number
@@ -422,5 +440,5 @@ export function createWorker(options: WorkerOptions) {
     }, DRAIN_SAFETY_TIMEOUT_MS).unref()
   })
 
-  return { start, stop, engine }
+  return { start, stop, engine, requestRestart: requestWorkerRestart }
 }
