@@ -62,13 +62,20 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
         <td class="py-3 px-4 text-sm text-gray-500">${bot.slackAppId || '-'}</td>
         <td class="py-3 px-4 text-sm text-gray-500">${bot.createdAt ? new Date(bot.createdAt).toLocaleDateString('ko-KR') : '-'}</td>
         <td class="py-3 px-4">
-          ${
-            bot.status === 'pending'
-              ? `<a href="/bots/${bot.id}/setup" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">설정 계속하기</a>`
-              : bot.status === 'active'
-                ? `<a href="/bots/${bot.id}/complete" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">스크립트 보기</a>`
+          <div class="flex items-center gap-3">
+            ${
+              bot.status === 'pending'
+                ? `<a href="/bots/${bot.id}/setup" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">설정 계속하기</a>`
+                : bot.status === 'active'
+                  ? `<a href="/bots/${bot.id}/complete" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">스크립트 보기</a>`
+                  : ''
+            }
+            ${
+              bot.slackAppId
+                ? `<a href="https://api.slack.com/apps/${bot.slackAppId}" target="_blank" rel="noopener" class="text-gray-400 hover:text-gray-600 text-sm" title="Slack 앱 설정">&#x2699;&#xFE0F;</a>`
                 : ''
-          }
+            }
+          </div>
         </td>
       </tr>`,
       )
@@ -266,7 +273,8 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
                   ? `<div class="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-white text-xs mt-0.5 shrink-0">&#x2713;</div>
                      <div>
                        <p class="font-medium text-gray-900">Slack 앱 생성 완료</p>
-                       <p class="text-sm text-gray-500">App ID: ${bot.slackAppId}</p>
+                       <p class="text-sm text-gray-500">App ID: <a href="https://api.slack.com/apps/${bot.slackAppId}" target="_blank" rel="noopener" class="text-indigo-600 hover:text-indigo-800">${bot.slackAppId} &#x2197;</a></p>
+                       <p class="text-xs text-gray-400 mt-1">프로필 아이콘은 <a href="https://api.slack.com/apps/${bot.slackAppId}/general" target="_blank" rel="noopener" class="text-indigo-500 hover:text-indigo-700 underline">Slack 앱 설정</a>에서 직접 변경하세요.</p>
                      </div>`
                   : `<div class="w-6 h-6 rounded-full bg-yellow-400 flex items-center justify-center text-white text-xs mt-0.5 shrink-0">2</div>
                      <div>
@@ -417,7 +425,7 @@ export function createPages(botRepo: BotRepository, platformBaseUrl: string) {
               <dt class="text-gray-500">상태</dt>
               <dd><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${bot.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${bot.status}</span></dd>
               <dt class="text-gray-500">Slack App ID</dt>
-              <dd class="text-gray-900 font-mono text-xs">${bot.slackAppId || '-'}</dd>
+              <dd class="text-gray-900 font-mono text-xs">${bot.slackAppId ? `<a href="https://api.slack.com/apps/${bot.slackAppId}" target="_blank" rel="noopener" class="text-indigo-600 hover:text-indigo-800">${bot.slackAppId} &#x2197;</a>` : '-'}</dd>
               <dt class="text-gray-500">Connect Key</dt>
               <dd class="text-gray-900 font-mono text-xs">${bot.connectKey}</dd>
             </dl>
