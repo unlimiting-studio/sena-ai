@@ -17,8 +17,9 @@ export type WorkerInfo = {
 }
 
 // Grace period before force-killing a draining worker.
-// Workers now call connector.stop() (closes WebSocket etc.) so 30s is enough.
-const DRAIN_TIMEOUT_MS = 30_000
+// Must be long enough for in-flight Claude turns to complete (can exceed 60s).
+// Workers call connector.stop() on drain, so they exit promptly once idle.
+const DRAIN_TIMEOUT_MS = 120_000
 
 export function createOrchestrator(options: OrchestratorOptions) {
   const { port, workerScript, workerPort = 0 } = options
@@ -81,6 +82,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
   function releaseWorker(worker: WorkerInfo): void {
     worker.released = true
 
+    // Send drain signal, then disconnect IPC so the worker's event loop can exit naturally.
     try { worker.process.send({ type: 'drain' }) } catch { /* IPC may already be closed */ }
     try { worker.process.disconnect() } catch { /* already disconnected */ }
     worker.process.unref()
@@ -191,8 +193,11 @@ export function createOrchestrator(options: OrchestratorOptions) {
       currentWorker = null
       worker.released = true
 
-      // Send drain signal so the worker calls connector.stop() (closes WebSocket etc.)
+      // Send drain signal so the worker calls connector.stop() (closes WebSocket etc.),
+      // then disconnect IPC immediately so the worker's event loop can drain and exit.
+      // If we keep IPC open, the worker's event loop stays alive → never exits naturally.
       try { worker.process.send({ type: 'drain' }) } catch { /* IPC may already be closed */ }
+      try { worker.process.disconnect() } catch { /* already disconnected */ }
 
       // Wait for the worker to exit, with a hard timeout
       const STOP_TIMEOUT_MS = 10_000
@@ -209,8 +214,6 @@ export function createOrchestrator(options: OrchestratorOptions) {
         }, STOP_TIMEOUT_MS)
         worker.process.on('exit', () => { clearTimeout(timer); resolve() })
       })
-
-      try { worker.process.disconnect() } catch { /* already disconnected */ }
     }
   }
 

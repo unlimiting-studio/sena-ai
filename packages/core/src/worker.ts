@@ -380,7 +380,7 @@ export function createWorker(options: WorkerOptions) {
   // The worker sets its own safety-net timeout so that even if the
   // orchestrator's timer disappears (e.g. full restart), this process
   // won't linger forever.
-  const WORKER_DRAIN_TIMEOUT_MS = 30_000 // 30 seconds — connectors close persistent connections in stop()
+  const WORKER_DRAIN_TIMEOUT_MS = 120_000 // 2 minutes — long enough for in-flight Claude turns to complete
   process.on('disconnect', () => {
     console.log('[worker] orchestrator disconnected, draining...')
     stop()

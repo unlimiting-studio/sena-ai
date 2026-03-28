@@ -31,8 +31,11 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
   const userNameCache = new Map<string, string>()
   // Track threads the bot has participated in (channel:thread_ts → true)
   const activeThreads = new Set<string>()
-  // Deduplicate events — Slack sends both app_mention and message for the same @mention
+  // Deduplicate events — Slack sends both app_mention and message for the same @mention.
+  // Two-phase: processingEvents tracks in-flight events (before we know if they'll be handled),
+  // processedEvents tracks events that were actually processed to completion.
   const processedEvents = new Set<string>()
+  const processingEvents = new Set<string>()
   // Resolved bot user ID (lazy, set on first event)
   let botUserId: string | undefined
   // Socket Mode client reference for stop() lifecycle
@@ -66,7 +69,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
           // Acknowledge immediately (Socket Mode requires ack within 3 s)
           await ack()
           await resolveBotUserId()
-          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
+          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, processingEvents, botUserId)
         }
         socketClient.on('app_mention', handleSocketEvent)
         socketClient.on('message', handleSocketEvent)
@@ -106,7 +109,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
           // Acknowledge immediately (Slack 3s timeout)
           res.status(200).send()
 
-          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, botUserId)
+          processSlackEvent(body, engine, appId, slack, userNameCache, activeThreads, processedEvents, processingEvents, botUserId)
         })
       }
     },
@@ -195,6 +198,7 @@ async function processSlackEvent(
   userNameCache: Map<string, string>,
   activeThreads: Set<string>,
   processedEvents: Set<string>,
+  processingEvents: Set<string>,
   botUserId?: string,
 ): Promise<void> {
   const event = (body as any)?.event
@@ -249,25 +253,30 @@ async function processSlackEvent(
   if (event.subtype && event.subtype !== 'file_share') return
 
   // Deduplicate: Slack sends both app_mention and message for the same @mention.
-  // Register immediately (before any await) to prevent race conditions where
-  // two concurrent events both pass the check before either registers.
+  // Two-phase approach:
+  //   1. processingEvents — claimed immediately (before await) to prevent race conditions
+  //   2. processedEvents — committed only after we confirm the event will be handled
+  // This prevents the bug where a `message` event claims the eventId, exits early
+  // (no thread_ts / inactive thread), and then the subsequent `app_mention` is skipped.
   const eventId = `${event.channel}:${event.ts}`
   if (processedEvents.has(eventId)) {
     console.log(`[slack] skipping duplicate event ${event.type} ${eventId}`)
     return
   }
-  processedEvents.add(eventId)
 
-  // Evict oldest entries when exceeding 500 to prevent unbounded growth
-  if (processedEvents.size > 500) {
-    const excess = processedEvents.size - 500
-    let removed = 0
-    for (const entry of processedEvents) {
-      if (removed >= excess) break
-      processedEvents.delete(entry)
-      removed++
-    }
+  // app_mention takes priority — if a message event is currently being processed
+  // (in-flight, not yet committed), an app_mention can steal the slot.
+  if (event.type === 'app_mention') {
+    // Always allow app_mention to proceed — remove any in-flight message claim
+    processingEvents.delete(eventId)
+  } else if (processingEvents.has(eventId)) {
+    // Another event (likely app_mention) is already processing this
+    console.log(`[slack] skipping duplicate event ${event.type} ${eventId} (in-flight)`)
+    return
   }
+
+  // Claim the slot immediately (before any await) to prevent concurrent duplicates
+  processingEvents.add(eventId)
 
   const threadKey = `${event.channel}:${event.thread_ts ?? event.ts}`
 
@@ -280,6 +289,7 @@ async function processSlackEvent(
   if (event.type === 'message') {
     if (!event.thread_ts) {
       // Top-level channel message without mention — ignore
+      processingEvents.delete(eventId)
       return
     }
     if (!activeThreads.has(threadKey)) {
@@ -290,8 +300,24 @@ async function processSlackEvent(
         activeThreads.add(threadKey)
       } else {
         console.log(`[slack] ignoring thread reply in inactive thread ${threadKey}`)
+        processingEvents.delete(eventId)
         return
       }
+    }
+  }
+
+  // Event will be processed — commit to processedEvents and release processingEvents
+  processedEvents.add(eventId)
+  processingEvents.delete(eventId)
+
+  // Evict oldest entries when exceeding 500 to prevent unbounded growth
+  if (processedEvents.size > 500) {
+    const excess = processedEvents.size - 500
+    let removed = 0
+    for (const entry of processedEvents) {
+      if (removed >= excess) break
+      processedEvents.delete(entry)
+      removed++
     }
   }
 
