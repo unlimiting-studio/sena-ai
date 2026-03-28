@@ -332,6 +332,18 @@ export function createWorker(options: WorkerOptions) {
   }
 
   async function start(): Promise<void> {
+    // Start scheduler regardless of server
+    scheduler?.start()
+
+    // If no routes registered (e.g. platform connector is outbound-only),
+    // skip HTTP server entirely — no port needed
+    if (routes.length === 0) {
+      if (process.send) {
+        process.send({ type: 'ready', port: 0 })
+      }
+      return
+    }
+
     server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       // Parse body for POST requests
       if (req.method === 'POST') {
@@ -381,9 +393,6 @@ export function createWorker(options: WorkerOptions) {
       res.writeHead(404)
       res.end('Not Found')
     })
-
-    // Start scheduler after server is listening
-    scheduler?.start()
 
     server.listen(port, () => {
       const actualPort = (server!.address() as any)?.port ?? port
