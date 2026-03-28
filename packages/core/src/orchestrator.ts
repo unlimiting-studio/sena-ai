@@ -17,9 +17,9 @@ export type WorkerInfo = {
 }
 
 // Grace period before force-killing a draining worker.
-// Must be long enough for in-flight Claude turns to complete (can exceed 60s).
-// Workers call connector.stop() on drain, so they exit promptly once idle.
-const DRAIN_TIMEOUT_MS = 120_000
+// Workers now drain gracefully (wait for active turns to finish, then exit).
+// This timeout is a safety net for truly stuck processes only.
+const DRAIN_TIMEOUT_MS = 300_000 // 5 minutes
 
 export function createOrchestrator(options: OrchestratorOptions) {
   const { port, workerScript, workerPort = 0 } = options

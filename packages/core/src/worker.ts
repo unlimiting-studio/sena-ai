@@ -103,6 +103,11 @@ export function createWorker(options: WorkerOptions) {
     },
 
     async submitTurn(event: InboundEvent): Promise<void> {
+      if (draining) {
+        console.log(`[worker] rejecting new turn for ${event.conversationId} — draining`)
+        return
+      }
+
       const convId = event.conversationId
       const active = activeConversations.get(convId)
 
@@ -356,6 +361,8 @@ export function createWorker(options: WorkerOptions) {
     })
   }
 
+  let draining = false
+
   async function stop(): Promise<void> {
     scheduler?.stop()
     server?.close()
@@ -365,29 +372,54 @@ export function createWorker(options: WorkerOptions) {
     )
   }
 
+  /**
+   * Graceful drain: stop accepting new work, wait for in-flight turns to finish,
+   * then exit. The safety-net timeout is only for truly stuck processes.
+   */
+  async function drain(): Promise<void> {
+    if (draining) return
+    draining = true
+
+    // 1. Stop accepting new events (close server, connectors, scheduler)
+    await stop()
+
+    // 2. Wait for all in-flight turns to complete naturally
+    if (activeConversations.size > 0) {
+      console.log(`[worker] draining: waiting for ${activeConversations.size} active turn(s) to finish`)
+      await Promise.allSettled(
+        [...activeConversations.values()].map(s => s.activeTurnPromise),
+      )
+      console.log('[worker] all active turns finished, exiting')
+    } else {
+      console.log('[worker] no active turns, exiting immediately')
+    }
+
+    process.exit(0)
+  }
+
+  // Safety-net timeout — only for truly stuck processes (e.g. hung API call).
+  // Normal drain completes via the active turn promises above.
+  const DRAIN_SAFETY_TIMEOUT_MS = 300_000 // 5 minutes
+
   // Listen for drain signal from orchestrator
   process.on('message', (msg: any) => {
     if (msg?.type === 'drain') {
-      stop()
+      drain()
       setTimeout(() => {
-        console.error('[worker] drain timeout reached, forcing exit')
+        console.error('[worker] drain safety timeout reached, forcing exit')
         process.exit(1)
-      }, WORKER_DRAIN_TIMEOUT_MS).unref()
+      }, DRAIN_SAFETY_TIMEOUT_MS).unref()
     }
   })
 
   // If the orchestrator dies (IPC disconnects), gracefully drain and exit.
-  // The worker sets its own safety-net timeout so that even if the
-  // orchestrator's timer disappears (e.g. full restart), this process
-  // won't linger forever.
-  const WORKER_DRAIN_TIMEOUT_MS = 120_000 // 2 minutes — long enough for in-flight Claude turns to complete
   process.on('disconnect', () => {
     console.log('[worker] orchestrator disconnected, draining...')
-    stop()
+    drain()
     setTimeout(() => {
-      console.error('[worker] drain timeout reached, forcing exit')
+      console.error('[worker] drain safety timeout reached, forcing exit')
       process.exit(1)
-    }, WORKER_DRAIN_TIMEOUT_MS).unref()
+    }, DRAIN_SAFETY_TIMEOUT_MS).unref()
   })
 
   return { start, stop, engine }
