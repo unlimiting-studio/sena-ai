@@ -535,12 +535,32 @@ function createSlackOutput(
       try {
         await slack.chat.update({ channel, ts: activeTs, ...payload })
       } catch (err) {
-        console.warn('[slack] chat.update failed, posting new message:', err)
-        try {
-          const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, ...payload })
-          activeTs = result.ts
-        } catch (err2) {
-          console.warn('[slack] fallback postMessage also failed:', err2)
+        // chat.update failed — likely Slack rejected the payload as too large.
+        // Treat this as an overflow: freeze the old message as-is and start a
+        // new message with only recent steps (instead of duplicating everything).
+        console.warn('[slack] chat.update failed, triggering overflow:', err)
+
+        frozenStepCount = Math.max(0, completedSteps.length - 1)
+        const overflowSteps = completedSteps.slice(frozenStepCount)
+        const liveTextForOverflow = options?.final ? undefined : currentText
+        const overflowPayload = renderSteps(overflowSteps, liveTextForOverflow)
+
+        if (overflowPayload.text.trim()) {
+          // Guard: truncate if even the single-step payload is too large
+          const obCount = overflowPayload.blocks?.length ?? 1
+          const otLen = overflowPayload.text.length
+          const safePayload: SlackMessagePayload =
+            obCount > MAX_BLOCKS || otLen > MAX_TEXT_LENGTH
+              ? { text: overflowPayload.text.slice(0, MAX_TEXT_LENGTH - 20) + '\n\n_(truncated)_' }
+              : overflowPayload
+
+          try {
+            const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, ...safePayload })
+            activeTs = result.ts
+            console.log(`[slack] update-fail overflow → new message ts=${result.ts}`)
+          } catch (err2) {
+            console.warn('[slack] update-fail overflow postMessage also failed:', err2)
+          }
         }
       }
     } else {
