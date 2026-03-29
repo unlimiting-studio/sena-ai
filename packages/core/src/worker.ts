@@ -268,11 +268,22 @@ export function createWorker(options: WorkerOptions) {
         },
         pendingMessages,
         disabledTools: event.disabledTools,
-        onEvent: output ? (evt) => {
-          if (evt.type === 'progress' || evt.type === 'progress.delta') {
-            output.showProgress(evt.text).catch(() => {})
+        onEvent: (() => {
+          if (!output) return undefined
+          // Accumulate progress text so showProgress always receives the full current text.
+          // `progress` events replace entirely (each assistant message);
+          // `progress.delta` events append (streaming chunks within one message).
+          let progressText = ''
+          return (evt: import('./types.js').RuntimeEvent) => {
+            if (evt.type === 'progress') {
+              progressText = evt.text
+              output.showProgress(progressText).catch(() => {})
+            } else if (evt.type === 'progress.delta') {
+              progressText += evt.text
+              output.showProgress(progressText).catch(() => {})
+            }
           }
-        } : undefined,
+        })(),
       })
 
       // Save session ID for future turns in this conversation

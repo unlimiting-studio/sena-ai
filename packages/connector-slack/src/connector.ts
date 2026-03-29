@@ -2,7 +2,7 @@ import type { Connector, InboundEvent, ConnectorOutput, ConnectorOutputContext, 
 import { WebClient } from '@slack/web-api'
 import { SocketModeClient } from '@slack/socket-mode'
 import { verifySignature } from './verify.js'
-import { markdownToSlack } from './mrkdwn.js'
+import { markdownToSlack, type SlackMessagePayload } from './mrkdwn.js'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -393,110 +393,283 @@ async function processSlackEvent(
 
 // ─── Output ─────────────────────────────────────────────────────────────────
 
+/**
+ * Slack Output with step accumulation.
+ *
+ * Instead of overwriting a single "thinking" message each time, this output
+ * detects step boundaries (each Claude assistant message = one step) and
+ * accumulates them into a growing Slack message. When Slack block limits
+ * are reached, a new overflow message is created automatically.
+ *
+ * Step detection: when `showProgress(text)` receives text that does NOT
+ * start with the previous text, it means a new assistant message has started
+ * (= new step). The previous text is flushed to the completed-steps buffer.
+ */
 function createSlackOutput(
   slack: WebClient,
   context: ConnectorOutputContext,
   thinkingMessage?: string | false,
 ): ConnectorOutput {
-  // conversationId format: "channel:thread_ts"
   const [channel, threadTs] = context.conversationId.split(':')
-  let progressTs: string | undefined
-  let lastProgressTime = 0
-  let thinkingReady: Promise<void> | undefined
-  const THROTTLE_MS = 1500
-  const THINKING_TIMEOUT_MS = 3000
 
-  /** Wait for thinking indicator with timeout — never blocks result delivery for long */
-  async function awaitThinking(): Promise<void> {
-    if (!thinkingReady) return
-    const timeout = new Promise<void>(resolve => setTimeout(resolve, THINKING_TIMEOUT_MS))
-    await Promise.race([thinkingReady, timeout])
-    thinkingReady = undefined
+  // --- Accumulated state ---
+  const completedSteps: string[] = [] // Flushed step texts
+  let currentText = ''                // Latest progress text (live step)
+  let activeTs: string | undefined    // Message ts being updated
+  let frozenStepCount = 0             // Steps baked into previous (frozen) messages
+  let lastRenderTime = 0
+  let finalized = false               // true after sendResult/sendError
+
+  const THROTTLE_MS = 1500
+  const MAX_BLOCKS = 45       // Leave headroom below Slack's 50-block limit
+  const MAX_TEXT_LENGTH = 2800 // Slack text field limit ~3000 chars; leave buffer
+
+  // --- Serialize all Slack API calls to prevent race conditions ---
+  let apiQueue: Promise<void> = Promise.resolve()
+  function enqueue(fn: () => Promise<void>): Promise<void> {
+    const p = apiQueue.then(fn).catch(err => console.warn('[slack] enqueued api call failed:', err))
+    apiQueue = p
+    return p
   }
 
-  // Send thinking indicator immediately on creation (context block = small text, like v1)
+  // Post thinking indicator immediately
   if (thinkingMessage && thinkingMessage !== '') {
-    thinkingReady = slack.chat.postMessage({
-      channel,
-      thread_ts: threadTs,
-      text: thinkingMessage,
-      blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage }] }],
+    enqueue(async () => {
+      try {
+        const result = await slack.chat.postMessage({
+          channel,
+          thread_ts: threadTs,
+          text: thinkingMessage,
+          blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage }] }],
+        })
+        activeTs = result.ts
+        lastRenderTime = Date.now()
+      } catch (err) {
+        console.warn('[slack] thinkingMessage failed:', err)
+      }
     })
-      .then(r => { progressTs = r.ts; lastProgressTime = Date.now() })
-      .catch((err) => { console.warn('[slack] thinkingMessage failed:', err) })
+  }
+
+  /** Detect if incoming text represents a new step (vs streaming continuation) */
+  function isNewStep(newText: string): boolean {
+    if (!currentText || currentText.length === 0) return false
+    if (newText === currentText) return false
+    // progress events replace entirely (new assistant message) → different prefix
+    // progress.delta events append → new text starts with current text
+    return !newText.startsWith(currentText)
+  }
+
+  /**
+   * Render steps (from `startIdx`) into a Slack payload.
+   * Steps are joined with `---` separators; markdownToSlack handles
+   * mrkdwn conversion, section splitting, and the 1-table-per-message limit.
+   */
+  function renderSteps(steps: string[], liveText?: string): SlackMessagePayload {
+    const parts = [...steps]
+    if (liveText?.trim()) {
+      parts.push(liveText)
+    }
+    if (parts.length === 0) return { text: '' }
+    const combined = parts.join('\n\n---\n\n')
+    return markdownToSlack(combined)
+  }
+
+  /** Update or create the active Slack message. Handles overflow. */
+  async function renderMessage(options?: { final?: boolean }): Promise<void> {
+    // Determine which steps to render in the active message
+    const stepsForMessage = completedSteps.slice(frozenStepCount)
+    const liveText = options?.final ? undefined : currentText
+    const payload = renderSteps(stepsForMessage, liveText)
+
+    if (!payload.text.trim()) return
+
+    const blockCount = payload.blocks?.length ?? 1
+
+    // --- Overflow check: block count OR text length ---
+    const textLength = payload.text.length
+    if (activeTs && (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH)) {
+      // 1. Freeze the current message with only its completed steps (no live text)
+      const frozenPayload = renderSteps(completedSteps.slice(frozenStepCount))
+      if (frozenPayload.text.trim()) {
+        try {
+          await slack.chat.update({ channel, ts: activeTs, ...frozenPayload })
+        } catch {
+          // Best-effort — old message may stay with stale live text
+        }
+      }
+
+      // 2. Start a new message with only the latest step(s)
+      frozenStepCount = Math.max(0, completedSteps.length - 1)
+      const overflowSteps = completedSteps.slice(frozenStepCount)
+      const overflowPayload = renderSteps(overflowSteps, liveText)
+
+      // Guard: if even the overflow payload exceeds limits (single huge step),
+      // truncate to fit rather than creating an infinite chain of overflow messages
+      const overflowBlocks = overflowPayload.blocks?.length ?? 1
+      const overflowTextLen = overflowPayload.text.length
+      let safePayload: SlackMessagePayload
+      if (overflowBlocks > MAX_BLOCKS || overflowTextLen > MAX_TEXT_LENGTH) {
+        // Truncate text to fit, strip blocks
+        const truncated = overflowPayload.text.slice(0, MAX_TEXT_LENGTH - 20) + '\n\n_(truncated)_'
+        safePayload = { text: truncated }
+      } else {
+        safePayload = overflowPayload
+      }
+
+      try {
+        const result = await slack.chat.postMessage({
+          channel,
+          thread_ts: threadTs,
+          ...safePayload,
+        })
+        activeTs = result.ts
+        console.log(`[slack] overflow → new message ts=${result.ts}`)
+      } catch (err) {
+        console.warn('[slack] overflow postMessage failed:', err)
+      }
+      return
+    }
+
+    // --- Normal update or create ---
+    if (activeTs) {
+      try {
+        await slack.chat.update({ channel, ts: activeTs, ...payload })
+      } catch (err) {
+        console.warn('[slack] chat.update failed, posting new message:', err)
+        try {
+          const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, ...payload })
+          activeTs = result.ts
+        } catch (err2) {
+          console.warn('[slack] fallback postMessage also failed:', err2)
+        }
+      }
+    } else {
+      try {
+        const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, ...payload })
+        activeTs = result.ts
+      } catch (err) {
+        console.warn('[slack] postMessage failed:', err)
+      }
+    }
   }
 
   return {
     async showProgress(text: string): Promise<void> {
-      await awaitThinking()
+      if (finalized) return
+      if (text === currentText) return
 
-      const now = Date.now()
-      if (now - lastProgressTime < THROTTLE_MS && progressTs) return
-
-      try {
-        if (progressTs) {
-          await slack.chat.update({ channel, ts: progressTs, text: `_${text}_` })
-        } else {
-          const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, text: `_${text}_` })
-          progressTs = result.ts
-        }
-        lastProgressTime = now
-      } catch (err) {
-        console.warn('[slack] showProgress failed:', err)
+      // Detect step transition
+      if (isNewStep(text)) {
+        completedSteps.push(currentText)
       }
+      currentText = text
+
+      // Throttle rendering — steps naturally space out (tool execution takes time),
+      // but streaming deltas can fire rapidly.
+      const now = Date.now()
+      if (now - lastRenderTime < THROTTLE_MS && activeTs) return
+
+      await enqueue(async () => {
+        await renderMessage()
+        lastRenderTime = Date.now()
+      })
     },
 
     async sendResult(text: string): Promise<void> {
-      await awaitThinking()
+      finalized = true
 
-      // Delete progress/thinking message if exists
-      if (progressTs) {
-        try {
-          await slack.chat.delete({ channel, ts: progressTs })
-        } catch {
-          // Ignore
+      // Flush current progress as a completed step if it differs from the result
+      // Use trimmed comparison to tolerate minor whitespace differences
+      if (currentText && currentText.trim() !== text.trim()) {
+        completedSteps.push(currentText)
+      }
+      currentText = ''
+
+      // Add result as the final step (avoid duplicating the last completed step)
+      const lastStep = completedSteps[completedSteps.length - 1]
+      if (text.trim() && text.trim() !== lastStep?.trim()) {
+        completedSteps.push(text)
+      }
+
+      // Guard: no content at all
+      if (completedSteps.length === 0) {
+        if (!text.trim()) {
+          console.warn('[slack] sendResult skipped: empty text and no steps')
+          return
         }
-        progressTs = undefined
+        completedSteps.push(text)
       }
 
-      // Guard against empty text — Slack API rejects empty messages with no_text
-      if (!text.trim()) {
-        console.warn('[slack] sendResult skipped: empty text')
-        return
-      }
+      console.log(`[slack] sendResult: channel=${channel}, thread_ts=${threadTs}, steps=${completedSteps.length}, text.length=${text.length}`)
 
-      console.log(`[slack] sendResult: channel=${channel}, thread_ts=${threadTs}, text.length=${text.length}`)
-      try {
-        const payload = markdownToSlack(text)
-        const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, ...payload })
-        console.log(`[slack] sendResult ok: ts=${result.ts}, ok=${result.ok}`)
-      } catch (err) {
-        console.error(`[slack] sendResult failed:`, err)
-        throw err
-      }
+      await enqueue(async () => {
+        try {
+          await renderMessage({ final: true })
+          console.log(`[slack] sendResult ok: ts=${activeTs}`)
+        } catch (err) {
+          console.error(`[slack] sendResult render failed:`, err)
+        }
+      })
     },
 
     async sendError(message: string): Promise<void> {
-      // Delete progress/thinking message if exists
-      if (progressTs) {
-        try {
-          await slack.chat.delete({ channel, ts: progressTs })
-        } catch {
-          // Ignore
-        }
-        progressTs = undefined
+      finalized = true
+
+      // Flush live progress if any
+      if (currentText.trim()) {
+        completedSteps.push(currentText)
+        currentText = ''
       }
 
-      await slack.chat.postMessage({ channel, thread_ts: threadTs, text: `:warning: ${message}` })
+      // Append error as a final segment
+      completedSteps.push(`:warning: ${message}`)
+
+      await enqueue(async () => {
+        try {
+          if (completedSteps.length > 1) {
+            // Has accumulated content — render steps + error together
+            await renderMessage({ final: true })
+          } else {
+            // No prior content — simple error message
+            if (activeTs) {
+              try {
+                await slack.chat.update({
+                  channel,
+                  ts: activeTs,
+                  text: `:warning: ${message}`,
+                })
+              } catch {
+                await slack.chat.postMessage({
+                  channel,
+                  thread_ts: threadTs,
+                  text: `:warning: ${message}`,
+                })
+              }
+            } else {
+              await slack.chat.postMessage({
+                channel,
+                thread_ts: threadTs,
+                text: `:warning: ${message}`,
+              })
+            }
+          }
+        } catch (err) {
+          console.error(`[slack] sendError render failed:`, err)
+        }
+      })
     },
 
     async dispose(): Promise<void> {
-      if (progressTs) {
-        try {
-          await slack.chat.delete({ channel, ts: progressTs })
-        } catch {
-          // Ignore
-        }
+      // If steps were accumulated, keep them visible (useful content).
+      // Only delete the message if it's still just the thinking indicator.
+      if (completedSteps.length === 0 && !currentText.trim() && activeTs && !finalized) {
+        await enqueue(async () => {
+          try {
+            await slack.chat.delete({ channel, ts: activeTs! })
+          } catch {
+            // Ignore — message may already be deleted
+          }
+        })
       }
     },
   }
