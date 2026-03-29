@@ -461,7 +461,7 @@ function createSlackOutput(
 
   /**
    * Render steps (from `startIdx`) into a Slack payload.
-   * Steps are joined with blank lines; markdownToSlack handles
+   * Steps are joined with newlines (no extra blank lines); markdownToSlack handles
    * mrkdwn conversion, section splitting, and the 1-table-per-message limit.
    */
   function renderSteps(steps: string[], liveText?: string): SlackMessagePayload {
@@ -470,7 +470,7 @@ function createSlackOutput(
       parts.push(liveText)
     }
     if (parts.length === 0) return { text: '' }
-    const combined = parts.join('\n\n')
+    const combined = parts.join('\n')
     return markdownToSlack(combined)
   }
 
