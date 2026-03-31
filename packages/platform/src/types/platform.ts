@@ -5,6 +5,7 @@ import type {
   BotRepository,
   ConfigTokenRepository,
   OAuthStateRepository,
+  WorkspaceAdminConfigRepository,
 } from './repository.js'
 
 /**
@@ -18,6 +19,7 @@ export interface Platform {
   bots: BotRepository
   configTokens: ConfigTokenRepository
   oauthStates: OAuthStateRepository
+  workspaceAdminConfig: WorkspaceAdminConfigRepository
 }
 
 /**

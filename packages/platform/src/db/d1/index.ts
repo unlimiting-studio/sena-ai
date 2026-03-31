@@ -3,9 +3,11 @@ import { eq, and, lt } from 'drizzle-orm'
 import type {
   BotRow,
   ConfigTokenRow,
+  WorkspaceAdminConfigRow,
   BotRepository,
   ConfigTokenRepository,
   OAuthStateRepository,
+  WorkspaceAdminConfigRepository,
 } from '../../types/repository.js'
 import * as schema from './schema.js'
 
@@ -35,10 +37,26 @@ function rowToBot(row: typeof schema.bots.$inferSelect): BotRow {
   }
 }
 
+function rowToWorkspaceAdminConfig(
+  row: typeof schema.workspaceAdminConfig.$inferSelect,
+): WorkspaceAdminConfigRow {
+  return {
+    workspaceId: row.workspaceId,
+    slackClientId: row.slackClientId,
+    slackClientSecretEnc: row.slackClientSecretEnc,
+    dCookieEnc: row.dCookieEnc,
+    xoxcTokenEnc: row.xoxcTokenEnc,
+    workspaceDomain: row.workspaceDomain,
+    updatedAt: row.updatedAt,
+    updatedByUserId: row.updatedByUserId,
+  }
+}
+
 export interface D1Repositories {
   bots: BotRepository
   configTokens: ConfigTokenRepository
   oauthStates: OAuthStateRepository
+  workspaceAdminConfig: WorkspaceAdminConfigRepository
 }
 
 export function createD1Repositories(db: D1Db): D1Repositories {
@@ -46,6 +64,7 @@ export function createD1Repositories(db: D1Db): D1Repositories {
     bots: createD1BotRepository(db),
     configTokens: createD1ConfigTokenRepository(db),
     oauthStates: createD1OAuthStateRepository(db),
+    workspaceAdminConfig: createD1WorkspaceAdminConfigRepository(db),
   }
 }
 
@@ -87,18 +106,13 @@ function createD1BotRepository(db: D1Db): BotRepository {
       const [row] = await db
         .select()
         .from(schema.bots)
-        .where(
-          and(eq(schema.bots.id, id), eq(schema.bots.status, status)),
-        )
+        .where(and(eq(schema.bots.id, id), eq(schema.bots.status, status)))
         .limit(1)
       return row ? rowToBot(row) : null
     },
 
     async findAll() {
-      const rows = await db
-        .select()
-        .from(schema.bots)
-        .orderBy(schema.bots.createdAt)
+      const rows = await db.select().from(schema.bots).orderBy(schema.bots.createdAt)
       return rows.map(rowToBot)
     },
 
@@ -149,9 +163,7 @@ function createD1BotRepository(db: D1Db): BotRepository {
   }
 }
 
-function createD1ConfigTokenRepository(
-  db: D1Db,
-): ConfigTokenRepository {
+function createD1ConfigTokenRepository(db: D1Db): ConfigTokenRepository {
   return {
     async findByWorkspaceId(id) {
       const [row] = await db
@@ -204,9 +216,7 @@ function createD1ConfigTokenRepository(
   }
 }
 
-function createD1OAuthStateRepository(
-  db: D1Db,
-): OAuthStateRepository {
+function createD1OAuthStateRepository(db: D1Db): OAuthStateRepository {
   return {
     async create(row) {
       await db.insert(schema.oauthStates).values({
@@ -225,15 +235,11 @@ function createD1OAuthStateRepository(
       if (!row) return null
 
       if (row.expiresAt < new Date()) {
-        await db
-          .delete(schema.oauthStates)
-          .where(eq(schema.oauthStates.state, state))
+        await db.delete(schema.oauthStates).where(eq(schema.oauthStates.state, state))
         return null
       }
 
-      await db
-        .delete(schema.oauthStates)
-        .where(eq(schema.oauthStates.state, state))
+      await db.delete(schema.oauthStates).where(eq(schema.oauthStates.state, state))
 
       return {
         state: row.state,
@@ -243,12 +249,56 @@ function createD1OAuthStateRepository(
     },
 
     async deleteExpired() {
+      await db.delete(schema.oauthStates).where(lt(schema.oauthStates.expiresAt, new Date()))
+    },
+  }
+}
+
+function createD1WorkspaceAdminConfigRepository(
+  db: D1Db,
+): WorkspaceAdminConfigRepository {
+  return {
+    async findByWorkspaceId(workspaceId) {
+      const [row] = await db
+        .select()
+        .from(schema.workspaceAdminConfig)
+        .where(eq(schema.workspaceAdminConfig.workspaceId, workspaceId))
+        .limit(1)
+      return row ? rowToWorkspaceAdminConfig(row) : null
+    },
+
+    async findAll() {
+      const rows = await db.select().from(schema.workspaceAdminConfig)
+      return rows.map(rowToWorkspaceAdminConfig)
+    },
+
+    async upsert(config) {
       await db
-        .delete(schema.oauthStates)
-        .where(lt(schema.oauthStates.expiresAt, new Date()))
+        .insert(schema.workspaceAdminConfig)
+        .values({
+          workspaceId: config.workspaceId,
+          slackClientId: config.slackClientId,
+          slackClientSecretEnc: config.slackClientSecretEnc,
+          dCookieEnc: config.dCookieEnc,
+          xoxcTokenEnc: config.xoxcTokenEnc,
+          workspaceDomain: config.workspaceDomain,
+          updatedByUserId: config.updatedByUserId,
+        })
+        .onConflictDoUpdate({
+          target: schema.workspaceAdminConfig.workspaceId,
+          set: {
+            slackClientId: config.slackClientId,
+            slackClientSecretEnc: config.slackClientSecretEnc,
+            dCookieEnc: config.dCookieEnc,
+            xoxcTokenEnc: config.xoxcTokenEnc,
+            workspaceDomain: config.workspaceDomain,
+            updatedByUserId: config.updatedByUserId,
+            updatedAt: new Date(),
+          },
+        })
     },
   }
 }
 
 // Re-export schema for migrations
-export { bots, configTokens, oauthStates } from './schema.js'
+export { bots, configTokens, oauthStates, workspaceAdminConfig } from './schema.js'

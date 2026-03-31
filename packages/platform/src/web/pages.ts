@@ -17,7 +17,12 @@ function layout(title: string, body: string): string {
   <nav class="bg-white border-b border-gray-200">
     <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
       <a href="/" class="text-xl font-bold text-gray-900">Sena Platform</a>
-      <span class="text-sm text-gray-500">Slack Bot Provisioning</span>
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-500">Slack Bot Provisioning</span>
+        <form method="POST" action="/auth/logout" class="inline">
+          <button type="submit" class="text-sm text-gray-500 hover:text-gray-700">로그아웃</button>
+        </form>
+      </div>
     </div>
   </nav>
   <main class="max-w-5xl mx-auto px-4 py-8">

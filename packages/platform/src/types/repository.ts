@@ -35,6 +35,17 @@ export interface OAuthStateRow {
   expiresAt: Date
 }
 
+export interface WorkspaceAdminConfigRow {
+  workspaceId: string
+  slackClientId: string | null
+  slackClientSecretEnc: string | null
+  dCookieEnc: string | null
+  xoxcTokenEnc: string | null
+  workspaceDomain: string | null
+  updatedAt: Date
+  updatedByUserId: string | null
+}
+
 export interface BotRepository {
   findById(id: string): Promise<BotRow | null>
   findByConnectKey(connectKey: string): Promise<BotRow | null>
@@ -73,4 +84,10 @@ export interface OAuthStateRepository {
   create(row: OAuthStateRow): Promise<void>
   consume(state: string): Promise<OAuthStateRow | null>
   deleteExpired(): Promise<void>
+}
+
+export interface WorkspaceAdminConfigRepository {
+  findByWorkspaceId(workspaceId: string): Promise<WorkspaceAdminConfigRow | null>
+  findAll(): Promise<WorkspaceAdminConfigRow[]>
+  upsert(config: Omit<WorkspaceAdminConfigRow, 'updatedAt'>): Promise<void>
 }

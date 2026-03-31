@@ -5,8 +5,10 @@ import { createApiProxy } from './relay/api-proxy.js'
 import { createSlackEventsHandler } from './slack/events.js'
 import { createOAuthHandler } from './slack/oauth.js'
 import { createProvisioner, type Provisioner } from './slack/provisioner.js'
-import { createPages } from './web/pages.js'
+import { createAuthHandler, createAuthMiddleware } from './auth/handler.js'
 import { createWebApi } from './web/api.js'
+import { createPages } from './web/pages.js'
+import { createSetupPage } from './web/setup.js'
 
 export interface CreateAppResult {
   app: Hono
@@ -64,7 +66,7 @@ cd "\$DIR_NAME"
 
 # Escape special characters for sed replacement
 escape_sed() {
-  printf '%s' "\$1" | sed 's/[&/\\\\]/\\\\&/g'
+  printf '%s' "\$1" | sed 's/[&/\\]/\\&/g'
 }
 
 # Customize package.json name
@@ -103,6 +105,11 @@ export function createApp(
     platform.configTokens,
     platform.vault,
     config.platformBaseUrl,
+  )
+
+  const authMiddleware = createAuthMiddleware(
+    platform.workspaceAdminConfig,
+    platform.vault,
   )
 
   // Serve bootstrap script at /install.sh
@@ -153,7 +160,7 @@ export function createApp(
     ),
   )
 
-  // OAuth
+  // Bot installation OAuth
   app.route(
     '/',
     createOAuthHandler(
@@ -163,6 +170,25 @@ export function createApp(
       platform.oauthStates,
     ),
   )
+
+  // Slack login setup + auth
+  app.route('/', createSetupPage(platform.workspaceAdminConfig, platform.vault))
+  app.route(
+    '/',
+    createAuthHandler(
+      platform.workspaceAdminConfig,
+      platform.oauthStates,
+      platform.crypto,
+      platform.vault,
+      { platformBaseUrl: config.platformBaseUrl },
+    ),
+  )
+
+  // Protect all subsequent web/API/admin routes.
+  app.use('/', authMiddleware.requireAuth)
+  app.use('/bots/*', authMiddleware.requireAuth)
+  app.use('/api/*', authMiddleware.requireAuth)
+  app.use('/admin/*', authMiddleware.requireAuth)
 
   // Web API
   app.route(
