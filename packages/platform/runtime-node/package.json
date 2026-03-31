@@ -1,6 +1,6 @@
 {
-  "name": "@sena-ai/platform-server",
-  "version": "0.1.0",
+  "name": "@sena-ai/platform-node",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
-    "@sena-ai/platform": "workspace:*",
+    "@sena-ai/platform-core": "workspace:*",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.4",
     "hono": "^4.7.4",

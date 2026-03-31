@@ -128,11 +128,19 @@ Orchestrator (public port)
 | `@sena-ai/core` | 프레임워크 코어 — `defineConfig`, `env`, `createAgent`, `TurnEngine` |
 | `@sena-ai/hooks` | 기본 제공 훅 — `fileContext`, `traceLogger`, `cronSchedule`, `heartbeat` |
 | `@sena-ai/tools` | 외부 MCP 서버 연결 헬퍼 — `mcpServer` |
-| `@sena-ai/tools-slack` | Slack MCP 도구 — 메시지 조회/전송, 파일 업로드/다운로드 |
-| `@sena-ai/connector-slack` | Slack 커넥터 — HTTP Events API + Socket Mode 지원 |
+| `@sena-ai/cli` | CLI — `start`, `stop`, `restart`, `status`, `logs` |
+| **런타임** | |
 | `@sena-ai/runtime-claude` | Claude Agent SDK 기반 런타임 |
 | `@sena-ai/runtime-codex` | Codex App Server 기반 런타임 |
-| `@sena-ai/cli` | CLI — `start`, `stop`, `restart`, `status`, `logs` |
+| **Slack 연동** | |
+| `@sena-ai/connector-slack` | Slack 커넥터 — HTTP Events API + Socket Mode 지원 |
+| `@sena-ai/tools-slack` | Slack MCP 도구 — 메시지 조회/전송, 파일 업로드/다운로드 |
+| `@sena-ai/slack` | connector-slack + tools-slack 번들 re-export |
+| **플랫폼** | |
+| `@sena-ai/platform-core` | 멀티테넌트 플랫폼 라이브러리 — OAuth, 릴레이, Vault |
+| `@sena-ai/platform-connector` | 에이전트→플랫폼 SSE/WS 커넥터 |
+| `@sena-ai/platform-node` | Node.js 서버 배포 (MySQL) |
+| `@sena-ai/platform-worker` | Cloudflare Workers 배포 (D1) |
 
 ```
 sena/
@@ -140,12 +148,20 @@ sena/
 │   ├── core/
 │   ├── hooks/
 │   ├── tools/
-│   ├── tools-slack/
-│   ├── connector-slack/
-│   ├── runtime-claude/
-│   ├── runtime-codex/
-│   └── cli/
-├── agent/              에이전트 실행 설정 (sena.yaml 등)
+│   ├── cli/
+│   ├── runtime/
+│   │   ├── claude/
+│   │   └── codex/
+│   ├── integrations/
+│   │   └── slack/
+│   │       ├── connector/
+│   │       ├── tools/
+│   │       └── bundle/
+│   └── platform/
+│       ├── core/
+│       ├── connector/
+│       ├── runtime-node/
+│       └── runtime-worker/
 ├── tests/
 ├── package.json
 ├── pnpm-workspace.yaml

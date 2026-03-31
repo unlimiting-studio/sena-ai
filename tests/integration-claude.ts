@@ -8,7 +8,7 @@
  */
 
 import { createTurnEngine } from '../packages/core/dist/index.js'
-import { claudeRuntime } from '../packages/runtime-claude/dist/index.js'
+import { claudeRuntime } from '../packages/runtime/claude/dist/index.js'
 import type { RuntimeEvent, TurnStartHook, TurnEndHook, ContextFragment } from '../packages/core/dist/index.js'
 
 // ── Helpers ──

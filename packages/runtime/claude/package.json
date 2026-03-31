@@ -1,5 +1,5 @@
 {
-  "name": "@sena-ai/hooks",
+  "name": "@sena-ai/runtime-claude",
   "version": "1.4.0",
   "type": "module",
   "exports": {
@@ -17,7 +17,10 @@
     "dev": "tsc -b --watch"
   },
   "dependencies": {
-    "@sena-ai/core": "workspace:*"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@sena-ai/core": "workspace:*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.8.0"

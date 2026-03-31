@@ -21,11 +21,12 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/hooks" },
-    { "path": "packages/runtime-claude" },
-    { "path": "packages/runtime-codex" },
+    { "path": "packages/runtime/claude" },
+    { "path": "packages/runtime/codex" },
     { "path": "packages/tools" },
-    { "path": "packages/tools-slack" },
-    { "path": "packages/connector-slack" },
+    { "path": "packages/integrations/slack/tools" },
+    { "path": "packages/integrations/slack/connector" },
+    { "path": "packages/integrations/slack/bundle" },
     { "path": "packages/cli" }
   ]
 }

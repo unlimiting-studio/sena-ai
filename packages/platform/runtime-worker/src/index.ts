@@ -1,6 +1,6 @@
-import { createApp, createProvisioner } from '@sena-ai/platform'
-import { createCfRuntime, type CfEnv } from '@sena-ai/platform/cf'
-import { initD1, createD1Repositories } from '@sena-ai/platform/db/d1'
+import { createApp, createProvisioner } from '@sena-ai/platform-core'
+import { createCfRuntime, type CfEnv } from '@sena-ai/platform-core/cf'
+import { initD1, createD1Repositories } from '@sena-ai/platform-core/db/d1'
 
 export { RelayDurableObject } from './relay-do.js'
 
