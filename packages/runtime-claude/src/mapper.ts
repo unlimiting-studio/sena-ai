@@ -1,5 +1,16 @@
 import type { RuntimeEvent } from '@sena-ai/core'
 
+export type ToolResultMeta = {
+  toolName: string
+  isError: boolean
+  errorText?: string
+}
+
+export type SdkMessageMapResult = {
+  events: RuntimeEvent[]
+  toolResults: ToolResultMeta[]
+}
+
 /**
  * Claude Agent SDK의 SDKMessage를 Sena RuntimeEvent 배열로 변환한다.
  *
@@ -9,8 +20,15 @@ export class SdkMessageMapper {
   /** tool_use block id → tool name */
   private toolUseIdToName = new Map<string, string>()
 
+  /** Backward-compatible: returns only events */
   map(msg: any): RuntimeEvent[] {
+    return this.mapWithMeta(msg).events
+  }
+
+  /** Returns events + tool result metadata (for reconnect detection) */
+  mapWithMeta(msg: any): SdkMessageMapResult {
     const events: RuntimeEvent[] = []
+    const toolResults: ToolResultMeta[] = []
 
     switch (msg.type) {
       case 'system':
@@ -56,10 +74,18 @@ export class SdkMessageMapper {
             if (block.type === 'tool_result') {
               const toolName = this.toolUseIdToName.get(block.tool_use_id) ?? 'unknown'
               this.toolUseIdToName.delete(block.tool_use_id)
-              events.push({
-                type: 'tool.end',
+
+              const meta: ToolResultMeta = {
                 toolName,
                 isError: block.is_error === true,
+                errorText: extractToolResultText(block),
+              }
+              toolResults.push(meta)
+
+              events.push({
+                type: 'tool.end',
+                toolName: meta.toolName,
+                isError: meta.isError,
               })
             }
           }
@@ -79,8 +105,28 @@ export class SdkMessageMapper {
       }
     }
 
-    return events
+    return { events, toolResults }
   }
+}
+
+function extractToolResultText(block: { content?: unknown }): string | undefined {
+  const { content } = block
+  if (typeof content === 'string') {
+    return content.trim() || undefined
+  }
+  if (!Array.isArray(content)) return undefined
+
+  const text = content
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object' && item.type === 'text' && typeof item.text === 'string') return item.text
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+
+  return text || undefined
 }
 
 /**
