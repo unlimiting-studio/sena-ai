@@ -1,6 +1,12 @@
 import { isBrandedToolResult } from '@sena-ai/core'
 import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, McpConfig, RuntimeInfo, InlineToolPort } from '@sena-ai/core'
-import { SdkMessageMapper } from './mapper.js'
+import { SdkMessageMapper, type ToolResultMeta } from './mapper.js'
+import { startInlineMcpHttpBridge } from './inline-mcp-bridge.js'
+
+const NATIVE_SERVER_NAME = '__native__'
+const NATIVE_SLACK_TOOL_PREFIX = `mcp__${NATIVE_SERVER_NAME}__slack_`
+const STREAM_CLOSED_TEXT = 'Stream closed'
+const MAX_RECONNECTS = 1
 
 type NativeTool = {
   name: string
@@ -179,6 +185,10 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       const runtimeInfo: RuntimeInfo = { name: 'claude' }
       const { mcpServers, nativeTools, allowedTools } = buildToolConfig(tools, runtimeInfo)
 
+      // Start owned HTTP MCP bridge for inline tools (replaces SDK's createSdkMcpServer)
+      const inlineTools = tools.filter((tool): tool is InlineToolPort => tool.type === 'inline')
+      const inlineBridge = await startInlineMcpHttpBridge(inlineTools)
+
       // Get first user message from prompt iterable, wrapped with prepend/append fragments
       let userText = ''
       for await (const msg of promptIterable) {
@@ -225,35 +235,16 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         sdkOptions.env = sdkEnv
       }
 
-      // Register inline (native) tools as an in-process SDK MCP server so the
-      // Claude Agent SDK can invoke them via the MCP protocol.
+      // Register inline tools via owned HTTP MCP bridge (replaces SDK's createSdkMcpServer).
+      // The bridge gives us direct transport lifecycle observability (onclose/dirty).
       const allMcpServers = { ...mcpServers }
-      // Strip bare inline tool names from allowedTools — they will be re-added
-      // below under the mcp__<server>__* wildcard after the server is registered.
       const inlineToolNames = new Set(nativeTools.map(t => t.name))
       const effectiveAllowedTools = allowedTools.filter(t => !inlineToolNames.has(t))
 
-      if (nativeTools.length > 0) {
-        const { createSdkMcpServer } = await import('@anthropic-ai/claude-agent-sdk')
-        const { z } = await import('zod')
-
-        const NATIVE_SERVER_NAME = '__native__'
-
-        const inlineTools = tools.filter((t): t is InlineToolPort => t.type === 'inline')
-        const sdkTools = inlineTools.map(t => ({
-          name: t.name,
-          description: t.inline.description,
-          // Use the original Zod params shape when available so the model sees
-          // typed parameter descriptions.  Fall back to passthrough for tools
-          // that were registered without explicit params.
-          inputSchema: t.inline.params ?? (z.object({}).passthrough() as any),
-          handler: wrapHandler(t.inline.handler),
-        }))
-
-        const sdkServer = createSdkMcpServer({ name: NATIVE_SERVER_NAME, tools: sdkTools as any })
-        allMcpServers[NATIVE_SERVER_NAME] = sdkServer as any
-        // Auto-allow all tools on the native SDK server
+      if (inlineBridge) {
+        allMcpServers[NATIVE_SERVER_NAME] = inlineBridge.getConfig() as any
         effectiveAllowedTools.push(`mcp__${NATIVE_SERVER_NAME}__*`)
+        console.log(`[runtime-claude] owned MCP bridge started at ${inlineBridge.url}`)
       }
 
       if (Object.keys(allMcpServers).length > 0) {
@@ -279,13 +270,23 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
 
       // Steer loop: run query, and if pending messages arrive at a tool boundary,
       // interrupt + resume with the new message.
+      // Also detects native MCP bridge Stream closed errors and reconnects.
       let currentPrompt = userText
       let currentSessionId = sessionId
       let shouldContinue = true
+      let nativeReconnects = 0
       const mapper = new SdkMessageMapper()
 
+      try {
       while (shouldContinue) {
         shouldContinue = false
+
+        // If bridge was marked dirty (transport closed unexpectedly), reset it
+        // before starting a new query iteration.
+        if (inlineBridge?.consumeDirtySignal()) {
+          console.log(`[runtime-claude] bridge dirty before iteration — resetting`)
+          await inlineBridge.reset()
+        }
 
         const currentOptions = { ...sdkOptions }
         if (currentSessionId) {
@@ -305,7 +306,33 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         let steerInterrupted = false
 
         for await (const msg of stream) {
-          const events = mapper.map(msg)
+          const { events, toolResults } = mapper.mapWithMeta(msg)
+
+          // Detect native Slack tool Stream closed errors for reconnect
+          if (inlineBridge && nativeReconnects < MAX_RECONNECTS) {
+            const streamClosedResult = toolResults.find(
+              r => r.isError
+                && r.toolName.startsWith(NATIVE_SLACK_TOOL_PREFIX)
+                && r.errorText?.includes(STREAM_CLOSED_TEXT),
+            )
+            if (streamClosedResult) {
+              nativeReconnects++
+              console.log(
+                `[runtime-claude] native MCP Stream closed on ${streamClosedResult.toolName} — resetting bridge (attempt ${nativeReconnects}/${MAX_RECONNECTS})`,
+              )
+              await inlineBridge.reset()
+              // Interrupt current stream and resume to retry
+              shouldContinue = true
+              steerInterrupted = true
+              try {
+                await stream.interrupt()
+              } catch {
+                // stream may already have ended
+              }
+              continue
+            }
+          }
+
           for (const event of events) {
             // Track session ID for resume
             if (event.type === 'session.init') {
@@ -340,6 +367,14 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
               // Continue consuming remaining events from this stream before restart
             }
           }
+        }
+      }
+      } finally {
+        // Clean up owned bridge when the stream ends
+        if (inlineBridge) {
+          await inlineBridge.close().catch((err) => {
+            console.error(`[runtime-claude] bridge close error:`, err)
+          })
         }
       }
     },
