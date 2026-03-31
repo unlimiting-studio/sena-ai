@@ -1,8 +1,8 @@
 import { defineConfig } from 'drizzle-kit'
-import { TABLE_PREFIX } from '@sena-ai/platform/db/mysql'
+import { TABLE_PREFIX } from '@sena-ai/platform-core/db/mysql'
 
 export default defineConfig({
-  schema: '../../packages/platform/src/db/mysql/schema.ts',
+  schema: '../core/src/db/mysql/schema.ts',
   out: './drizzle',
   dialect: 'mysql',
   dbCredentials: {

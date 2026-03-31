@@ -1,3 +1,5 @@
+> **Note:** 이 문서의 패키지 경로는 구조 변경 이전 기준입니다. 현재 구조는 README.md를 참조하세요.
+
 # Inline Tool API Implementation Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.

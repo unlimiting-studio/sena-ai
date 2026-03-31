@@ -1,6 +1,6 @@
 {
-  "name": "@sena-ai/tools-slack",
-  "version": "1.0.19",
+  "name": "@sena-ai/runtime-codex",
+  "version": "1.4.0",
   "type": "module",
   "exports": {
     ".": {
@@ -17,8 +17,8 @@
     "dev": "tsc -b --watch"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@sena-ai/core": "workspace:*",
-    "@slack/web-api": "^7.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

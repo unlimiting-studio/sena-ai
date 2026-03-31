@@ -1,6 +1,6 @@
 {
-  "name": "@sena-ai/runtime-claude",
-  "version": "1.0.20",
+  "name": "@sena-ai/platform-connector",
+  "version": "1.4.0",
   "type": "module",
   "exports": {
     ".": {
@@ -14,15 +14,16 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b --watch"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "@sena-ai/core": "workspace:*",
-    "zod": "^4.3.6"
+    "eventsource": "^3.0.0"
+  },
+  "peerDependencies": {
+    "@sena-ai/core": ">=1.0.0"
   },
   "devDependencies": {
+    "@sena-ai/core": "workspace:*",
     "typescript": "^5.8.0"
   }
 }

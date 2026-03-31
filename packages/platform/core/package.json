@@ -1,6 +1,6 @@
 {
-  "name": "@sena-ai/platform",
-  "version": "0.1.0",
+  "name": "@sena-ai/platform-core",
+  "version": "1.4.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

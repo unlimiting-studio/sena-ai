@@ -1,6 +1,6 @@
 {
-  "name": "@sena-ai/platform-connector",
-  "version": "0.1.2",
+  "name": "@sena-ai/connector-slack",
+  "version": "1.4.0",
   "type": "module",
   "exports": {
     ".": {
@@ -14,16 +14,14 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc --noEmit"
+    "dev": "tsc -b --watch"
   },
   "dependencies": {
-    "eventsource": "^3.0.0"
-  },
-  "peerDependencies": {
-    "@sena-ai/core": ">=1.0.0"
+    "@sena-ai/core": "workspace:*",
+    "@slack/socket-mode": "^2.0.0",
+    "@slack/web-api": "^7.0.0"
   },
   "devDependencies": {
-    "@sena-ai/core": "workspace:*",
     "typescript": "^5.8.0"
   }
 }

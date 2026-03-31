@@ -15,8 +15,8 @@ FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 
 # Copy package.json files for all workspace packages
-COPY apps/platform-server/package.json apps/platform-server/package.json
-COPY packages/platform/package.json packages/platform/package.json
+COPY packages/platform/runtime-node/package.json packages/platform/runtime-node/package.json
+COPY packages/platform/core/package.json packages/platform/core/package.json
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
@@ -25,12 +25,12 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 
 # Copy source
-COPY apps/platform-server/ apps/platform-server/
-COPY packages/platform/ packages/platform/
+COPY packages/platform/runtime-node/ packages/platform/runtime-node/
+COPY packages/platform/core/ packages/platform/core/
 
 # Build packages in order
-RUN pnpm --filter @sena-ai/platform build && \
-    pnpm --filter @sena-ai/platform-server build
+RUN pnpm --filter @sena-ai/platform-core build && \
+    pnpm --filter @sena-ai/platform-node build
 
 # -- Stage 4: Production --
 FROM node:22-alpine AS production
@@ -41,16 +41,16 @@ WORKDIR /app
 
 # Copy monorepo root files
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/platform-server/package.json apps/platform-server/package.json
-COPY packages/platform/package.json packages/platform/package.json
+COPY packages/platform/runtime-node/package.json packages/platform/runtime-node/package.json
+COPY packages/platform/core/package.json packages/platform/core/package.json
 
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod
 
 # Copy build artifacts
-COPY --from=build /app/packages/platform/dist packages/platform/dist
-COPY --from=build /app/apps/platform-server/dist apps/platform-server/dist
-COPY --from=build /app/apps/platform-server/drizzle apps/platform-server/drizzle
+COPY --from=build /app/packages/platform/core/dist packages/platform/core/dist
+COPY --from=build /app/packages/platform/runtime-node/dist packages/platform/runtime-node/dist
+COPY --from=build /app/packages/platform/runtime-node/drizzle packages/platform/runtime-node/drizzle
 
 # Copy bootstrap script
 COPY scripts/ scripts/
@@ -66,5 +66,5 @@ ENV PORT=3200
 EXPOSE 3200
 
 # Run server
-WORKDIR /app/apps/platform-server
+WORKDIR /app/packages/platform/runtime-node
 CMD ["node", "dist/index.js"]

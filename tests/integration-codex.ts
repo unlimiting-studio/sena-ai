@@ -8,7 +8,7 @@
  */
 
 import { createTurnEngine } from '../packages/core/dist/index.js'
-import { codexRuntime } from '../packages/runtime-codex/dist/index.js'
+import { codexRuntime } from '../packages/runtime/codex/dist/index.js'
 import type { RuntimeEvent, TurnStartHook, TurnEndHook } from '../packages/core/dist/index.js'
 
 // ── Helpers ──

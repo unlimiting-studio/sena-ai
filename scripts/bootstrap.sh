@@ -70,7 +70,7 @@ fi
 
 printf "\n"
 printf "${CYAN}╔══════════════════════════════════════════╗${NC}\n"
-printf "${CYAN}║   sena-platform-slack 봇 설정 시작       ║${NC}\n"
+printf "${CYAN}║      sena-platform-slack 봇 설정 시작       ║${NC}\n"
 printf "${CYAN}╚══════════════════════════════════════════╝${NC}\n"
 printf "\n"
 
@@ -167,10 +167,6 @@ PLATFORM_URL=$PLATFORM_URL
 
 # 플랫폼 연결 키 (봇 인증용)
 CONNECT_KEY=$CONNECT_KEY
-
-# Anthropic API 키 (아래에 직접 입력해주세요)
-# https://console.anthropic.com 에서 발급 가능
-ANTHROPIC_API_KEY=
 ENVEOF
 
 ok ".env 파일 생성됨"

@@ -1,8 +1,8 @@
 import 'dotenv/config'
 import { serve } from '@hono/node-server'
-import { createApp } from '@sena-ai/platform'
-import { createNodeRuntime } from '@sena-ai/platform/node'
-import { initMySQLDb, createMySQLRepositories } from '@sena-ai/platform/db/mysql'
+import { createApp } from '@sena-ai/platform-core'
+import { createNodeRuntime } from '@sena-ai/platform-core/node'
+import { initMySQLDb, createMySQLRepositories } from '@sena-ai/platform-core/db/mysql'
 
 function requireEnv(name: string): string {
   const value = process.env[name]
