@@ -14,7 +14,7 @@ SLACK_WORKSPACE_ID = "default"
 [[d1_databases]]
 binding = "DB"
 database_name = "sena-platform"
-database_id = "02f775da-1352-4bb6-9df7-5298f77d5750"
+database_id = "5d8942dd-9ba3-434a-a451-519c9dd721ac"
 
 [durable_objects]
 bindings = [

@@ -11,9 +11,11 @@ export type {
   BotRow,
   ConfigTokenRow,
   OAuthStateRow,
+  WorkspaceAdminConfigRow,
   BotRepository,
   ConfigTokenRepository,
   OAuthStateRepository,
+  WorkspaceAdminConfigRepository,
   Platform,
   AppConfig,
 } from './types/index.js'

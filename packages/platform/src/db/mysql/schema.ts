@@ -62,3 +62,17 @@ export const oauthStates = mysqlTable('oauth_states', {
   botId: varchar('bot_id', { length: 36 }).notNull(),
   expiresAt: datetime('expires_at').notNull(),
 })
+
+export const workspaceAdminConfig = mysqlTable('workspace_admin_config', {
+  workspaceId: varchar('workspace_id', { length: 64 }).primaryKey(),
+  slackClientId: varchar('slack_client_id', { length: 128 }),
+  slackClientSecretEnc: text('slack_client_secret_enc'),
+  dCookieEnc: text('d_cookie_enc'),
+  xoxcTokenEnc: text('xoxc_token_enc'),
+  workspaceDomain: varchar('workspace_domain', { length: 255 }),
+  updatedAt: datetime('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+  updatedByUserId: varchar('updated_by_user_id', { length: 36 }),
+})

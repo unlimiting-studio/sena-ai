@@ -46,3 +46,17 @@ export const oauthStates = sqliteTable('oauth_states', {
   botId: text('bot_id').notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
 })
+
+export const workspaceAdminConfig = sqliteTable('workspace_admin_config', {
+  workspaceId: text('workspace_id').primaryKey(),
+  slackClientId: text('slack_client_id'),
+  slackClientSecretEnc: text('slack_client_secret_enc'),
+  dCookieEnc: text('d_cookie_enc'),
+  xoxcTokenEnc: text('xoxc_token_enc'),
+  workspaceDomain: text('workspace_domain'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+  updatedByUserId: text('updated_by_user_id'),
+})

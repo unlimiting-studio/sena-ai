@@ -1,7 +1,5 @@
 import 'dotenv/config'
 import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
-import { join } from 'node:path'
 import { createApp } from '@sena-ai/platform'
 import { createNodeRuntime } from '@sena-ai/platform/node'
 import { initMySQLDb, createMySQLRepositories } from '@sena-ai/platform/db/mysql'
@@ -21,13 +19,9 @@ async function main() {
   const PLATFORM_BASE_URL =
     process.env.PLATFORM_BASE_URL || `http://localhost:${PORT}`
   const WORKSPACE_ID = process.env.SLACK_WORKSPACE_ID || 'default'
-  const UPLOADS_DIR =
-    process.env.UPLOADS_DIR || join(process.cwd(), 'data', 'uploads')
-
-  // --- Create runtime (vault, relay, crypto, storage) ---
+  // --- Create runtime (vault, relay, crypto) ---
   const runtime = createNodeRuntime({
     vaultMasterKey: VAULT_MASTER_KEY,
-    uploadsDir: UPLOADS_DIR,
   })
 
   // --- Create DB repositories ---
@@ -43,8 +37,6 @@ async function main() {
     workspaceId: WORKSPACE_ID,
   })
 
-  // Static files (uploaded images) -- Node.js specific
-  app.use('/uploads/*', serveStatic({ root: join(process.cwd(), 'data') }))
 
   // --- Config Token rotation scheduler (10 hours) ---
   setInterval(
