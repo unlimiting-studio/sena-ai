@@ -9,6 +9,7 @@ import { registerStop } from './commands/stop.js'
 import { registerRestart } from './commands/restart.js'
 import { registerStatus } from './commands/status.js'
 import { registerLogs } from './commands/logs.js'
+import { registerInit } from './commands/init.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -29,5 +30,6 @@ registerStop(program)
 registerRestart(program)
 registerStatus(program)
 registerLogs(program)
+registerInit(program)
 
 program.parse()
