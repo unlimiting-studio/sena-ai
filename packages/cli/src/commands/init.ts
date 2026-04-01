@@ -1,6 +1,6 @@
 import type { Command } from 'commander'
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, basename } from 'node:path'
 import { execSync } from 'node:child_process'
 
 export function registerInit(program: Command): void {
@@ -9,13 +9,14 @@ export function registerInit(program: Command): void {
     .description('Create a new Sena bot project')
     .action(async (name: string) => {
       const targetDir = resolve(process.cwd(), name)
+      const botName = basename(targetDir)
 
       if (existsSync(targetDir)) {
         console.error(`Directory '${name}' already exists.`)
         process.exit(1)
       }
 
-      console.log(`Creating '${name}'...`)
+      console.log(`Creating '${botName}'...`)
 
       // Download template via degit
       const degit = (await import('degit')).default
@@ -27,11 +28,11 @@ export function registerInit(program: Command): void {
       const pkgPath = resolve(targetDir, 'package.json')
 
       let config = readFileSync(configPath, 'utf-8')
-      config = config.replace(/%%BOT_NAME%%/g, name)
+      config = config.replace(/%%BOT_NAME%%/g, botName)
       writeFileSync(configPath, config)
 
       let pkg = readFileSync(pkgPath, 'utf-8')
-      pkg = pkg.replace('"sena-bot"', `"${name}"`)
+      pkg = pkg.replace('"sena-bot"', `"${botName}"`)
       writeFileSync(pkgPath, pkg)
 
       // .env.template → .env
@@ -45,10 +46,10 @@ export function registerInit(program: Command): void {
       execSync('pnpm install', { cwd: targetDir, stdio: 'inherit' })
 
       console.log('')
-      console.log(`Done! Your bot '${name}' is ready.`)
+      console.log(`Done! Your bot '${botName}' is ready.`)
       console.log('')
       console.log('Next steps:')
-      console.log(`  cd ${name}`)
+      console.log(`  cd ${botName}`)
       console.log('  # Edit .env with your CONNECT_KEY and PLATFORM_URL')
       console.log('  npx sena start')
     })
