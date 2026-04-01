@@ -22,10 +22,11 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "tsx": "^4.21.0",
+    "@sena-ai/core": "workspace:*",
     "commander": "^13",
+    "degit": "^2.8.4",
     "dotenv": "^16.6",
-    "@sena-ai/core": "workspace:*"
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
