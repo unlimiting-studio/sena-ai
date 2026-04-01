@@ -1,0 +1,11 @@
+{
+  "name": "sena-bot",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sena-ai/cli": "latest",
+    "@sena-ai/core": "latest",
+    "@sena-ai/runtime-claude": "latest",
+    "@sena-ai/slack": "latest"
+  }
+}

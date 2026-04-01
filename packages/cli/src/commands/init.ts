@@ -3,24 +3,44 @@ import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { resolve, basename } from 'node:path'
 import { execSync } from 'node:child_process'
 
+const TEMPLATES: Record<string, { repo: string; envHint: string }> = {
+  'slack-integration': {
+    repo: 'unlimiting-studio/sena-ai/templates/slack-integration',
+    envHint: '  # Edit .env with your Slack credentials',
+  },
+  'platform-integration': {
+    repo: 'unlimiting-studio/sena-ai/templates/platform-integration',
+    envHint: '  # Edit .env with your CONNECT_KEY and PLATFORM_URL',
+  },
+}
+
+const DEFAULT_TEMPLATE = 'slack-integration'
+
 export function registerInit(program: Command): void {
   program
     .command('init <name>')
     .description('Create a new Sena bot project')
-    .action(async (name: string) => {
+    .option('-t, --template <template>', `template to use (${Object.keys(TEMPLATES).join(', ')})`, DEFAULT_TEMPLATE)
+    .action(async (name: string, opts: { template: string }) => {
       const targetDir = resolve(process.cwd(), name)
       const botName = basename(targetDir)
 
-      if (existsSync(targetDir)) {
-        console.error(`Directory '${name}' already exists.`)
+      const tmpl = TEMPLATES[opts.template]
+      if (!tmpl) {
+        console.error(`Unknown template '${opts.template}'. Available: ${Object.keys(TEMPLATES).join(', ')}`)
         process.exit(1)
       }
 
-      console.log(`Creating '${botName}'...`)
+      if (existsSync(targetDir)) {
+        console.error(`Directory '${botName}' already exists.`)
+        process.exit(1)
+      }
+
+      console.log(`Creating '${botName}' (template: ${opts.template})...`)
 
       // Download template via degit
       const degit = (await import('degit')).default
-      const emitter = degit('unlimiting-studio/sena-ai/templates/bot-starter', { cache: false })
+      const emitter = degit(tmpl.repo, { cache: false })
       await emitter.clone(targetDir)
 
       // Replace placeholders
@@ -50,7 +70,7 @@ export function registerInit(program: Command): void {
       console.log('')
       console.log('Next steps:')
       console.log(`  cd ${botName}`)
-      console.log('  # Edit .env with your CONNECT_KEY and PLATFORM_URL')
+      console.log(tmpl.envHint)
       console.log('  npx sena start')
     })
 }
