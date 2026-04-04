@@ -1,4 +1,5 @@
 export { codexRuntime } from './runtime.js'
 export type { CodexRuntimeOptions } from './runtime.js'
 export { CodexAppServerClient } from './client.js'
+export { getCodexInvocation, resolveManagedCodexBin } from './managed-codex.js'
 export { mapCodexNotification } from './mapper.js'

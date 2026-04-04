@@ -1,5 +1,16 @@
 import type { RuntimeEvent } from '@sena-ai/core'
 
+function extractAgentMessageText(item: any): string {
+  if (typeof item?.text === 'string' && item.text.length > 0) {
+    return item.text
+  }
+
+  return item?.content
+    ?.filter((b: any) => b.type === 'text')
+    ?.map((b: any) => b.text)
+    ?.join('') ?? ''
+}
+
 export function mapCodexNotification(method: string, params: any): RuntimeEvent | null {
   switch (method) {
     case 'item/agentMessage/delta':
@@ -59,10 +70,7 @@ export function mapCodexNotification(method: string, params: any): RuntimeEvent 
             toolResponse: item.result,
           }
         case 'agentMessage': {
-          const text = item.content
-            ?.filter((b: any) => b.type === 'text')
-            ?.map((b: any) => b.text)
-            ?.join('') ?? ''
+          const text = extractAgentMessageText(item)
           if (text) return { type: 'progress', text }
           return null
         }
@@ -77,10 +85,7 @@ export function mapCodexNotification(method: string, params: any): RuntimeEvent 
       if (turn.status === 'completed') {
         const agentItems = (turn.items ?? []).filter((i: any) => i.type === 'agentMessage')
         const lastMsg = agentItems[agentItems.length - 1]
-        const text = lastMsg?.content
-          ?.filter((b: any) => b.type === 'text')
-          ?.map((b: any) => b.text)
-          ?.join('') ?? ''
+        const text = extractAgentMessageText(lastMsg)
         return { type: 'result', text }
       }
       if (turn.status === 'failed') {

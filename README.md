@@ -1,263 +1,331 @@
-# Sena
+# Sena AI
 
-Config-driven AI 에이전트 프레임워크.
-`sena.config.ts` 하나로 런타임, 커넥터, 도구, 훅, 스케줄을 선언하고, CLI로 제로-다운타임 운영한다.
+설정 중심 AI 에이전트 프레임워크 모노레포입니다. `sena.config.ts` 하나로 런타임, 커넥터, 도구, 훅, 스케줄, 오케스트레이터를 조립하고, `sena` CLI로 로컬 운영과 템플릿 부트스트랩을 처리합니다.
+
+## 핵심 기능
+
+- `defineConfig()` 기반의 config-driven 에이전트 구성
+- `@sena-ai/runtime-claude`, `@sena-ai/runtime-codex` 런타임 교체
+- Slack 직접 연동과 플랫폼 릴레이 연동 지원
+- 인라인 도구, MCP 도구, Slack 도구 번들 지원
+- `start`, `stop`, `restart`, `status`, `logs`, `init` CLI 제공
+- 워커 기반 실행, rolling restart, 세션 유지, 스케줄 실행 지원
+- 모든 패키지에 `specs/`를 두는 스펙 중심 개발 방식
+
+## 요구 사항
+
+- Node.js `>= 22`
+- `pnpm`
+- ESM 기반 TypeScript 실행 환경
 
 ## 빠른 시작
 
-### 에이전트 프로젝트에서 사용 (라이브러리)
+### 템플릿으로 새 프로젝트 만들기
+
+기본 템플릿은 Slack 직접 연동입니다.
 
 ```bash
-mkdir my-agent && cd my-agent
-npm init -y
-npm install @sena-ai/core @sena-ai/cli @sena-ai/runtime-claude
-# 필요에 따라 추가
-npm install @sena-ai/connector-slack @sena-ai/tools-slack @sena-ai/hooks
+pnpm dlx @sena-ai/cli init my-bot
+cd my-bot
 ```
 
-`.env` 파일에 환경 변수 설정:
-
-```env
-SLACK_APP_ID=A0XXXXXXXXX
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...          # HTTP mode (기본)
-# SLACK_APP_TOKEN=xapp-1-...     # Socket mode (방화벽 뒤 서버용)
-```
-
-`sena.config.ts` 작성 후 실행:
+다른 템플릿을 고르려면 `--template`을 사용합니다.
 
 ```bash
-npx sena start        # 포그라운드
-npx sena start -d     # 데몬 모드
+pnpm dlx @sena-ai/cli init my-bot --template slack-integration
+pnpm dlx @sena-ai/cli init my-bot --template platform-integration
 ```
 
-### 프레임워크 개발
+`sena init`은 다음 작업을 자동으로 수행합니다.
+
+- 템플릿 다운로드
+- `%%BOT_NAME%%` 플레이스홀더 치환
+- `.env.template`을 `.env`로 변경
+- `pnpm install` 실행
+
+생성된 프로젝트에서 `.env`를 채우고 실행하면 됩니다.
 
 ```bash
-git clone https://github.com/Variel/sena.git
-cd sena
-pnpm install
-pnpm build
+npx sena start
 ```
 
-## 설정 예시
+기본 설정 파일 경로는 `sena.config.ts`이고, 기본 포트는 `3100`입니다. CLI는 시작 시 현재 작업 디렉터리의 `.env`를 자동으로 로드합니다.
+
+### Slack 템플릿 예시
+
+`slack-integration` 템플릿은 현재 다음 형태를 기준으로 생성됩니다.
 
 ```ts
-import { defineConfig, env, heartbeat, cronSchedule } from '@sena-ai/core'
+import { defineConfig, env } from '@sena-ai/core'
 import { claudeRuntime } from '@sena-ai/runtime-claude'
-import { slackConnector } from '@sena-ai/connector-slack'
-import { slackTools } from '@sena-ai/tools-slack'
-import { fileContext } from '@sena-ai/hooks'
+import { slackConnector, slackTools } from '@sena-ai/slack'
 
 export default defineConfig({
-  name: 'my-agent',
-  cwd: './.context/',
+  name: 'my-bot',
 
   runtime: claudeRuntime({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-20250514',
   }),
 
   connectors: [
     slackConnector({
       appId: env('SLACK_APP_ID'),
       botToken: env('SLACK_BOT_TOKEN'),
-      signingSecret: env('SLACK_SIGNING_SECRET'),  // HTTP mode
-      // mode: 'socket', appToken: env('SLACK_APP_TOKEN'),  // Socket mode (방화벽 뒤)
-      thinkingMessage: ':thinking: 생각 중...',
+      signingSecret: env('SLACK_SIGNING_SECRET'),
     }),
   ],
 
   tools: [
     ...slackTools({ botToken: env('SLACK_BOT_TOKEN') }),
   ],
+})
+```
 
+필요한 환경 변수:
+
+```env
+SLACK_APP_ID=
+SLACK_BOT_TOKEN=
+SLACK_SIGNING_SECRET=
+```
+
+### 플랫폼 릴레이 템플릿 예시
+
+`platform-integration` 템플릿은 Slack 토큰을 로컬 런타임에 두지 않고 플랫폼을 경유합니다.
+
+```ts
+import { defineConfig, env } from '@sena-ai/core'
+import { claudeRuntime } from '@sena-ai/runtime-claude'
+import { platformConnector } from '@sena-ai/platform-connector'
+
+export default defineConfig({
+  name: 'my-bot',
+
+  runtime: claudeRuntime({
+    model: 'claude-sonnet-4-20250514',
+  }),
+
+  connectors: [
+    platformConnector({
+      platformUrl: env('PLATFORM_URL'),
+      connectKey: env('CONNECT_KEY'),
+    }),
+  ],
+})
+```
+
+필요한 환경 변수:
+
+```env
+CONNECT_KEY=
+PLATFORM_URL=
+```
+
+## 라이브러리로 직접 조립하기
+
+템플릿 없이 원하는 패키지만 골라 직접 조립할 수도 있습니다.
+
+```bash
+pnpm add @sena-ai/core @sena-ai/hooks @sena-ai/tools @sena-ai/runtime-claude
+```
+
+Slack 직접 연동이 필요하면 편의 번들인 `@sena-ai/slack`을 추가합니다.
+
+```bash
+pnpm add @sena-ai/cli @sena-ai/slack
+```
+
+최소 조립 예시는 다음과 같습니다.
+
+```ts
+import { createAgent, defineConfig, defineTool, heartbeat } from '@sena-ai/core'
+import { fileContext, traceLogger } from '@sena-ai/hooks'
+import { mcpServer } from '@sena-ai/tools'
+import { claudeRuntime } from '@sena-ai/runtime-claude'
+
+const config = defineConfig({
+  name: 'demo-agent',
+  runtime: claudeRuntime({
+    model: 'claude-sonnet-4-20250514',
+  }),
+  tools: [
+    defineTool({
+      name: 'ping',
+      description: 'Return pong',
+      handler: async () => 'pong',
+    }),
+    mcpServer({
+      name: 'filesystem',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+    }),
+  ],
   hooks: {
     onTurnStart: [
-      fileContext({ path: './.context/SYSTEM.md', as: 'system' }),
-      fileContext({ path: './.context/MEMORY.md', as: 'context' }),
+      fileContext({ path: './AGENTS.md', as: 'system' }),
+    ],
+    onTurnEnd: [
+      traceLogger({ dir: './traces' }),
     ],
   },
-
   schedules: [
-    heartbeat('1h', { name: 'heartbeat', prompt: 'HEARTBEAT.md를 읽고 수행하세요' }),
-    cronSchedule('0 9 * * 1-5', { name: 'morning', prompt: '오늘의 일정을 정리하세요.' }),
+    heartbeat('1h', { name: 'heartbeat', prompt: '현재 상태를 점검해 요약하세요.' }),
   ],
-
-  orchestrator: { port: 3100 },
 })
+
+const agent = createAgent(config)
+const trace = await agent.processTurn({ input: '지금 상태를 요약해줘' })
+
+console.log(trace.result?.text)
 ```
 
 ## CLI
 
-```bash
-sena start              # 포그라운드 실행
-sena start -d           # 데몬 모드 (sena.log에 로그 출력)
-sena stop               # 정상 종료 (SIGTERM → 10s → SIGKILL)
-sena restart            # 제로-다운타임 워커 교체 (SIGUSR2)
-sena restart --full     # 전체 프로세스 재시작
-sena status             # PID + health endpoint 확인
-sena logs               # tail -f sena.log
-```
+| 명령 | 설명 |
+| --- | --- |
+| `sena init <name>` | 새 프로젝트 생성. 템플릿 다운로드, 치환, 의존성 설치 포함 |
+| `sena start` | 포그라운드에서 오케스트레이터 실행 |
+| `sena start -d` | 백그라운드 데몬 모드 실행. 로그는 `sena.log`에 기록 |
+| `sena stop` | 실행 중인 프로세스에 `SIGTERM`, 필요 시 `SIGKILL` |
+| `sena restart` | 워커 rolling restart |
+| `sena restart --full` | 전체 프로세스 재시작 |
+| `sena status` | PID와 `/health` 상태 확인 |
+| `sena logs` | `sena.log` 조회 |
+
+CLI는 현재 작업 디렉터리에 `.sena.pid`와 `sena.log`를 사용합니다.
 
 ## 아키텍처
 
+```text
+Connector / Schedule / Programmatic Call
+  -> TurnEngine
+     -> onTurnStart hooks
+     -> Runtime.createStream()
+        -> inline tools / MCP tools
+     -> onTurnEnd / onError hooks
+  -> Connector output
+
+Orchestrator
+  -> Worker child process
+     -> HTTP server
+     -> Session store
+     -> Scheduler
+     -> Pending message queue
 ```
-Orchestrator (public port)
-  └─ Worker (forked child process)
-       ├─ HTTP Server
-       │    ├─ /health → 200 ok
-       │    └─ Connector routes (e.g. POST /api/slack/events)
-       ├─ TurnEngine
-       │    ├─ onTurnStart hooks → ContextFragment[]
-       │    ├─ Runtime.createStream() → stream events
-       │    └─ onTurnEnd / onError hooks
-       ├─ Scheduler (cron + heartbeat)
-       └─ SessionStore (file-backed)
-```
 
-외부 플랫폼(Slack 등)에서 이벤트를 수신하면 훅 파이프라인으로 컨텍스트를 조립하고, 런타임으로 LLM을 실행하고, 결과를 다시 외부로 전송한다. 스케줄 태스크도 동일한 파이프라인으로 실행된다.
+핵심 동작은 다음과 같습니다.
 
-- **Zero-downtime restart**: `sena restart` → SIGUSR2 → 새 워커 준비 → 트래픽 전환 → 이전 워커 drain
-- **Session continuity**: 파일 기반 세션 스토어. Slack 스레드 = 하나의 대화 세션
-- **Steer**: 턴 진행 중 새 메시지가 오면 tool boundary에서 기존 턴에 자동 주입
+- 같은 대화의 동시 입력은 워커가 큐잉해 순서를 보존합니다.
+- 워커는 도구 경계에서 pending message를 steer로 주입할 수 있습니다.
+- 세션 스토어를 통해 `conversationId -> sessionId`를 유지합니다.
+- 오케스트레이터는 새 워커가 ready 된 뒤에만 트래픽을 전환합니다.
+- 스케줄은 `cronSchedule()`과 `heartbeat()`로 정의하고 동일 스케줄의 중복 실행을 막습니다.
 
-## 패키지 구조
+## 패키지 구성
 
 | 패키지 | 역할 |
-|--------|------|
-| `@sena-ai/core` | 프레임워크 코어 — `defineConfig`, `env`, `createAgent`, `TurnEngine` |
-| `@sena-ai/hooks` | 기본 제공 훅 — `fileContext`, `traceLogger`, `cronSchedule`, `heartbeat` |
-| `@sena-ai/tools` | 외부 MCP 서버 연결 헬퍼 — `mcpServer` |
-| `@sena-ai/cli` | CLI — `start`, `stop`, `restart`, `status`, `logs` |
-| **런타임** | |
+| --- | --- |
+| `@sena-ai/core` | 설정 정규화, 턴 엔진, 워커, 오케스트레이터, 스케줄, 도구 계약 |
+| `@sena-ai/hooks` | `fileContext`, `traceLogger` 같은 기본 훅 |
+| `@sena-ai/tools` | 외부 MCP 서버를 연결하는 `mcpServer()` |
+| `@sena-ai/cli` | 프로젝트 초기화와 에이전트 운영 CLI |
 | `@sena-ai/runtime-claude` | Claude Agent SDK 기반 런타임 |
-| `@sena-ai/runtime-codex` | Codex App Server 기반 런타임 |
-| **Slack 연동** | |
-| `@sena-ai/connector-slack` | Slack 커넥터 — HTTP Events API + Socket Mode 지원 |
-| `@sena-ai/tools-slack` | Slack MCP 도구 — 메시지 조회/전송, 파일 업로드/다운로드 |
-| `@sena-ai/slack` | connector-slack + tools-slack 번들 re-export |
-| **플랫폼** | |
-| `@sena-ai/platform-core` | 멀티테넌트 플랫폼 라이브러리 — OAuth, 릴레이, Vault |
-| `@sena-ai/platform-connector` | 에이전트→플랫폼 SSE/WS 커넥터 |
-| `@sena-ai/platform-node` | Node.js 서버 배포 (MySQL) |
-| `@sena-ai/platform-worker` | Cloudflare Workers 배포 (D1) |
+| `@sena-ai/runtime-codex` | Codex CLI App Server 기반 런타임 |
+| `@sena-ai/connector-slack` | Slack Events API / Socket Mode 커넥터 |
+| `@sena-ai/tools-slack` | Slack 메시지, 채널, 파일, 사용자 도구 모음 |
+| `@sena-ai/slack` | Slack 커넥터와 도구 번들 |
+| `@sena-ai/platform-connector` | 플랫폼 릴레이를 통한 로컬 런타임 연결 |
+| `@sena-ai/platform-core` | 멀티테넌트 플랫폼 코어 라이브러리 |
+| `@sena-ai/platform-node` | Node.js 기반 플랫폼 서버 진입점, MySQL 조합 패키지 |
+| `@sena-ai/platform-worker` | Cloudflare Workers 기반 플랫폼 배포 패키지 |
 
+`@sena-ai/platform-node`와 `@sena-ai/platform-worker`는 현재 애플리케이션 배포용 패키지로 운영되며, 일반 라이브러리 패키지처럼 배포해 쓰는 용도와는 결이 다릅니다.
+
+## 런타임과 도구
+
+### 런타임
+
+- `@sena-ai/runtime-claude`
+  - Claude Agent SDK를 Sena `Runtime` 계약에 맞춰 감쌉니다.
+  - 인라인 도구와 외부 MCP 도구를 함께 사용할 수 있습니다.
+  - 세션 재개, steer, abort 흐름을 지원합니다.
+- `@sena-ai/runtime-codex`
+  - Codex CLI App Server를 Sena `Runtime` 계약에 연결합니다.
+  - 인라인 MCP HTTP 서버와 MCP 서버 오버라이드를 구성합니다.
+  - approval policy, sandbox mode, reasoning effort 옵션을 제공합니다.
+  - 기본적으로 공식 `@openai/codex` 패키지가 제공하는 managed executable을 사용하고, 필요할 때만 `codexBin`으로 override 합니다.
+
+### 도구
+
+- 인라인 도구는 `defineTool()`로 정의합니다.
+- 외부 MCP 도구는 `mcpServer()`로 연결합니다.
+- Slack 작업이 많으면 `slackTools()` 또는 `@sena-ai/slack` 번들을 사용합니다.
+- 도구 결과는 `toolResult()`로 멀티모달 콘텐츠를 반환할 수 있습니다.
+
+## 스펙 중심 개발
+
+이 저장소의 모든 패키지는 자체 `specs/` 디렉터리를 가집니다.
+
+```text
+packages/<package>/specs/
+  index.md
+  <responsibility>.md
 ```
-sena/
+
+원칙은 단순합니다.
+
+- 동작을 바꾸는 작업은 스펙을 먼저 수정합니다.
+- 상위 스펙 `index.md`와 상세 스펙 사이의 traceability를 유지합니다.
+- 구현은 freeze 된 스펙을 기준으로 진행합니다.
+
+대표 예시:
+
+- `packages/core/specs/`
+- `packages/cli/specs/`
+- `packages/runtime/claude/specs/`
+- `packages/runtime/codex/specs/`
+- `packages/integrations/slack/connector/specs/`
+- `packages/platform/core/specs/`
+
+## 저장소 구조
+
+```text
+sena-ai/
 ├── packages/
+│   ├── cli/
 │   ├── core/
 │   ├── hooks/
 │   ├── tools/
-│   ├── cli/
 │   ├── runtime/
 │   │   ├── claude/
 │   │   └── codex/
 │   ├── integrations/
 │   │   └── slack/
+│   │       ├── bundle/
 │   │       ├── connector/
-│   │       ├── tools/
-│   │       └── bundle/
+│   │       └── tools/
 │   └── platform/
-│       ├── core/
 │       ├── connector/
+│       ├── core/
 │       ├── runtime-node/
 │       └── runtime-worker/
-├── tests/
+├── templates/
+│   ├── platform-integration/
+│   └── slack-integration/
 ├── package.json
 ├── pnpm-workspace.yaml
-└── tsconfig.json
+└── vitest.config.ts
 ```
 
-## 핵심 개념
+## 개발
 
-### 턴(Turn)
-
-턴은 하나의 입력에 대한 전체 처리 과정이다. 커넥터 이벤트, 스케줄 트리거, 코드 직접 호출 모두 동일한 파이프라인을 탄다.
-
-```
-onTurnStart 훅 → ContextFragment[] 수집 → Runtime.createStream() → onTurnEnd 훅
-```
-
-### 훅(Hook)
-
-훅은 턴 생명주기에 개입하여 컨텍스트 주입과 후처리를 수행한다. "무엇을" LLM에 넣을지는 훅이, "어떻게" 전달할지는 런타임이 결정한다.
-
-```ts
-// 커스텀 훅 예시
-function myContext(): TurnStartHook {
-  return {
-    name: 'my-context',
-    async execute(ctx) {
-      return [{ source: 'custom:my-api', role: 'context', content: await fetchData() }]
-    },
-  }
-}
+```bash
+git clone https://github.com/unlimiting-studio/sena-ai
+cd sena-ai
+pnpm install
+pnpm build
+pnpm test
+pnpm typecheck
 ```
 
-### 런타임
-
-런타임은 LLM SDK를 래핑하여 통일된 이벤트 스트림(`RuntimeEvent`)을 제공한다. 한 줄만 바꾸면 런타임을 교체할 수 있다.
-
-```ts
-runtime: claudeRuntime({ model: 'claude-sonnet-4-5', apiKey: env('ANTHROPIC_API_KEY') }),
-// runtime: codexRuntime({ model: 'gpt-5.4', apiKey: env('CODEX_API_KEY') }),
-```
-
-### 커넥터
-
-커넥터는 외부 플랫폼과의 양방향 어댑터다. 선택 사항이며, 없으면 `agent.processTurn()`으로 직접 실행할 수 있다.
-
-### 스케줄
-
-cron 표현식 또는 고정 간격(heartbeat)으로 턴을 자동 트리거한다. 스케줄 설정은 서버 재시작 없이 핫리로드된다.
-
-### 워크스페이스 컨텍스트 (`.sena/`)
-
-에이전트의 성격과 지식을 파일 기반으로 관리한다. `fileContext` 훅으로 시스템 프롬프트에 자동 주입.
-
-| 파일 | 용도 |
-|------|------|
-| `AGENTS.md` | 에이전트 행동 지침 |
-| `SOUL.md` | 에이전트 성격/페르소나 |
-| `IDENTITY.md` | 정체성 정의 |
-| `USER.md` | 사용자 정보 |
-| `TOOLS.md` | 도구 사용 가이드 |
-| `memory/` | 장기 기억 |
-| `HEARTBEAT.md` | 하트비트 실행 지침 |
-
-## 런타임 이벤트
-
-| 이벤트 | 의미 |
-|--------|------|
-| `session.init` | 세션 ID 확정 |
-| `progress` | 어시스턴트 응답 텍스트 (누적) |
-| `progress.delta` | 토큰 단위 스트리밍 (증분) |
-| `tool.start` | 도구 호출 시작 |
-| `tool.end` | 도구 호출 완료 |
-| `result` | 최종 응답 |
-| `error` | 에러 |
-
-## 커넥터 없이 로컬 실행
-
-```ts
-import { createAgent, env } from '@sena-ai/core'
-import { claudeRuntime } from '@sena-ai/runtime-claude'
-import { fileContext } from '@sena-ai/hooks'
-
-const agent = await createAgent({
-  name: 'test',
-  runtime: claudeRuntime({ model: 'claude-haiku-4-5', apiKey: env('ANTHROPIC_API_KEY') }),
-  connectors: [],
-  tools: [],
-  hooks: { onTurnStart: [fileContext({ path: './prompts/system.md', as: 'system' })] },
-})
-
-const trace = await agent.processTurn({ input: '테스트' })
-console.log(trace.result.text)
-```
-
-자세한 사용법은 [skills/sena-ai/SKILL.md](skills/sena-ai/SKILL.md) 참조.
-
-## 라이선스
-
-MIT
+테스트는 `packages/**/src/**/*.test.ts` 패턴을 기준으로 실행됩니다.
