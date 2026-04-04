@@ -163,6 +163,7 @@ export type InboundEvent = {
 export type ConnectorOutputContext = {
   conversationId: string
   connector: string
+  metadata?: unknown
 }
 
 export type ConnectorContext = {

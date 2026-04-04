@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
 export type SlackMessageTriggerEvent = {
-  kind: 'mention' | 'thread' | 'channel'
+  kind: 'mention' | 'thread' | 'channel' | 'message'
   channelId: string
   userId: string
   userName?: string
@@ -52,24 +52,56 @@ export type SlackReactionTriggerFilter = (
   event: SlackReactionTriggerEvent,
 ) => boolean | void | Promise<boolean | void>
 
+type SlackThinkingMessage = string | false
+
+type SlackPromptSource =
+  | string
+  | { text: string; thinkingMessage?: SlackThinkingMessage }
+  | { file: string; thinkingMessage?: SlackThinkingMessage }
+
+export type SlackMessageTriggerFunctionResult = SlackPromptSource
+
+export type SlackReactionTriggerFunctionResult =
+  | SlackPromptSource
+  | { abort: true }
+
+export type SlackMessageTriggerFunction = (
+  event: SlackMessageTriggerEvent,
+) =>
+  | SlackMessageTriggerFunctionResult
+  | false
+  | void
+  | Promise<SlackMessageTriggerFunctionResult | false | void>
+
+export type SlackReactionTriggerFunction = (
+  event: SlackReactionTriggerEvent,
+) =>
+  | SlackReactionTriggerFunctionResult
+  | false
+  | void
+  | Promise<SlackReactionTriggerFunctionResult | false | void>
+
 export type SlackMessagePromptTrigger =
   | string
-  | { text: string; filter?: SlackMessageTriggerFilter }
-  | { file: string; filter?: SlackMessageTriggerFilter }
+  | { text: string; filter?: SlackMessageTriggerFilter; thinkingMessage?: SlackThinkingMessage }
+  | { file: string; filter?: SlackMessageTriggerFilter; thinkingMessage?: SlackThinkingMessage }
+  | SlackMessageTriggerFunction
 
 export type SlackReactionPromptTrigger =
   | string
-  | { text: string; filter?: SlackReactionTriggerFilter }
-  | { file: string; filter?: SlackReactionTriggerFilter }
+  | { text: string; filter?: SlackReactionTriggerFilter; thinkingMessage?: SlackThinkingMessage }
+  | { file: string; filter?: SlackReactionTriggerFilter; thinkingMessage?: SlackThinkingMessage }
 
 export type SlackReactionRule =
   | SlackReactionPromptTrigger
   | { action: 'abort'; filter?: SlackReactionTriggerFilter }
+  | SlackReactionTriggerFunction
 
 export type SlackTriggerConfig = {
   mention?: SlackMessagePromptTrigger
   thread?: SlackMessagePromptTrigger
   channel?: SlackMessagePromptTrigger
+  message?: SlackMessagePromptTrigger
   reactions?: Record<string, SlackReactionRule>
 }
 
@@ -109,6 +141,7 @@ type NormalizedSlackTriggerConfig = {
   mention?: SlackMessagePromptTrigger
   thread?: SlackMessagePromptTrigger
   channel?: SlackMessagePromptTrigger
+  message?: SlackMessagePromptTrigger
   reactions: Record<string, SlackReactionRule>
 }
 
@@ -153,12 +186,27 @@ type SlackLookupMessage = {
   raw: Record<string, unknown>
 }
 
-type MessageTriggerKind = 'mention' | 'thread' | 'channel'
+type MessageTriggerKind = 'mention' | 'thread' | 'channel' | 'message'
 
 type MessageCandidate = {
   kind: MessageTriggerKind
   source: SlackMessagePromptTrigger
 }
+
+type ResolvedSlackPromptSource =
+  | SlackPromptSource
+  | Exclude<SlackMessagePromptTrigger, SlackMessageTriggerFunction>
+  | SlackReactionPromptTrigger
+
+type MessageCandidateSelection = {
+  kind: MessageTriggerKind
+  source: ResolvedSlackPromptSource
+}
+
+type ReactionRuleSelection =
+  | { action: 'skip' }
+  | { action: 'abort' }
+  | { action: 'submit'; source: ResolvedSlackPromptSource }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -206,12 +254,32 @@ function isFunction(value: unknown): value is (...args: never[]) => unknown {
   return typeof value === 'function'
 }
 
-function isPromptRule(value: unknown): value is { text: string; filter?: unknown } | { file: string; filter?: unknown } {
+function isThinkingMessage(value: unknown): value is SlackThinkingMessage {
+  return typeof value === 'string' || value === false
+}
+
+function isPromptRule(
+  value: unknown,
+): value is { text: string; filter?: unknown; thinkingMessage?: SlackThinkingMessage } | { file: string; filter?: unknown; thinkingMessage?: SlackThinkingMessage } {
   if (!isRecord(value)) return false
   const hasText = typeof value.text === 'string'
   const hasFile = typeof value.file === 'string'
   if (hasText === hasFile) return false
-  return value.filter === undefined || isFunction(value.filter)
+  if (value.filter !== undefined && !isFunction(value.filter)) return false
+  return value.thinkingMessage === undefined || isThinkingMessage(value.thinkingMessage)
+}
+
+function isPromptSourceResult(value: unknown): value is Exclude<SlackPromptSource, string> {
+  if (!isRecord(value)) return false
+  const hasText = typeof value.text === 'string'
+  const hasFile = typeof value.file === 'string'
+  if (hasText === hasFile) return false
+  if (value.thinkingMessage !== undefined && !isThinkingMessage(value.thinkingMessage)) return false
+
+  const allowedKeys = hasText
+    ? ['text', 'thinkingMessage']
+    : ['file', 'thinkingMessage']
+  return Object.keys(value).every(key => allowedKeys.includes(key))
 }
 
 function isReactionActionRule(value: unknown): value is { action: 'abort'; filter?: unknown } {
@@ -220,13 +288,26 @@ function isReactionActionRule(value: unknown): value is { action: 'abort'; filte
   return value.filter === undefined || isFunction(value.filter)
 }
 
+function isReactionAbortResult(value: unknown): value is { abort: true } {
+  if (!isRecord(value) || value.abort !== true) return false
+  return Object.keys(value).every(key => key === 'abort')
+}
+
+function isMessageTriggerFunctionResult(value: unknown): value is SlackMessageTriggerFunctionResult {
+  return typeof value === 'string' || isPromptSourceResult(value)
+}
+
+function isReactionTriggerFunctionResult(value: unknown): value is SlackReactionTriggerFunctionResult {
+  return isMessageTriggerFunctionResult(value) || isReactionAbortResult(value)
+}
+
 function assertMessagePromptTrigger(value: unknown, path: string): asserts value is SlackMessagePromptTrigger {
-  if (typeof value === 'string' || isPromptRule(value)) return
+  if (typeof value === 'string' || isPromptRule(value) || isFunction(value)) return
   throw new Error(`Invalid Slack trigger config at ${path}`)
 }
 
 function assertReactionRule(value: unknown, path: string): asserts value is SlackReactionRule {
-  if (typeof value === 'string' || isPromptRule(value) || isReactionActionRule(value)) return
+  if (typeof value === 'string' || isPromptRule(value) || isReactionActionRule(value) || isFunction(value)) return
   throw new Error(`Invalid Slack reaction rule at ${path}`)
 }
 
@@ -257,6 +338,10 @@ export function normalizeTriggerConfig(triggers?: SlackTriggerConfig): Normalize
     assertMessagePromptTrigger(triggers.channel, 'triggers.channel')
     normalized.channel = triggers.channel
   }
+  if (triggers.message !== undefined) {
+    assertMessagePromptTrigger(triggers.message, 'triggers.message')
+    normalized.message = triggers.message
+  }
   if (triggers.reactions !== undefined) {
     for (const [emoji, rule] of Object.entries(triggers.reactions)) {
       assertReactionRule(rule, `triggers.reactions.${emoji}`)
@@ -268,12 +353,12 @@ export function normalizeTriggerConfig(triggers?: SlackTriggerConfig): Normalize
 }
 
 function getMessageFilter(source: SlackMessagePromptTrigger): SlackMessageTriggerFilter | undefined {
-  if (typeof source === 'string') return undefined
+  if (typeof source === 'string' || isFunction(source)) return undefined
   return source.filter
 }
 
 function getReactionFilter(rule: SlackReactionRule): SlackReactionTriggerFilter | undefined {
-  if (typeof rule === 'string') return undefined
+  if (typeof rule === 'string' || isFunction(rule)) return undefined
   if (isReactionActionRule(rule)) return rule.filter
   return rule.filter
 }
@@ -283,7 +368,7 @@ function isReactionAbortRule(rule: SlackReactionRule): rule is { action: 'abort'
 }
 
 export async function resolvePromptSource(
-  source: SlackMessagePromptTrigger | SlackReactionPromptTrigger,
+  source: ResolvedSlackPromptSource,
   baseDir: string,
 ): Promise<string> {
   if (typeof source === 'string') return source
@@ -343,6 +428,28 @@ function buildReactionInputText(prompt: string, event: SlackReactionTriggerEvent
 
   const sections = [prompt.trim(), lines.join('\n')].filter((part) => part.length > 0)
   return sections.join('\n\n')
+}
+
+function getThinkingMessageOverride(
+  source: SlackPromptSource | SlackMessagePromptTrigger | SlackReactionPromptTrigger,
+): SlackThinkingMessage | undefined {
+  if (typeof source === 'string' || isFunction(source)) return undefined
+  return source.thinkingMessage
+}
+
+function resolveThinkingMessage(
+  triggerThinkingMessage: SlackThinkingMessage | undefined,
+  globalThinkingMessage: string | false | undefined,
+): string | false | undefined {
+  if (triggerThinkingMessage !== undefined) return triggerThinkingMessage
+  return globalThinkingMessage
+}
+
+function readThinkingMessageFromMetadata(metadata: unknown): SlackThinkingMessage | undefined {
+  if (!isRecord(metadata)) return undefined
+  return isThinkingMessage(metadata.thinkingMessage)
+    ? metadata.thinkingMessage
+    : undefined
 }
 
 function parseMessageEvent(body: Record<string, unknown>): ParsedSlackMessageEvent | null {
@@ -421,6 +528,11 @@ export function selectMessageCandidates(
     candidates.push({ kind: 'channel', source: triggerConfig.channel })
   }
 
+  const messageActive = triggerConfig.message !== undefined
+  if (messageActive && triggerConfig.message !== undefined) {
+    candidates.push({ kind: 'message', source: triggerConfig.message })
+  }
+
   return candidates.sort((a, b) => messageTriggerPriority(a.kind) - messageTriggerPriority(b.kind))
 }
 
@@ -432,6 +544,8 @@ function messageTriggerPriority(kind: MessageTriggerKind): number {
       return 1
     case 'channel':
       return 2
+    case 'message':
+      return 3
   }
 }
 
@@ -452,6 +566,46 @@ function buildMessageTriggerEvent(
     files: toAttachmentMetadata(event.files),
     raw: body,
   }
+}
+
+async function evaluateMessageCandidate(
+  candidate: MessageCandidate,
+  triggerEvent: SlackMessageTriggerEvent,
+): Promise<MessageCandidateSelection | null> {
+  if (isFunction(candidate.source)) {
+    const result = await candidate.source(triggerEvent)
+    if (result === false || result === undefined) return null
+    if (!isMessageTriggerFunctionResult(result)) {
+      throw new Error(`Invalid Slack trigger function result for ${candidate.kind}`)
+    }
+    return { kind: candidate.kind, source: result }
+  }
+
+  const passed = await runMessageTriggerFilter(candidate.source, triggerEvent)
+  if (!passed) return null
+  return { kind: candidate.kind, source: candidate.source }
+}
+
+async function evaluateReactionRule(
+  rule: SlackReactionRule,
+  event: SlackReactionTriggerEvent,
+): Promise<ReactionRuleSelection> {
+  if (isFunction(rule)) {
+    const result = await rule(event)
+    if (result === false || result === undefined) return { action: 'skip' }
+    if (!isReactionTriggerFunctionResult(result)) {
+      throw new Error(`Invalid Slack reaction rule function result for :${event.reaction}:`)
+    }
+    if (isReactionAbortResult(result)) {
+      return { action: 'abort' }
+    }
+    return { action: 'submit', source: result }
+  }
+
+  const passed = await runReactionTriggerFilter(rule, event)
+  if (!passed) return { action: 'skip' }
+  if (isReactionAbortRule(rule)) return { action: 'abort' }
+  return { action: 'submit', source: rule }
 }
 
 async function resolveUserName(
@@ -674,6 +828,7 @@ export async function processSlackEvent(
   triggerConfig: NormalizedSlackTriggerConfig,
   promptBaseDir: string,
   botUserId?: string,
+  globalThinkingMessage?: string | false,
 ): Promise<void> {
   const reactionEvent = parseReactionEvent(body)
   if (reactionEvent) {
@@ -694,13 +849,13 @@ export async function processSlackEvent(
         return
       }
 
-      const passed = await runReactionTriggerFilter(rule, context.filterEvent)
-      if (!passed) {
+      const selectedRule = await evaluateReactionRule(rule, context.filterEvent)
+      if (selectedRule.action === 'skip') {
         commitProcessedEvent(processedEvents, processingEvents, eventId)
         return
       }
 
-      if (isReactionAbortRule(rule)) {
+      if (selectedRule.action === 'abort') {
         const aborted = engine.abortConversation(context.conversationId)
         if (aborted && reactionEvent.reaction === 'x') {
           try {
@@ -717,7 +872,11 @@ export async function processSlackEvent(
         return
       }
 
-      const prompt = await resolvePromptSource(rule, promptBaseDir)
+      const thinkingMessage = resolveThinkingMessage(
+        getThinkingMessageOverride(selectedRule.source),
+        globalThinkingMessage,
+      )
+      const prompt = await resolvePromptSource(selectedRule.source, promptBaseDir)
       const inbound: InboundEvent = {
         connector: 'slack',
         conversationId: context.conversationId,
@@ -725,7 +884,11 @@ export async function processSlackEvent(
         userName: context.filterEvent.userName ?? '',
         text: buildReactionInputText(prompt, context.filterEvent),
         files: context.files,
-        raw: context.filterEvent.raw,
+        raw: {
+          ...(isRecord(context.filterEvent.raw) ? context.filterEvent.raw : { value: context.filterEvent.raw }),
+          triggerKind: 'reaction',
+          thinkingMessage,
+        },
       }
 
       activeThreads.add(context.conversationId)
@@ -780,14 +943,14 @@ export async function processSlackEvent(
   }
 
   const userName = await resolveUserName(slack, messageEvent.userId, userNameCache)
-  let selected: MessageCandidate | null = null
+  let selected: MessageCandidateSelection | null = null
 
   try {
     for (const candidate of candidates) {
       const triggerEvent = buildMessageTriggerEvent(candidate.kind, messageEvent, userName, body)
-      const passed = await runMessageTriggerFilter(candidate.source, triggerEvent)
-      if (passed) {
-        selected = candidate
+      const selection = await evaluateMessageCandidate(candidate, triggerEvent)
+      if (selection) {
+        selected = selection
         break
       }
     }
@@ -804,6 +967,10 @@ export async function processSlackEvent(
 
   try {
     const prompt = await resolvePromptSource(selected.source, promptBaseDir)
+    const thinkingMessage = resolveThinkingMessage(
+      getThinkingMessageOverride(selected.source),
+      globalThinkingMessage,
+    )
     const files = messageEvent.files.length > 0
       ? await downloadSlackFiles(messageEvent.files, botToken)
       : undefined
@@ -817,6 +984,7 @@ export async function processSlackEvent(
       raw: {
         ...body,
         triggerKind: selected.kind,
+        thinkingMessage,
       },
     }
 
@@ -879,6 +1047,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
             triggerConfig,
             promptBaseDir,
             botUserId,
+            thinkingMessage,
           )
         }
 
@@ -939,6 +1108,7 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
           triggerConfig,
           promptBaseDir,
           botUserId,
+          thinkingMessage,
         )
       })
     },
@@ -978,9 +1148,13 @@ export function slackConnector(options: SlackConnectorOptions): Connector {
 export function createSlackOutput(
   slack: SlackClientLike,
   context: ConnectorOutputContext,
-  thinkingMessage?: string | false,
+  globalThinkingMessage?: string | false,
 ): ConnectorOutput {
   const [channel, threadTs] = context.conversationId.split(':')
+  const thinkingMessage = resolveThinkingMessage(
+    readThinkingMessageFromMetadata(context.metadata),
+    globalThinkingMessage,
+  )
 
   // --- Accumulated state ---
   const completedSteps: string[] = [] // Flushed step texts

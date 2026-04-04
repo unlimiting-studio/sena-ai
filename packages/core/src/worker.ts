@@ -221,21 +221,29 @@ export function createWorker(options: WorkerOptions) {
    */
   async function executeTurnWithSteer(initialEvent: InboundEvent, pendingEvents: InboundEvent[], abortSignal: AbortSignal): Promise<void> {
     let event = initialEvent
+    let lastDrainedEvents: InboundEvent[] | null = null
 
     // The runtime only sees text strings for steer injection; full InboundEvent
     // metadata is preserved here and used when leftover events become new turns.
     const pendingMessages = {
       drain(): string[] {
-        const msgs = pendingEvents.map(e => e.text)
-        pendingEvents.length = 0
-        return msgs
+        const drainedEvents = pendingEvents.splice(0, pendingEvents.length)
+        lastDrainedEvents = drainedEvents
+        return drainedEvents.map(pendingEvent => pendingEvent.text)
       },
       restore(messages: string[]): void {
-        // Re-create InboundEvents from text strings using the most recent event's metadata.
-        // This is a fallback — ideally steer doesn't fail.
-        for (const text of messages) {
-          pendingEvents.unshift({ ...event, text })
-        }
+        const drainedEvents = lastDrainedEvents ?? []
+        lastDrainedEvents = null
+        const restoredEvents = messages.map((text, index) => {
+          const originalEvent = drainedEvents[index]
+          if (!originalEvent) {
+            return { ...event, text }
+          }
+          return originalEvent.text === text
+            ? originalEvent
+            : { ...originalEvent, text }
+        })
+        pendingEvents.unshift(...restoredEvents)
       },
     }
 
@@ -286,6 +294,7 @@ export function createWorker(options: WorkerOptions) {
     const output = connector.createOutput({
       conversationId: event.conversationId,
       connector: event.connector,
+      metadata: event.raw,
     })
 
     try {
