@@ -119,6 +119,22 @@ describe('createSlackOutput', () => {
     expect(lastUpdate).not.toContain('설정 스펙을 정리하는 중이고, 중복 전송 원인을 보고 있어요\n설정 스펙을 정리하는 중이고, 중복 전송 원인을 보고 있어요')
   })
 
+  it('separates accumulated agent outputs with a blank line', async () => {
+    const { slack, updateCalls } = createSlackMock()
+
+    const output = createSlackOutput(
+      slack,
+      { connector: 'slack', conversationId: 'C0AFW5Y133J:1775295864.093159' },
+      ':loading-dots: 브렌이 생각 중이에요',
+    )
+
+    await output.showProgress('첫 번째 출력')
+    await output.sendResult('두 번째 출력')
+
+    const lastUpdate = getText(updateCalls[updateCalls.length - 1])
+    expect(lastUpdate).toContain('첫 번째 출력\n\n두 번째 출력')
+  })
+
   it('splits a long final answer into non-overlapping continuation messages', async () => {
     const { slack, postCalls, updateCalls } = createSlackMock({
       update: vi.fn(async (args) => {
