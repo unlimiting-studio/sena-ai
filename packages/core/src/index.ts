@@ -1,4 +1,32 @@
 export * from './types.js'
+export { adaptLegacyHooks } from './runtime-hooks.js'
+export type {
+  PreToolUseInput,
+  PostToolUseInput,
+  TurnStartInput,
+  TurnEndInput,
+  StopInput,
+  SessionStartInput,
+  ErrorInput,
+  HookInput,
+  PreToolUseDecision,
+  PostToolUseResult,
+  TurnStartDecision,
+  TurnEndResult,
+  StopDecision,
+  SessionStartResult,
+  ErrorResult,
+  PreToolUseCallback,
+  PostToolUseCallback,
+  TurnStartCallback,
+  TurnEndCallback,
+  StopCallback,
+  SessionStartCallback,
+  ErrorCallback,
+  ToolHookMatcher,
+  SimpleHookMatcher,
+  RuntimeHooks,
+} from './runtime-hooks.js'
 export { env, validateEnv } from './env.js'
 export { defineConfig } from './config.js'
 export type { ResolvedSenaConfig } from './config.js'
