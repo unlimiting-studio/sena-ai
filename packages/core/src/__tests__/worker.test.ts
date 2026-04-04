@@ -202,7 +202,7 @@ describe('createWorker', () => {
     expect(receivedBody).toEqual({ key: 'value', nested: { a: 1 } })
   })
 
-  it('passes config directory as prompt base dir when cwd is omitted', () => {
+  it('passes resolved cwd as prompt base dir when cwd is omitted', () => {
     process.env.SENA_CONFIG_PATH = '/tmp/project/sena.config.ts'
     let receivedContext: Parameters<Connector['registerRoutes']>[2] | undefined
 
@@ -232,7 +232,7 @@ describe('createWorker', () => {
     expect(receivedContext).toEqual({
       cwd: process.cwd(),
       configDir: '/tmp/project',
-      promptBaseDir: '/tmp/project',
+      promptBaseDir: process.cwd(),
     })
   })
 
