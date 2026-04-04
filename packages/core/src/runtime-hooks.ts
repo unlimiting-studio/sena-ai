@@ -141,7 +141,7 @@ export function adaptLegacyHooks(
   }
 
   if (legacy.onTurnStart?.length) {
-    console.warn('[sena] onTurnStart hooks are deprecated. Use runtimeHooks.onTurnStart instead.')
+    console.warn('[sena] onTurnStart hooks are deprecated. Use hooks.onTurnStart instead.')
     const adapted: SimpleHookMatcher<TurnStartCallback>[] = legacy.onTurnStart.map((h) => ({
       callback: async (input: TurnStartInput): Promise<TurnStartDecision> => {
         const fragments = await h.execute(input.turnContext)
@@ -155,7 +155,7 @@ export function adaptLegacyHooks(
   }
 
   if (legacy.onTurnEnd?.length) {
-    console.warn('[sena] onTurnEnd hooks are deprecated. Use runtimeHooks.onTurnEnd instead.')
+    console.warn('[sena] onTurnEnd hooks are deprecated. Use hooks.onTurnEnd instead.')
     const adapted: SimpleHookMatcher<TurnEndCallback>[] = legacy.onTurnEnd.map((h) => ({
       callback: async (input: TurnEndInput): Promise<TurnEndResult> => {
         await h.execute(input.turnContext, input.result)
@@ -165,7 +165,7 @@ export function adaptLegacyHooks(
   }
 
   if (legacy.onError?.length) {
-    console.warn('[sena] onError hooks are deprecated. Use runtimeHooks.onError instead.')
+    console.warn('[sena] onError hooks are deprecated. Use hooks.onError instead.')
     const adapted: SimpleHookMatcher<ErrorCallback>[] = legacy.onError.map((h) => ({
       callback: async (input: ErrorInput): Promise<ErrorResult> => {
         await h.execute(input.turnContext, input.error)
