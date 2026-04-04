@@ -55,6 +55,18 @@ describe('mapCodexNotification', () => {
     expect(event).toEqual({ type: 'result', text: 'Done!' })
   })
 
+  it('maps turn/completed success using agentMessage.text when present', () => {
+    const event = mapCodexNotification('turn/completed', {
+      turn: {
+        status: 'completed',
+        items: [
+          { type: 'agentMessage', text: 'Done from text field' },
+        ],
+      },
+    })
+    expect(event).toEqual({ type: 'result', text: 'Done from text field' })
+  })
+
   it('maps turn/completed failed to error', () => {
     const event = mapCodexNotification('turn/completed', {
       turn: { status: 'failed', error: 'Context window exceeded' },
@@ -184,5 +196,12 @@ describe('mapCodexNotification', () => {
       item: { type: 'agentMessage', content: [{ type: 'text', text: 'hello' }, { type: 'text', text: ' world' }] }
     })
     expect(event).toEqual({ type: 'progress', text: 'hello world' })
+  })
+
+  it('extracts text from agentMessage.text in item/completed', () => {
+    const event = mapCodexNotification('item/completed', {
+      item: { type: 'agentMessage', text: 'hello from text field' }
+    })
+    expect(event).toEqual({ type: 'progress', text: 'hello from text field' })
   })
 })

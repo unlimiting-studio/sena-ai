@@ -2,12 +2,12 @@
 
 ## 한 줄 요약
 
-`codexRuntime()`은 Codex App Server와 워커 사이의 실행 세션을 조율하며, 세션/도구/abort/steer를 포함한 턴 스트림을 표준 런타임 계약으로 변환한다.
+`codexRuntime()`은 managed Codex App Server와 워커 사이의 실행 세션을 조율하며, 세션/도구/abort/steer를 포함한 턴 스트림을 표준 런타임 계약으로 변환한다.
 
 ## 상위 스펙 연결
 
-- 관련 요구사항: `CODEX-FR-001`, `CODEX-FR-002`, `CODEX-FR-003`, `CODEX-FR-004`, `CODEX-FR-005`, `CODEX-NFR-001`, `CODEX-NFR-002`
-- 관련 수용 기준: `CODEX-AC-001`, `CODEX-AC-002`, `CODEX-AC-003`, `CODEX-AC-004`
+- 관련 요구사항: `CODEX-FR-001`, `CODEX-FR-002`, `CODEX-FR-003`, `CODEX-FR-004`, `CODEX-FR-005`, `CODEX-FR-006`, `CODEX-NFR-001`, `CODEX-NFR-002`, `CODEX-NFR-003`
+- 관련 수용 기준: `CODEX-AC-001`, `CODEX-AC-002`, `CODEX-AC-003`, `CODEX-AC-004`, `CODEX-AC-005`
 
 ## Behavior
 
@@ -22,15 +22,16 @@
   2. `prepend`/`append` 프래그먼트로 사용자 메시지를 감싼다.
   3. 인라인 도구와 외부 MCP 도구를 분리한다.
   4. 인라인 도구가 있으면 로컬 HTTP MCP 서버를 기동한다.
-  5. 설정 오버라이드와 함께 Codex App Server 클라이언트를 spawn/initialize한다.
-  6. 세션 ID가 있으면 `threadResume`, 없으면 `threadStart` 후 `session.init`을 발행한다.
-  7. `turnStart()`로 턴을 시작하고 알림 큐를 drain하며 `RuntimeEvent`를 yield한다.
-  8. `tool.end` 경계에서 `pendingMessages`가 있으면 `turnSteer()`를 시도한다.
-  9. 종료 또는 abort 시 프로세스와 MCP 서버를 정리한다.
+  5. `codexBin` override가 없으면 공식 `@openai/codex` 패키지에서 managed executable 경로를 해상한다.
+  6. 설정 오버라이드와 함께 Codex App Server 클라이언트를 spawn/initialize한다.
+  7. 세션 ID가 있으면 `threadResume`, 없으면 `threadStart` 후 `session.init`을 발행한다.
+  8. `turnStart()`로 턴을 시작하고 알림 큐를 drain하며 `RuntimeEvent`를 yield한다.
+  9. `tool.end` 경계에서 `pendingMessages`가 있으면 `turnSteer()`를 시도한다.
+  10. 종료 또는 abort 시 프로세스와 MCP 서버를 정리한다.
 - Alternative Flow:
   세션 ID가 있으면 기존 thread를 재개한다.
 - Failure Modes:
-  spawn 실패, JSON-RPC 요청 실패, steer 실패, 알 수 없는 Codex 오류는 `error` 이벤트나 pending message 복원으로 노출한다.
+  managed executable 해상 실패, spawn 실패, JSON-RPC 요청 실패, steer 실패, 알 수 없는 Codex 오류는 `error` 이벤트나 pending message 복원으로 노출한다.
 
 ## Constraints
 
@@ -42,6 +43,10 @@
   측정: 종료 훅 및 테스트 더블 검증.
 - `CODEX-CON-004`: 샌드박스 모드 미지정/미지원 값은 `workspace-write`로 수렴해야 한다.
   측정: 모드 변환 함수 단위 테스트.
+- `CODEX-CON-005`: `codexBin` 미지정 시 기본 실행 경로는 PATH 검색이 아니라 공식 `@openai/codex` 패키지에서 해상되어야 한다.
+  측정: resolver 단위 테스트 및 spawn 인자 검증.
+- `CODEX-CON-006`: managed executable이 JS 엔트리포인트일 때는 현재 Node 실행 파일을 통해 기동되어야 한다.
+  측정: invocation 조립 단위 테스트.
 
 ## Interface
 
@@ -59,6 +64,7 @@
 ## Realization
 
 - `runtime.ts`가 전체 턴 오케스트레이션을 담당한다.
+- managed executable 해상은 전용 resolver helper가 담당한다.
 - 알림은 즉시 `eventQueue`에 적재하고 메인 루프가 drain한다.
 - `expectedTurnId`를 유지해 steer 이전 턴의 완료 알림을 억제한다.
 - 인라인 도구는 별도 MCP 서버로 노출하고 외부 MCP는 Codex 오버라이드 문자열만 생성한다.
@@ -80,6 +86,7 @@
 - Given `tool.end` 이후 대기 메시지가 존재할 때, When `turnSteer()`가 성공하면, Then 이후 완료 판정은 새 `turnId` 기준으로 이뤄진다.
 - Given steer 실패가 발생할 때, When 런타임이 오류를 받으면, Then 대기 메시지는 복원되어 follow-up 턴으로 이어질 수 있다.
 - Given abortSignal이 발화될 때, When 스트림이 종료되면, Then 자식 프로세스와 인라인 MCP 서버는 모두 닫힌다.
+- Given `codexBin`이 주어지지 않을 때, When 런타임이 App Server를 실행하면, Then 공식 `@openai/codex` 패키지의 managed executable을 기본 사용한다.
 ## 개편 메모
 
 - AGENTS.md 가이드에 맞춰 상위/상세 스펙 섹션과 traceability를 정규화했다.

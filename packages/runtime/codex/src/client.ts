@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface, type Interface } from 'node:readline'
 import { EventEmitter } from 'node:events'
+import { getCodexInvocation } from './managed-codex.js'
 
 export type JsonRpcMessage = {
   id?: number
@@ -20,21 +21,24 @@ export class CodexAppServerClient extends EventEmitter {
   private rl: Interface | null = null
   private nextId = 0
   private pending = new Map<number, PendingRequest>()
-  private codexBin: string
+  private codexBin?: string
 
-  constructor(codexBin = 'codex') {
+  constructor(codexBin?: string) {
     super()
     this.codexBin = codexBin
   }
 
   spawn(configOverrides?: string[]): void {
-    const args = ['app-server']
+    const appServerArgs = ['app-server']
     if (configOverrides?.length) {
       for (const c of configOverrides) {
-        args.push('-c', c)
+        appServerArgs.push('-c', c)
       }
     }
-    this.child = spawn(this.codexBin, args, {
+
+    const invocation = getCodexInvocation(this.codexBin)
+
+    this.child = spawn(invocation.command, [...invocation.args, ...appServerArgs], {
       stdio: ['pipe', 'pipe', 'inherit'],
     })
 

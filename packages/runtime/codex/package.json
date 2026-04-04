@@ -17,6 +17,7 @@
     "dev": "tsc -b --watch"
   },
   "dependencies": {
+    "@openai/codex": "0.118.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@sena-ai/core": "workspace:*",
     "zod": "^4.3.6"

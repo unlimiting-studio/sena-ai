@@ -10,6 +10,7 @@ export type CodexRuntimeOptions = {
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
   approvalPolicy?: 'never' | 'on-request' | 'always'
+  /** Explicit override for the Codex executable path or command. */
   codexBin?: string
 }
 
@@ -44,6 +45,13 @@ export function buildCodexConfigOverrides(
   return overrides
 }
 
+export function applyCodexResultTextFallback(event: RuntimeEvent, assistantText: string): RuntimeEvent {
+  if (event.type === 'result' && event.text === '' && assistantText !== '') {
+    return { ...event, text: assistantText }
+  }
+  return event
+}
+
 export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
   const {
     model,
@@ -51,7 +59,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
     reasoningEffort = 'medium',
     sandboxMode = 'danger-full-access',
     approvalPolicy = 'never',
-    codexBin = 'codex',
+    codexBin,
   } = options
 
   return {
@@ -85,6 +93,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
       let resolveWait: (() => void) | null = null
       let turnDone = false
       let expectedTurnId: string | null = null
+      let latestAssistantText = ''
 
       function pushEvent(event: RuntimeEvent) {
         eventQueue.push(event)
@@ -110,8 +119,16 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
           resolveWait?.()
         }
 
-        const event = mapCodexNotification(msg.method, params)
+        let event = mapCodexNotification(msg.method, params)
         if (event) {
+          if (event.type === 'progress') {
+            latestAssistantText = event.text
+          } else if (event.type === 'progress.delta') {
+            latestAssistantText += event.text
+          } else if (event.type === 'result') {
+            event = applyCodexResultTextFallback(event, latestAssistantText)
+          }
+
           // Fire-and-forget postToolUse hooks for tool.end events
           if (event.type === 'tool.end' && runtimeHooks) {
             evaluatePostToolUse(
