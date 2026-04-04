@@ -1,4 +1,4 @@
-import type { Runtime, RuntimeEvent, TurnStartHook, TurnEndHook, ErrorHook, TurnContext, ContextFragment, TurnResult } from '../types.js'
+import type { Runtime, RuntimeEvent, RuntimeStreamOptions, TurnStartHook, TurnEndHook, ErrorHook, TurnContext, ContextFragment, TurnResult } from '../types.js'
 
 export function createMockRuntime(response: string = 'mock response'): Runtime {
   return {
@@ -50,4 +50,22 @@ export function createSpyErrorHook(name: string): ErrorHook & { calls: { error: 
     },
   }
   return hook
+}
+
+/**
+ * Creates a mock runtime that captures the RuntimeStreamOptions passed to createStream.
+ * Useful for verifying that runtimeHooks and other options are forwarded correctly.
+ */
+export function createHookCapturingRuntime(
+  onOptions: (opts: RuntimeStreamOptions) => void,
+  response: string = 'mock response',
+): Runtime {
+  return {
+    name: 'hook-capturing',
+    async *createStream(options: RuntimeStreamOptions): AsyncGenerator<RuntimeEvent> {
+      onOptions(options)
+      yield { type: 'session.init', sessionId: 'sess-capture' }
+      yield { type: 'result', text: response }
+    },
+  }
 }

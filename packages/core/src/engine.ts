@@ -12,6 +12,8 @@ import type {
   RuntimeEvent,
   PendingMessageSource,
 } from './types.js'
+import type { RuntimeHooks, TurnEndInput, ErrorInput } from './runtime-hooks.js'
+import { adaptLegacyHooks } from './runtime-hooks.js'
 import { randomUUID } from 'node:crypto'
 
 export type TurnEngineConfig = {
@@ -24,6 +26,7 @@ export type TurnEngineConfig = {
     onError?: ErrorHook[]
   }
   tools: ToolPort[]
+  runtimeHooks?: RuntimeHooks
 }
 
 export type ProcessTurnOptions = {
@@ -43,6 +46,7 @@ export type ProcessTurnOptions = {
 
 export function createTurnEngine(config: TurnEngineConfig) {
   const { name, cwd, runtime, hooks, tools } = config
+  const mergedRuntimeHooks = adaptLegacyHooks(hooks, config.runtimeHooks)
 
   async function processTurn(options: ProcessTurnOptions): Promise<TurnTrace> {
     const turnId = randomUUID()
@@ -134,6 +138,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         onEvent: options.onEvent,
         pendingMessages: options.pendingMessages,
         disabledTools,
+        runtimeHooks: mergedRuntimeHooks,
       })
       result = {
         text: runtimeResult.text,
@@ -160,6 +165,20 @@ export function createTurnEngine(config: TurnEngineConfig) {
           fragments: [],
         })
       }
+
+      // === RuntimeHooks onError (non-legacy only; legacy hooks already executed above) ===
+      const errorInput: ErrorInput = {
+        hookEventName: 'error',
+        error: err instanceof Error ? err : new Error(String(err)),
+        turnContext: context,
+      }
+      for (const matcher of config.runtimeHooks?.onError ?? []) {
+        try {
+          await matcher.callback(errorInput)
+        } catch (hookErr) {
+          console.error(`[engine] runtimeHooks.onError threw:`, hookErr)
+        }
+      }
     }
 
     // === onTurnEnd hooks ===
@@ -178,6 +197,20 @@ export function createTurnEngine(config: TurnEngineConfig) {
           durationMs: Math.round(performance.now() - hookStart),
           fragments: [],
         })
+      }
+
+      // === RuntimeHooks onTurnEnd (non-legacy only; legacy hooks already executed above) ===
+      const turnEndInput: TurnEndInput = {
+        hookEventName: 'turnEnd',
+        result,
+        turnContext: context,
+      }
+      for (const matcher of config.runtimeHooks?.onTurnEnd ?? []) {
+        try {
+          await matcher.callback(turnEndInput)
+        } catch (hookErr) {
+          console.error(`[engine] runtimeHooks.onTurnEnd threw:`, hookErr)
+        }
       }
     }
 
@@ -241,9 +274,10 @@ async function executeRuntime(
     onEvent?: (event: RuntimeEvent) => void
     pendingMessages?: PendingMessageSource
     disabledTools?: string[]
+    runtimeHooks?: RuntimeHooks
   },
 ): Promise<RuntimeExecutionResult> {
-  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages, disabledTools } = options
+  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages, disabledTools, runtimeHooks } = options
 
   async function* promptIterable() {
     yield { text: input }
@@ -260,6 +294,7 @@ async function executeRuntime(
     abortSignal: abortSignal ?? new AbortController().signal,
     pendingMessages,
     disabledTools,
+    runtimeHooks,
   })
 
   let resultText = ''
