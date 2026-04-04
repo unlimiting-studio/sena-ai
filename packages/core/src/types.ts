@@ -165,6 +165,12 @@ export type ConnectorOutputContext = {
   connector: string
 }
 
+export type ConnectorContext = {
+  cwd: string
+  configDir: string
+  promptBaseDir: string
+}
+
 export type ConnectorOutput = {
   showProgress(text: string): Promise<void>
   sendResult(text: string): Promise<void>
@@ -184,7 +190,7 @@ export type TurnEngine = {
 
 export type Connector = {
   name: string
-  registerRoutes(server: HttpServer, engine: TurnEngine): void
+  registerRoutes(server: HttpServer, engine: TurnEngine, context?: ConnectorContext): void
   createOutput(context: ConnectorOutputContext): ConnectorOutput
   /** Optional cleanup — called during worker drain to close persistent connections (e.g. WebSocket). */
   stop?(): Promise<void> | void

@@ -14,6 +14,7 @@ describe('mcpServer', () => {
 
     const config = tool.toMcpConfig({ name: 'claude' })
     expect(config).toEqual({
+      type: 'http',
       url: 'https://mcp.posthog.com/mcp',
       headers: { Authorization: 'Bearer test' },
     })
@@ -39,7 +40,7 @@ describe('mcpServer', () => {
   it('omits headers when not provided for HTTP', () => {
     const tool = mcpServer({ name: 'simple', url: 'https://example.com/mcp' })
     const config = tool.toMcpConfig({ name: 'claude' })
-    expect(config).toEqual({ url: 'https://example.com/mcp' })
+    expect(config).toEqual({ type: 'http', url: 'https://example.com/mcp' })
     expect(config).not.toHaveProperty('headers')
   })
 })

@@ -12,6 +12,25 @@ const mockRuntime: Runtime = {
   },
 }
 
+function createNoopConnector(name = 'noop-connector'): Connector {
+  return {
+    name,
+    registerRoutes(server: HttpServer) {
+      server.post(`/${name}/noop`, (_req: unknown, res: any) => {
+        res.status(200).json({ ok: true })
+      })
+    },
+    createOutput() {
+      return {
+        async showProgress() {},
+        async sendResult() {},
+        async sendError() {},
+        async dispose() {},
+      }
+    },
+  }
+}
+
 // Helper to make HTTP requests to the worker
 async function request(port: number, path: string, options: { method?: string; body?: unknown } = {}) {
   const { method = 'GET', body } = options
@@ -42,6 +61,7 @@ describe('createWorker', () => {
       stopFn = null
     }
     process.send = originalProcessSend
+    delete process.env.SENA_CONFIG_PATH
   })
 
   it('creates a worker with engine', () => {
@@ -52,7 +72,11 @@ describe('createWorker', () => {
   })
 
   it('serves /health endpoint', async () => {
-    const config = defineConfig({ name: 'test-worker', runtime: mockRuntime })
+    const config = defineConfig({
+      name: 'test-worker',
+      runtime: mockRuntime,
+      connectors: [createNoopConnector('health-noop')],
+    })
     const port = 19876 + Math.floor(Math.random() * 1000)
     const worker = createWorker({ config, port })
     await worker.start()
@@ -67,7 +91,11 @@ describe('createWorker', () => {
   })
 
   it('returns 404 for unknown routes', async () => {
-    const config = defineConfig({ name: 'test-worker', runtime: mockRuntime })
+    const config = defineConfig({
+      name: 'test-worker',
+      runtime: mockRuntime,
+      connectors: [createNoopConnector('missing-route-noop')],
+    })
     const port = 19876 + Math.floor(Math.random() * 1000)
     const worker = createWorker({ config, port })
     await worker.start()
@@ -172,6 +200,75 @@ describe('createWorker', () => {
     })
 
     expect(receivedBody).toEqual({ key: 'value', nested: { a: 1 } })
+  })
+
+  it('passes config directory as prompt base dir when cwd is omitted', () => {
+    process.env.SENA_CONFIG_PATH = '/tmp/project/sena.config.ts'
+    let receivedContext: Parameters<Connector['registerRoutes']>[2] | undefined
+
+    const contextCapture: Connector = {
+      name: 'context-capture',
+      registerRoutes(_server, _engine, context) {
+        receivedContext = context
+      },
+      createOutput() {
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const config = defineConfig({
+      name: 'context-worker',
+      runtime: mockRuntime,
+      connectors: [contextCapture],
+    })
+
+    createWorker({ config, port: 0 })
+
+    expect(receivedContext).toEqual({
+      cwd: process.cwd(),
+      configDir: '/tmp/project',
+      promptBaseDir: '/tmp/project',
+    })
+  })
+
+  it('passes explicit cwd as prompt base dir when cwd is configured', () => {
+    process.env.SENA_CONFIG_PATH = '/tmp/project/sena.config.ts'
+    let receivedContext: Parameters<Connector['registerRoutes']>[2] | undefined
+
+    const contextCapture: Connector = {
+      name: 'context-capture',
+      registerRoutes(_server, _engine, context) {
+        receivedContext = context
+      },
+      createOutput() {
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const config = defineConfig({
+      name: 'context-worker',
+      cwd: '/custom/base',
+      runtime: mockRuntime,
+      connectors: [contextCapture],
+    })
+
+    createWorker({ config, port: 0 })
+
+    expect(receivedContext).toEqual({
+      cwd: '/custom/base',
+      configDir: '/tmp/project',
+      promptBaseDir: '/custom/base',
+    })
   })
 
   it('starts and stops scheduler when schedules are configured', async () => {
