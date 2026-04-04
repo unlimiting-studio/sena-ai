@@ -24,7 +24,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `Stable`
   - `conversationId` 규칙, 활성 스레드 추적, 이벤트 중복 제거 의미
   - 메시지 계열 고정 우선순위(`mention > thread > channel`)
-  - trigger key 생략 = 비활성 규칙
+  - `triggers` 생략 시 legacy default, `triggers` 내부 key 생략 시 비활성 규칙
   - prompt source와 filter 계약
   - ConnectorOutput과 HTTP 서명 검증 의미
 - `Flexible`
@@ -40,6 +40,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `reaction rule`: Slack reaction name별로 연결된 prompt 또는 제어 액션.
 - `prompt source`: 인라인 문자열 또는 `{ file: string }` 형태의 파일 참조.
 - `trigger filter`: 정규화된 Slack event 정보를 받아 해당 trigger를 통과시킬지 결정하는 함수.
+- `reaction filter event`: reacted message를 먼저 조회한 뒤, 메시지 작성자/본문/thread 정보까지 채워서 전달되는 reaction용 filter 입력.
 - `ConnectorOutput`: 진행/최종 결과를 Slack에 렌더링하는 출력 객체.
 
 ## 요구사항
@@ -55,6 +56,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `SLACK-CONN-FR-009 [Committed][Stable]`: `triggers` 설정이 생략되면 기존 기본 동작(mention + active thread + `:x:` abort)을 유지해야 한다.
 - `SLACK-CONN-FR-010 [Committed][Stable]`: 각 trigger와 reaction rule은 optional `filter(event)`를 가질 수 있어야 한다.
 - `SLACK-CONN-FR-011 [Committed][Stable]`: `triggers` 객체가 존재할 때는 key가 없는 항목을 비활성으로 해석해야 한다.
+- `SLACK-CONN-FR-012 [Committed][Stable]`: reaction rule filter는 reacted message lookup 이후, 메시지 기준 정보가 채워진 event를 받아야 한다.
 - `SLACK-CONN-NFR-001 [Committed][Stable]`: Slack Web API 토큰은 connector 옵션을 통해서만 사용되고 외부로 노출되지 않아야 한다.
 - `SLACK-CONN-NFR-002 [Committed][Stable]`: 최상위 일반 채널 메시지 반응은 명시적으로 켜기 전까지 기본 비활성 상태여야 한다.
 
@@ -71,6 +73,8 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `SLACK-CONN-AC-009`: Given `triggers` 설정이 없는 기존 connector 설정일 때 When app mention / active thread / `:x:` reaction이 들어오면 Then 현재 동작과 동일하게 처리된다.
 - `SLACK-CONN-AC-010`: Given `mention.filter(event)`가 `false`를 반환할 때 When mention 후보가 생기면 Then mention은 무시되고 더 낮은 우선순위 후보가 있으면 그쪽으로 계속 평가된다.
 - `SLACK-CONN-AC-011`: Given `triggers` 객체가 있고 `channel` key가 없을 때 When 최상위 일반 채널 메시지가 들어오면 Then channel trigger는 실행되지 않는다.
+- `SLACK-CONN-AC-012`: Given reaction filter가 `event.text` 또는 `event.threadTs`를 읽을 때 When reaction이 들어오면 Then reacted message 조회 뒤 채워진 값이 전달된다.
+- `SLACK-CONN-AC-013`: Given reacted message가 봇 메시지일 때 When reaction filter가 실행되면 Then target author는 `messageBotId`로 전달된다.
 
 ## 의존관계 맵
 
@@ -101,6 +105,12 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
   - `완화`: 파일 읽기 실패 시 해당 액션을 명시적으로 실패 처리하고 로그를 남긴다.
 - `Risk`: filter 예외가 나면 예상 못 한 하위 trigger가 실행될 수 있다.
   - `완화`: filter throw/reject는 전체 candidate 평가를 중단하고 이벤트를 drop한다.
+- `Risk`: 부분 `triggers` 설정을 넣는 순간 기존 thread/`:x:` 동작이 함께 꺼질 수 있다.
+  - `완화`: legacy default는 `triggers` 생략에서만 적용된다고 문서화하고, 부분 설정 예시에 필요한 key를 함께 적는다.
+- `Risk`: reaction filter가 target message 조회 없이 실행되면 구현마다 `text/threadTs` 의미가 달라질 수 있다.
+  - `완화`: reaction filter는 lookup 이후의 보강된 event를 받도록 계약을 고정한다.
+- `Risk`: 봇이 쓴 Slack 메시지에 달린 reaction이 사람 메시지와 같은 작성자 계약을 강제받으면 기본 `:x:` 취소도 깨질 수 있다.
+  - `완화`: reaction target author는 `messageUserId` 또는 `messageBotId`로 표현하고, `threadTs`는 lookup 뒤 항상 채운다.
 - `Risk`: Slack 메시지 제한을 넘으면 진행 출력이 깨질 수 있다.
   - `완화`: step 오버플로우 분리와 truncate 규칙을 문서화한다.
 
@@ -109,6 +119,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `verify.test.ts`로 서명 검증
 - `mrkdwn.test.ts`로 Markdown/table 변환
 - `config/trigger` 단위 테스트로 고정 우선순위, omit=disabled, prompt source, filter, reaction rule 해석 검증
+- reaction lookup 테스트로 filter 입력의 `text`, `threadTs`, `messageUserId/messageBotId` 채움 여부 검증
 - 수동 smoke test로 Slack 이벤트, 출력, 파일 다운로드, 취소 흐름 검증
 
 ## 상세 스펙

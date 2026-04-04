@@ -6,8 +6,8 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 
 ## 상위 스펙 연결
 
-- Related Requirements: `SLACK-CONN-FR-002`, `SLACK-CONN-FR-003`, `SLACK-CONN-FR-007`, `SLACK-CONN-FR-008`, `SLACK-CONN-FR-010`, `SLACK-CONN-FR-011`
-- Related AC: `SLACK-CONN-AC-002`, `SLACK-CONN-AC-003`, `SLACK-CONN-AC-007`, `SLACK-CONN-AC-008`, `SLACK-CONN-AC-010`, `SLACK-CONN-AC-011`
+- Related Requirements: `SLACK-CONN-FR-002`, `SLACK-CONN-FR-003`, `SLACK-CONN-FR-007`, `SLACK-CONN-FR-008`, `SLACK-CONN-FR-010`, `SLACK-CONN-FR-011`, `SLACK-CONN-FR-012`
+- Related AC: `SLACK-CONN-AC-002`, `SLACK-CONN-AC-003`, `SLACK-CONN-AC-007`, `SLACK-CONN-AC-008`, `SLACK-CONN-AC-010`, `SLACK-CONN-AC-011`, `SLACK-CONN-AC-012`, `SLACK-CONN-AC-013`
 
 ## Behavior
 
@@ -29,7 +29,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
   - normalized message key(`{channel}:{thread_ts || ts}`)를 만든다.
   - 같은 message key에 대해 중복 raw 이벤트가 들어와도 한 번만 처리한다.
   - 후보를 고정 순서 `mention > thread > channel`로 평가한다.
-  - 각 후보마다 정규화된 `SlackTriggerEvent`를 만든 뒤 rule.filter가 있으면 실행한다.
+  - 각 후보마다 정규화된 `SlackMessageTriggerEvent`를 만든 뒤 rule.filter가 있으면 실행한다.
   - filter가 `false`면 더 낮은 우선순위 후보를 계속 평가한다.
   - filter가 통과하면 그 후보가 선택된다.
 
@@ -47,10 +47,10 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - Main Flow:
   - reaction name으로 `reactions` 맵을 조회한다.
   - 규칙이 없으면 무시한다.
-  - reaction용 `SlackTriggerEvent`를 만든다.
-  - rule.filter가 있으면 먼저 평가한다.
+  - 대상 메시지와 thread 정보를 먼저 조회해 reaction용 `SlackReactionTriggerEvent`를 만든다.
+  - rule.filter가 있으면 보강된 reaction event로 먼저 평가한다.
   - 규칙이 `{ action: 'abort' }`이면 대상 스레드의 `conversationId`를 구해 `engine.abortConversation()`을 호출한다.
-  - 규칙이 prompt source이면 대상 메시지/스레드 정보를 조회해 reaction context용 `InboundEvent`를 만든다.
+  - 규칙이 prompt source이면 이미 조회한 대상 메시지/스레드 정보를 사용해 reaction context용 `InboundEvent`를 만든다.
 
 ### `SLACK-EVENT-05` 파일 다운로드와 사용자 이름 해소
 
@@ -77,6 +77,8 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - `SLACK-EVENT-C-004`: 최상위 일반 채널 메시지(`thread_ts` 없음)는 channel key가 명시적으로 있을 때만 처리해야 한다.
 - `SLACK-EVENT-C-005`: prompt file 읽기 실패는 조용히 빈 문자열로 폴백하면 안 되며, 해당 액션은 실패로 기록돼야 한다.
 - `SLACK-EVENT-C-006`: filter throw/reject는 silent pass로 처리하면 안 되며, 해당 이벤트는 실패 처리해야 한다.
+- `SLACK-EVENT-C-007`: reaction filter는 reacted message lookup 뒤, 메시지 작성자/본문/thread 정보가 채워진 event를 받아야 한다.
+- `SLACK-EVENT-C-008`: reaction filter event의 `threadTs`는 lookup 뒤 항상 채워져야 하며, 최상위 메시지 reaction이면 `ts`와 같아야 한다.
 
 ## Interface
 
@@ -100,6 +102,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
   - 파일 다운로드 실패 시 localPath 없는 기본 파일 메타데이터로 폴백한다.
   - prompt file 실패는 해당 액션만 중단하고 다음 이벤트 처리는 계속한다.
   - filter throw/reject는 해당 이벤트를 drop하고 에러를 기록한다.
+  - reaction target lookup 실패는 filter 평가 전에 해당 reaction 이벤트를 실패 처리한다.
 
 ## Dependencies
 
@@ -114,6 +117,8 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - Given 최상위 메시지가 mention과 channel을 동시에 만족할 때 When connector가 처리하면 Then 고정 우선순위에 따라 `mention` 하나만 실행된다.
 - Given mention filter가 `false`를 반환하고 thread filter는 통과할 때 When 같은 메시지가 mention과 thread를 동시에 만족하면 Then thread가 실행된다.
 - Given reaction rule filter가 `false`를 반환할 때 When reaction이 달리면 Then 그 reaction rule은 실행되지 않는다.
+- Given reaction filter가 `event.userId`, `event.text`, `event.threadTs`를 읽을 때 When reaction이 달리면 Then reacted message 조회 뒤 채워진 값으로 평가된다.
+- Given reacted message가 봇 메시지일 때 When reaction filter가 실행되면 Then target author는 `messageBotId`로 식별된다.
 - Given `x` reaction에 abort rule이 있을 때 When reaction이 달리면 Then 해당 대화에 대한 abort가 시도된다.
 
 ## 개편 메모
