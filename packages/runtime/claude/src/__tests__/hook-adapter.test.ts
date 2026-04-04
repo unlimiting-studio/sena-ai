@@ -214,6 +214,26 @@ describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
       },
     })
   })
+
+  it('maps modifiedPrompt with additionalContext — combines prompt and context (AC-08)', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnStart: [{
+        callback: async () => ({
+          decision: 'modifiedPrompt' as const,
+          prompt: 'new prompt',
+          additionalContext: 'extra context',
+        }),
+      }],
+    }
+    const sdk = buildSdkHooks(hooks)
+    const result = await invokeFirst(sdk.UserPromptSubmit!, { prompt: 'hello' })
+    expect(result).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: 'new prompt\nextra context',
+      },
+    })
+  })
 })
 
 // ─── Stop ──────────────────────────────────────────────────────────

@@ -396,6 +396,54 @@ describe('TurnEngine', () => {
     expect(input.error.message).toBe('runtime broke')
   })
 
+  it('passes onStop hooks through to runtime via runtimeHooks (AC-10)', async () => {
+    let capturedOptions: RuntimeStreamOptions | null = null
+    const onStopCallback = vi.fn()
+    const runtimeHooks: RuntimeHooks = {
+      onStop: [{ callback: onStopCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createHookCapturingRuntime((opts) => { capturedOptions = opts }),
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    await engine.processTurn({ input: 'hi' })
+
+    expect(capturedOptions).not.toBeNull()
+    expect(capturedOptions!.runtimeHooks).toBeDefined()
+    expect(capturedOptions!.runtimeHooks!.onStop).toHaveLength(1)
+    expect(capturedOptions!.runtimeHooks!.onStop![0].callback).toBe(onStopCallback)
+  })
+
+  it('passes onTurnStart hooks through to runtime via runtimeHooks (AC-09)', async () => {
+    let capturedOptions: RuntimeStreamOptions | null = null
+    const onTurnStartCallback = vi.fn(async () => ({ decision: 'block' as const, reason: 'denied' }))
+    const runtimeHooks: RuntimeHooks = {
+      onTurnStart: [{ callback: onTurnStartCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createHookCapturingRuntime((opts) => { capturedOptions = opts }),
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    await engine.processTurn({ input: 'hi' })
+
+    expect(capturedOptions).not.toBeNull()
+    expect(capturedOptions!.runtimeHooks).toBeDefined()
+    expect(capturedOptions!.runtimeHooks!.onTurnStart).toHaveLength(1)
+    expect(capturedOptions!.runtimeHooks!.onTurnStart![0].callback).toBe(onTurnStartCallback)
+  })
+
   it('isolates runtimeHooks.onError errors', async () => {
     const failRuntime = {
       name: 'fail',

@@ -134,6 +134,27 @@ describe('adaptLegacyHooks()', () => {
     expect(hooks.onTurnStart![1].callback).toBe(existingCallback)
   })
 
+  it('emits deprecation warnings when legacy hooks are adapted (AC-12)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const legacyStart: TurnStartHook = { name: 'start', execute: vi.fn().mockResolvedValue([]) }
+    const legacyEnd: TurnEndHook = { name: 'end', execute: vi.fn().mockResolvedValue(undefined) }
+    const legacyError: ErrorHook = { name: 'err', execute: vi.fn().mockResolvedValue(undefined) }
+
+    adaptLegacyHooks({
+      onTurnStart: [legacyStart],
+      onTurnEnd: [legacyEnd],
+      onError: [legacyError],
+    })
+
+    expect(warnSpy).toHaveBeenCalledTimes(3)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('onTurnStart hooks are deprecated'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('onTurnEnd hooks are deprecated'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('onError hooks are deprecated'))
+
+    warnSpy.mockRestore()
+  })
+
   it('preserves existing hooks on fields not covered by legacy', () => {
     const existingErrorCallback = vi.fn().mockResolvedValue(undefined)
     const existing: RuntimeHooks = {

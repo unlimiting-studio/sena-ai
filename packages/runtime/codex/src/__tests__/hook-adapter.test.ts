@@ -156,4 +156,15 @@ describe('evaluatePostToolUse', () => {
     expect(errorSpy).toHaveBeenCalled()
     errorSpy.mockRestore()
   })
+
+  it('ignores additionalContext returned by hook — Codex limitation (AC-06)', async () => {
+    const callback = vi.fn(async () => ({ additionalContext: 'extra info' }))
+    const hooks: RuntimeHooks = {
+      onPostToolUse: [{ callback }],
+    }
+    // evaluatePostToolUse returns void — additionalContext from the hook is intentionally ignored
+    const result = await evaluatePostToolUse(hooks, 'shell:ls', { command: 'ls' }, 'output', false, 'tu_1', 'sess_1', '/tmp')
+    expect(result).toBeUndefined()
+    expect(callback).toHaveBeenCalledTimes(1)
+  })
 })
