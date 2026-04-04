@@ -43,7 +43,10 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
 ## Realization
 
 - conversation별 활성 실행과 pending queue를 맵으로 관리한다.
-- output은 커넥터별 `createOutput()`으로 생성하고 턴 단위로 dispose한다.
+- output은 커넥터별 `createOutput()`으로 생성하고 턴 단위로 dispose한다. `createOutput()`에 전달하는 `ConnectorOutputContext`에는 해당 턴의 `InboundEvent.raw`를 `metadata` 필드로 포함한다.
+- `PendingMessageSource.restore()`는 복원 시 다음 두 가지를 보장해야 한다:
+  - **원본 `raw` 보존**: 개별 pending event의 `raw`를 유지해야 한다. 현재 구현의 `{ ...event, text }` spread는 현재 turn의 `raw`를 모든 복원 이벤트에 복사하므로, connector-specific per-turn 메타데이터(e.g. trigger-level thinkingMessage)가 오염된다. restore는 drain 전 원본 `InboundEvent`를 보존하고 text만 갱신하는 방식으로 수정한다.
+  - **FIFO 순서 보존**: `drain()`이 오래된 순서(FIFO)로 메시지를 넘기므로, `restore()`도 같은 순서를 유지해야 한다. 현재 `unshift` 루프는 복원 이벤트를 역순으로 삽입하므로 steer 실패 시 후속 턴의 메시지 순서가 뒤집힌다. 복원은 원본 큐 순서를 그대로 앞에 삽입(e.g. `unshift(...events)` 또는 `splice`)해야 한다.
 - drain은 IPC `drain` 메시지 또는 부모 disconnect로 진입한다.
 
 ## Dependencies
@@ -60,6 +63,8 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
 - Given 같은 conversationId로 새 메시지가 도착할 때, When 활성 턴이 존재하면, Then 새 메시지는 pending queue로 들어가 steer 또는 후속 턴 처리에 사용된다.
 - Given drain이 시작될 때, When 새 턴이 도착하면, Then Worker는 이를 거부하고 기존 활성 턴만 마무리한다.
 - Given 턴이 성공 종료될 때, When 세션 ID가 생기면, Then 세션 스토어에 conversationId -> sessionId가 저장된다.
+- Given 서로 다른 `raw`를 가진 pending event가 steer drain 후 restore될 때, When 후속 turn으로 처리되면, Then 각 event는 자신의 원본 `raw`를 유지하고, 현재 turn의 `raw`로 대체되지 않는다.
+- Given pending event A(먼저 도착), B(나중 도착)가 drain 후 restore될 때, When 후속 turn으로 순차 처리되면, Then A가 B보다 먼저 처리되어 FIFO 순서가 보존된다.
 ## 개편 메모
 
 - AGENTS.md 가이드에 맞춰 상위/상세 스펙 섹션과 traceability를 정규화했다.

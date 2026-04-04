@@ -48,7 +48,7 @@
 ## Dependencies
 
 - Depends On: Slack Block Kit payload shape
-- Blocks: [output.md](/Users/channy/workspace/sena-ai/packages/integrations/slack/connector/specs/output.md), `tools-slack`
+- Blocks: [output.md](./output.md), `tools-slack`
 - Parallelizable With: `verify.md`
 
 ## AC
