@@ -351,3 +351,47 @@ describe('defaultSlackBlockHook', () => {
     expect(result).toEqual({ decision: 'pass' })
   })
 })
+
+// ─── defaultSlackBlockHook integration with buildSdkHooks ─────────
+
+describe('defaultSlackBlockHook included in SDK hooks', () => {
+  it('is prepended to PreToolUse when building SDK hooks with user hooks', async () => {
+    const userHooks: RuntimeHooks = {
+      onPreToolUse: [{
+        callback: async () => ({ decision: 'allow' as const }),
+      }],
+    }
+    const merged: RuntimeHooks = {
+      ...userHooks,
+      onPreToolUse: [
+        { toolName: /^mcp__claude_ai_Slack__/, callback: defaultSlackBlockHook },
+        ...(userHooks.onPreToolUse ?? []),
+      ],
+    }
+    const sdk = buildSdkHooks(merged)
+
+    // Should have 2 PreToolUse matchers: Slack block first, user hook second
+    expect(sdk.PreToolUse).toHaveLength(2)
+    expect(sdk.PreToolUse![0].matcher).toBe('^mcp__claude_ai_Slack__')
+
+    // The Slack hook should deny Slack tools
+    const denyResult = await invokeFirst([sdk.PreToolUse![0]], { tool_name: 'mcp__claude_ai_Slack__slack_send_message', tool_input: {} })
+    expect(denyResult).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: expect.stringContaining('Slack'),
+      },
+    })
+  })
+
+  it('is included even when no user hooks are provided', () => {
+    const sdk = buildSdkHooks({
+      onPreToolUse: [
+        { toolName: /^mcp__claude_ai_Slack__/, callback: defaultSlackBlockHook },
+      ],
+    })
+    expect(sdk.PreToolUse).toHaveLength(1)
+    expect(sdk.PreToolUse![0].matcher).toBe('^mcp__claude_ai_Slack__')
+  })
+})

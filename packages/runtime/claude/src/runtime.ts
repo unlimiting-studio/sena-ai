@@ -2,6 +2,7 @@ import { isBrandedToolResult } from '@sena-ai/core'
 import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, ToolPort, McpToolPort, McpConfig, RuntimeInfo, InlineToolPort } from '@sena-ai/core'
 import { SdkMessageMapper, type ToolResultMeta } from './mapper.js'
 import { startInlineMcpHttpBridge } from './inline-mcp-bridge.js'
+import { buildSdkHooks, defaultSlackBlockHook } from './hook-adapter.js'
 
 const NATIVE_SERVER_NAME = '__native__'
 const NATIVE_SLACK_TOOL_PREFIX = `mcp__${NATIVE_SERVER_NAME}__slack_`
@@ -205,11 +206,9 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         systemPrompt,
         settingSources: ['user', 'project'],
-        // Block first-party integrations (Claude AI Slack, etc.) to prevent
-        // the agent from accidentally acting under the human user's identity.
-        // Also merge any per-turn disabledTools from the connector.
+        // Merge static disallowed tools with any per-turn disabledTools from the connector.
+        // Slack blocking is now handled via the defaultSlackBlockHook in RuntimeHooks.
         disallowedTools: [
-          'mcp__claude_ai_Slack__*',
           ...staticDisallowedTools,
           ...(disabledTools ?? []),
         ],
@@ -263,6 +262,25 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
 
       if (sessionId) {
         sdkOptions.resume = sessionId
+      }
+
+      // Convert RuntimeHooks to SDK hooks format.
+      // The defaultSlackBlockHook is always prepended to onPreToolUse so that
+      // Slack identity-impersonation is blocked even if the caller supplies no hooks.
+      const { runtimeHooks } = streamOptions
+      if (runtimeHooks) {
+        const merged = { ...runtimeHooks }
+        merged.onPreToolUse = [
+          { toolName: /^mcp__claude_ai_Slack__/, callback: defaultSlackBlockHook },
+          ...(runtimeHooks.onPreToolUse ?? []),
+        ]
+        sdkOptions.hooks = buildSdkHooks(merged)
+      } else {
+        sdkOptions.hooks = buildSdkHooks({
+          onPreToolUse: [
+            { toolName: /^mcp__claude_ai_Slack__/, callback: defaultSlackBlockHook },
+          ],
+        })
       }
 
       // Debug: log SDK options without traversing circular SDK-native MCP server objects.
