@@ -87,6 +87,76 @@ describe('slack trigger config', () => {
 })
 
 describe('processSlackEvent', () => {
+  it('runs the message trigger for thread replies even when the bot was not already active in the thread', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'C1',
+          ts: '150.2',
+          thread_ts: '150.0',
+          user: 'U1',
+          text: '일반 스레드 메시지',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        message: { text: 'message prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('message')
+    expect(inbound.text).toContain('message prompt')
+    expect(inbound.conversationId).toBe('C1:150.0')
+  })
+
+  it('prefers the thread trigger over the message trigger for active threads', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'C1',
+          ts: '151.2',
+          thread_ts: '151.0',
+          user: 'U1',
+          text: '활성 스레드 메시지',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(['C1:151.0']),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        thread: { text: 'thread prompt' },
+        message: { text: 'message prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('thread')
+    expect(inbound.text).toContain('thread prompt')
+  })
+
   it('falls through to the next message trigger when a higher-priority filter returns false', async () => {
     const { slack } = createSlackMock()
     const engine = createEngineMock()
@@ -128,6 +198,121 @@ describe('processSlackEvent', () => {
     expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('channel')
     expect(inbound.text).toContain('channel prompt')
     expect(inbound.userName).toBe('U1-name')
+  })
+
+  it('falls through to a lower-priority trigger when a trigger function returns false', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+    const mentionTrigger = vi.fn(() => false as const)
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'C1',
+          ts: '101.1',
+          user: 'U1',
+          text: '<@UBOT> hello',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        mention: mentionTrigger,
+        channel: { text: 'channel prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    expect(mentionTrigger).toHaveBeenCalledOnce()
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('channel')
+  })
+
+  it('uses a trigger function return value as prompt source and thinkingMessage override', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+    const dir = await mkdtemp(join(tmpdir(), 'sena-slack-trigger-fn-'))
+    await writeFile(join(dir, 'dynamic.md'), '동적 프롬프트')
+
+    const mentionTrigger = vi.fn(() => ({
+      file: './dynamic.md',
+      thinkingMessage: false as const,
+    }))
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'app_mention',
+          channel: 'C1',
+          ts: '102.1',
+          user: 'U1',
+          text: '<@UBOT> 도와줘',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        mention: mentionTrigger,
+      }),
+      dir,
+      'UBOT',
+      '전역 thinking',
+    )
+
+    expect(mentionTrigger).toHaveBeenCalledOnce()
+    const inbound = firstSubmittedEvent(engine)
+    expect(inbound.text).toContain('동적 프롬프트')
+    expect(inbound.text).toContain('<@UBOT> 도와줘')
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('mention')
+    expect(isRecord(inbound.raw) ? inbound.raw.thinkingMessage : undefined).toBe(false)
+  })
+
+  it('stores trigger-level thinkingMessage on the inbound raw payload', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'app_mention',
+          channel: 'C1',
+          ts: '103.1',
+          user: 'U1',
+          text: '<@UBOT> 생각해줘',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        mention: {
+          text: 'mention prompt',
+          thinkingMessage: '분석 중...',
+        },
+      }),
+      '/tmp',
+      'UBOT',
+      '전역 thinking',
+    )
+
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.thinkingMessage : undefined).toBe('분석 중...')
   })
 
   it('hydrates reaction filter events with actor and target message fields', async () => {
@@ -280,5 +465,53 @@ describe('processSlackEvent', () => {
     expect(engine.abortConversation).toHaveBeenCalledWith('C1:220.0')
     expect(addReaction).toHaveBeenCalledWith({ channel: 'C1', name: 'x', timestamp: '220.2' })
     expect(engine.submitTurn).not.toHaveBeenCalled()
+  })
+
+  it('allows reaction rules to use function returns for abort actions', async () => {
+    const { slack, addReaction } = createSlackMock({
+      historyMessage: {
+        ts: '230.2',
+        thread_ts: '230.0',
+        text: '리액션 대상',
+        user: 'U_TARGET',
+      },
+    })
+    const engine = createEngineMock()
+    const reactionRule = vi.fn(() => ({ abort: true as const }))
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'reaction_added',
+          reaction: 'eyes',
+          user: 'U_ACTOR',
+          event_ts: '303.3',
+          item: {
+            type: 'message',
+            channel: 'C1',
+            ts: '230.2',
+          },
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        reactions: {
+          eyes: reactionRule,
+        },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    expect(reactionRule).toHaveBeenCalledOnce()
+    expect(engine.abortConversation).toHaveBeenCalledWith('C1:230.0')
+    expect(engine.submitTurn).not.toHaveBeenCalled()
+    expect(addReaction).not.toHaveBeenCalled()
   })
 })

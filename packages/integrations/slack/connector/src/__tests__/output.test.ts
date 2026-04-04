@@ -45,6 +45,45 @@ function createSlackMock(overrides?: {
 }
 
 describe('createSlackOutput', () => {
+  it('uses trigger-level thinkingMessage from metadata before the global default', async () => {
+    const { slack, postCalls } = createSlackMock()
+
+    createSlackOutput(
+      slack,
+      {
+        connector: 'slack',
+        conversationId: 'C0AFW5Y133J:1775295864.093159',
+        metadata: { thinkingMessage: '트리거별 메시지' },
+      },
+      '전역 메시지',
+    )
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(postCalls).toHaveLength(1)
+    expect(getText(postCalls[0])).toBe('트리거별 메시지')
+  })
+
+  it('suppresses the global thinkingMessage when metadata sets it to false', async () => {
+    const { slack, postCalls } = createSlackMock()
+
+    createSlackOutput(
+      slack,
+      {
+        connector: 'slack',
+        conversationId: 'C0AFW5Y133J:1775295864.093159',
+        metadata: { thinkingMessage: false },
+      },
+      '전역 메시지',
+    )
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(postCalls).toHaveLength(0)
+  })
+
   it('flushes the latest throttled progress after the throttle window even if no new delta arrives', async () => {
     vi.useFakeTimers()
 

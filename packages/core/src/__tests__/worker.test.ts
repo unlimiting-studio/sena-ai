@@ -31,6 +31,14 @@ function createNoopConnector(name = 'noop-connector'): Connector {
   }
 }
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
 // Helper to make HTTP requests to the worker
 async function request(port: number, path: string, options: { method?: string; body?: unknown } = {}) {
   const { method = 'GET', body } = options
@@ -305,5 +313,179 @@ describe('createWorker', () => {
     // Should not throw — scheduler is null
     const worker = createWorker({ config, port: 0 })
     expect(worker).toBeDefined()
+  })
+
+  it('passes inbound raw metadata to connector outputs', async () => {
+    const outputContexts: unknown[] = []
+    let turnEngine: TurnEngine | undefined
+
+    const metadataConnector: Connector = {
+      name: 'metadata-capture',
+      registerRoutes(_server, engine) {
+        turnEngine = engine
+      },
+      createOutput(context) {
+        outputContexts.push(context)
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const runtime: Runtime = {
+      name: 'metadata-runtime',
+      async *createStream(): AsyncGenerator<RuntimeEvent> {
+        yield { type: 'result', text: 'ok' }
+      },
+    }
+
+    const worker = createWorker({
+      config: defineConfig({
+        name: 'metadata-worker',
+        runtime,
+        connectors: [metadataConnector],
+      }),
+      port: 0,
+    })
+    expect(worker).toBeDefined()
+    expect(turnEngine).toBeDefined()
+    const connectorEngine = turnEngine!
+
+    const raw = { triggerKind: 'message', thinkingMessage: '분석 중...' }
+    await connectorEngine.submitTurn({
+      connector: 'metadata-capture',
+      conversationId: 'C1:100.1',
+      userId: 'U1',
+      userName: 'tester',
+      text: 'hello',
+      raw,
+    })
+
+    expect(outputContexts).toEqual([
+      {
+        connector: 'metadata-capture',
+        conversationId: 'C1:100.1',
+        metadata: raw,
+      },
+    ])
+
+    await worker.stop()
+  })
+
+  it('restores drained pending events in FIFO order while preserving each raw payload', async () => {
+    const outputContexts: unknown[] = []
+    const seenInputs: string[] = []
+    const started = createDeferred()
+    const allowDrain = createDeferred()
+    let turnEngine: TurnEngine | undefined
+    let turnCount = 0
+
+    const runtime: Runtime = {
+      name: 'steer-runtime',
+      async *createStream(options): AsyncGenerator<RuntimeEvent> {
+        turnCount += 1
+
+        let input = ''
+        for await (const message of options.prompt) {
+          input += message.text
+        }
+        seenInputs.push(input)
+
+        if (turnCount === 1) {
+          started.resolve()
+          await allowDrain.promise
+          const drained = options.pendingMessages?.drain() ?? []
+          expect(drained).toEqual(['second', 'third'])
+          options.pendingMessages?.restore(['second restored', 'third restored'])
+        }
+
+        yield { type: 'result', text: input }
+      },
+    }
+
+    const steerConnector: Connector = {
+      name: 'steer-capture',
+      registerRoutes(_server, engine) {
+        turnEngine = engine
+      },
+      createOutput(context) {
+        outputContexts.push(context)
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const worker = createWorker({
+      config: defineConfig({
+        name: 'steer-worker',
+        runtime,
+        connectors: [steerConnector],
+      }),
+      port: 0,
+    })
+    expect(worker).toBeDefined()
+    expect(turnEngine).toBeDefined()
+    const connectorEngine = turnEngine!
+
+    const firstTurn = connectorEngine.submitTurn({
+      connector: 'steer-capture',
+      conversationId: 'C1:200.1',
+      userId: 'U1',
+      userName: 'tester',
+      text: 'first',
+      raw: { id: 'raw-first' },
+    })
+
+    await started.promise
+
+    const secondTurn = connectorEngine.submitTurn({
+      connector: 'steer-capture',
+      conversationId: 'C1:200.1',
+      userId: 'U2',
+      userName: 'tester-2',
+      text: 'second',
+      raw: { id: 'raw-second' },
+    })
+
+    const thirdTurn = connectorEngine.submitTurn({
+      connector: 'steer-capture',
+      conversationId: 'C1:200.1',
+      userId: 'U3',
+      userName: 'tester-3',
+      text: 'third',
+      raw: { id: 'raw-third' },
+    })
+
+    allowDrain.resolve()
+
+    await Promise.all([firstTurn, secondTurn, thirdTurn])
+
+    expect(seenInputs).toEqual(['first', 'second restored', 'third restored'])
+    expect(outputContexts).toEqual([
+      {
+        connector: 'steer-capture',
+        conversationId: 'C1:200.1',
+        metadata: { id: 'raw-first' },
+      },
+      {
+        connector: 'steer-capture',
+        conversationId: 'C1:200.1',
+        metadata: { id: 'raw-second' },
+      },
+      {
+        connector: 'steer-capture',
+        conversationId: 'C1:200.1',
+        metadata: { id: 'raw-third' },
+      },
+    ])
+
+    await worker.stop()
   })
 })
