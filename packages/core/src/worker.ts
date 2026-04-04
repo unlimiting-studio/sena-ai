@@ -2,7 +2,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import type { ResolvedSenaConfig } from './config.js'
-import type { Connector, HttpServer, InboundEvent, SessionStore, TurnEngine } from './types.js'
+import type { Connector, ConnectorContext, HttpServer, InboundEvent, SessionStore, TurnEngine } from './types.js'
 import { createTurnEngine } from './engine.js'
 import { createScheduler } from './scheduler.js'
 import { defineTool } from './tool.js'
@@ -106,6 +106,14 @@ function createInMemorySessionStore(): SessionStore {
  */
 export function createWorker(options: WorkerOptions) {
   const { config, port = parseInt(process.env.SENA_WORKER_PORT ?? '0', 10) } = options
+  const configDir = process.env.SENA_CONFIG_PATH
+    ? dirname(resolve(process.env.SENA_CONFIG_PATH))
+    : process.cwd()
+  const connectorContext: ConnectorContext = {
+    cwd: config.cwd,
+    configDir,
+    promptBaseDir: config.cwdConfigured ? config.cwd : configDir,
+  }
   const sessionStore = options.sessionStore
     ?? (config.cwd
       ? createFileSessionStore(resolve(config.cwd, '.sessions.json'))
@@ -373,7 +381,7 @@ export function createWorker(options: WorkerOptions) {
 
   // Register connector routes
   for (const connector of config.connectors) {
-    connector.registerRoutes(httpServer, turnEngine)
+    connector.registerRoutes(httpServer, turnEngine, connectorContext)
   }
 
   async function start(): Promise<void> {
