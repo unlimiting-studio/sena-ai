@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createAgent } from '../agent.js'
 import { defineConfig } from '../config.js'
-import { createMockRuntime, createMockHook } from './helpers.js'
+import { createMockRuntime } from './helpers.js'
 
 describe('createAgent()', () => {
   it('creates an agent that can process turns', async () => {
@@ -10,9 +10,9 @@ describe('createAgent()', () => {
       runtime: createMockRuntime('I am test-bot'),
       hooks: {
         onTurnStart: [
-          createMockHook('greeting', [
-            { source: 'test:greeting', role: 'system', content: 'You are test-bot' },
-          ]),
+          {
+            callback: async () => ({ decision: 'allow' as const, additionalContext: 'You are test-bot' }),
+          },
         ],
       },
     })
@@ -22,6 +22,6 @@ describe('createAgent()', () => {
 
     expect(trace.agentName).toBe('test-bot')
     expect(trace.result?.text).toBe('I am test-bot')
-    expect(trace.assembledContext).toContain('You are test-bot')
+    // Note: onTurnStart hooks are now forwarded to the runtime, not assembled by the engine
   })
 })

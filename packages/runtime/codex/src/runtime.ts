@@ -74,7 +74,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         abortSignal,
         tools = [],
         pendingMessages,
-        runtimeHooks,
+        hooks,
       } = streamOptions
 
       if (apiKey) {
@@ -130,9 +130,9 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
           }
 
           // Fire-and-forget postToolUse hooks for tool.end events
-          if (event.type === 'tool.end' && runtimeHooks) {
+          if (event.type === 'tool.end' && hooks) {
             evaluatePostToolUse(
-              runtimeHooks,
+              hooks,
               event.toolName,
               (event.toolInput as Record<string, unknown>) ?? {},
               typeof event.toolResponse === 'string' ? event.toolResponse : JSON.stringify(event.toolResponse ?? ''),
@@ -161,12 +161,12 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
             case 'applyPatchApproval':
             case 'execCommandApproval': {
               // Evaluate preToolUse hooks before applying approval policy
-              if (runtimeHooks) {
+              if (hooks) {
                 const toolName = extractToolNameFromApproval(msg.method, params)
                 const toolInput = extractToolInputFromApproval(msg.method, params)
                 try {
                   const hookDecision = await evaluatePreToolUse(
-                    runtimeHooks,
+                    hooks,
                     toolName,
                     toolInput,
                     expectedTurnId ?? 'unknown',

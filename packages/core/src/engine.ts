@@ -1,9 +1,6 @@
 import type {
   Runtime,
   ToolPort,
-  TurnStartHook,
-  TurnEndHook,
-  ErrorHook,
   TurnContext,
   TurnResult,
   TurnTrace,
@@ -13,20 +10,14 @@ import type {
   PendingMessageSource,
 } from './types.js'
 import type { RuntimeHooks, TurnEndInput, ErrorInput } from './runtime-hooks.js'
-import { adaptLegacyHooks } from './runtime-hooks.js'
 import { randomUUID } from 'node:crypto'
 
 export type TurnEngineConfig = {
   name: string
   cwd: string
   runtime: Runtime
-  hooks: {
-    onTurnStart?: TurnStartHook[]
-    onTurnEnd?: TurnEndHook[]
-    onError?: ErrorHook[]
-  }
+  hooks?: RuntimeHooks
   tools: ToolPort[]
-  runtimeHooks?: RuntimeHooks
 }
 
 export type ProcessTurnOptions = {
@@ -46,7 +37,6 @@ export type ProcessTurnOptions = {
 
 export function createTurnEngine(config: TurnEngineConfig) {
   const { name, cwd, runtime, hooks, tools } = config
-  const mergedRuntimeHooks = adaptLegacyHooks(hooks, config.runtimeHooks)
 
   async function processTurn(options: ProcessTurnOptions): Promise<TurnTrace> {
     const turnId = randomUUID()
@@ -99,18 +89,9 @@ export function createTurnEngine(config: TurnEngineConfig) {
       allFragments.push({ source: 'connector-meta', role: 'append', content: contextContent })
     }
 
-    // === onTurnStart hooks ===
-    for (const hook of hooks.onTurnStart ?? []) {
-      const hookStart = performance.now()
-      const fragments = await hook.execute(context)
-      hookTraces.push({
-        phase: 'onTurnStart',
-        name: hook.name,
-        durationMs: Math.round(performance.now() - hookStart),
-        fragments,
-      })
-      allFragments.push(...fragments)
-    }
+    // === onTurnStart hooks (RuntimeHooks) ===
+    // Note: onTurnStart hooks in RuntimeHooks are forwarded to the runtime
+    // and handled there. No engine-level execution is needed.
 
     // === Assemble context ===
     const assembledContext = assembleContext(allFragments)
@@ -138,7 +119,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         onEvent: options.onEvent,
         pendingMessages: options.pendingMessages,
         disabledTools,
-        runtimeHooks: mergedRuntimeHooks,
+        hooks,
       })
       result = {
         text: runtimeResult.text,
@@ -151,65 +132,34 @@ export function createTurnEngine(config: TurnEngineConfig) {
       error = err instanceof Error ? err.message : String(err)
       console.error(`[engine] turn ${turnId.slice(0, 8)} error:`, error)
 
-      for (const hook of hooks.onError ?? []) {
-        const hookStart = performance.now()
-        try {
-          await hook.execute(context, err instanceof Error ? err : new Error(String(err)))
-        } catch (hookErr) {
-          console.error(`[engine] onError hook "${hook.name}" threw:`, hookErr)
-        }
-        hookTraces.push({
-          phase: 'onError',
-          name: hook.name,
-          durationMs: Math.round(performance.now() - hookStart),
-          fragments: [],
-        })
-      }
-
-      // === RuntimeHooks onError (non-legacy only; legacy hooks already executed above) ===
+      // === RuntimeHooks onError ===
       const errorInput: ErrorInput = {
         hookEventName: 'error',
         error: err instanceof Error ? err : new Error(String(err)),
         turnContext: context,
       }
-      for (const matcher of config.runtimeHooks?.onError ?? []) {
+      for (const matcher of hooks?.onError ?? []) {
         try {
           await matcher.callback(errorInput)
         } catch (hookErr) {
-          console.error(`[engine] runtimeHooks.onError threw:`, hookErr)
+          console.error(`[engine] hooks.onError threw:`, hookErr)
         }
       }
     }
 
-    // === onTurnEnd hooks ===
+    // === onTurnEnd hooks (RuntimeHooks) ===
     const followUps: string[] = []
     if (result) {
-      for (const hook of hooks.onTurnEnd ?? []) {
-        const hookStart = performance.now()
-        const followUp = await hook.execute(context, result)
-        if (typeof followUp === 'string') {
-          followUps.push(followUp)
-          console.log(`[engine] onTurnEnd hook "${hook.name}" requested follow-up`)
-        }
-        hookTraces.push({
-          phase: 'onTurnEnd',
-          name: hook.name,
-          durationMs: Math.round(performance.now() - hookStart),
-          fragments: [],
-        })
-      }
-
-      // === RuntimeHooks onTurnEnd (non-legacy only; legacy hooks already executed above) ===
       const turnEndInput: TurnEndInput = {
         hookEventName: 'turnEnd',
         result,
         turnContext: context,
       }
-      for (const matcher of config.runtimeHooks?.onTurnEnd ?? []) {
+      for (const matcher of hooks?.onTurnEnd ?? []) {
         try {
           await matcher.callback(turnEndInput)
         } catch (hookErr) {
-          console.error(`[engine] runtimeHooks.onTurnEnd threw:`, hookErr)
+          console.error(`[engine] hooks.onTurnEnd threw:`, hookErr)
         }
       }
     }
@@ -274,10 +224,10 @@ async function executeRuntime(
     onEvent?: (event: RuntimeEvent) => void
     pendingMessages?: PendingMessageSource
     disabledTools?: string[]
-    runtimeHooks?: RuntimeHooks
+    hooks?: RuntimeHooks
   },
 ): Promise<RuntimeExecutionResult> {
-  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages, disabledTools, runtimeHooks } = options
+  const { contextFragments, input, tools, sessionId, cwd, abortSignal, onEvent, pendingMessages, disabledTools, hooks } = options
 
   async function* promptIterable() {
     yield { text: input }
@@ -294,7 +244,7 @@ async function executeRuntime(
     abortSignal: abortSignal ?? new AbortController().signal,
     pendingMessages,
     disabledTools,
-    runtimeHooks,
+    hooks,
   })
 
   let resultText = ''

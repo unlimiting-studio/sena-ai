@@ -267,7 +267,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       // Convert RuntimeHooks to SDK hooks format.
       // The defaultSlackBlockHook is always prepended to onPreToolUse so that
       // Slack identity-impersonation is blocked even if the caller supplies no hooks.
-      const { runtimeHooks } = streamOptions
+      const { hooks: runtimeHooks } = streamOptions
       if (runtimeHooks) {
         const merged = { ...runtimeHooks }
         merged.onPreToolUse = [
