@@ -4,6 +4,16 @@ import { createMockRuntime, createStreamingMockRuntime, createHookCapturingRunti
 import type { RuntimeEvent, RuntimeStreamOptions } from '../types.js'
 import type { RuntimeHooks, TurnEndInput, ErrorInput } from '../runtime-hooks.js'
 
+function createFailRuntime(message: string) {
+  return {
+    name: 'fail',
+    async *createStream(): AsyncGenerator<never> {
+      yield* []
+      throw new Error(message)
+    },
+  }
+}
+
 describe('TurnEngine', () => {
   it('executes a basic turn and returns a TurnTrace', async () => {
     const engine = createTurnEngine({
@@ -48,12 +58,7 @@ describe('TurnEngine', () => {
   })
 
   it('records error in trace when runtime fails', async () => {
-    const failRuntime = {
-      name: 'fail',
-      async *createStream(): AsyncGenerator<never> {
-        throw new Error('runtime exploded')
-      },
-    }
+    const failRuntime = createFailRuntime('runtime exploded')
 
     const engine = createTurnEngine({
       name: 'test',
@@ -248,12 +253,7 @@ describe('TurnEngine', () => {
   })
 
   it('calls hooks.onError when runtime fails', async () => {
-    const failRuntime = {
-      name: 'fail',
-      async *createStream(): AsyncGenerator<never> {
-        throw new Error('runtime broke')
-      },
-    }
+    const failRuntime = createFailRuntime('runtime broke')
 
     const onErrorCallback = vi.fn()
     const hooks: RuntimeHooks = {
@@ -324,12 +324,7 @@ describe('TurnEngine', () => {
   })
 
   it('isolates hooks.onError errors', async () => {
-    const failRuntime = {
-      name: 'fail',
-      async *createStream(): AsyncGenerator<never> {
-        throw new Error('runtime broke')
-      },
-    }
+    const failRuntime = createFailRuntime('runtime broke')
 
     const throwingErrorCallback = vi.fn().mockRejectedValue(new Error('error hook exploded'))
     const hooks: RuntimeHooks = {

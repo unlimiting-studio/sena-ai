@@ -3,6 +3,16 @@ import { defineConfig, createAgent, env, createScheduler } from '../index.js'
 import { createMockRuntime } from './helpers.js'
 import type { RuntimeHooks, TurnEndInput, ErrorInput } from '../runtime-hooks.js'
 
+function createFailRuntime(message: string) {
+  return {
+    name: 'fail',
+    async *createStream(): AsyncGenerator<never> {
+      yield* []
+      throw new Error(message)
+    },
+  }
+}
+
 // Simulate what a real sena.config.ts would look like
 describe('Full sena.config.ts pattern', () => {
   it('works with the spec example pattern', async () => {
@@ -76,12 +86,7 @@ describe('Full sena.config.ts pattern', () => {
   })
 
   it('handles runtime errors gracefully', async () => {
-    const failRuntime = {
-      name: 'fail',
-      async *createStream(): AsyncGenerator<never> {
-        throw new Error('API key expired')
-      },
-    }
+    const failRuntime = createFailRuntime('API key expired')
 
     const onErrorCallback = vi.fn()
 

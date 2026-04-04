@@ -1,6 +1,6 @@
 {
   "name": "@sena-ai/cli",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "type": "module",
   "bin": {
     "sena": "dist/cli.js"
