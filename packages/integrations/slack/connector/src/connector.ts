@@ -990,6 +990,8 @@ export function createSlackOutput(
   let lastRenderTime = 0
   let finalized = false               // true after sendResult/sendError
   let renderPromise: Promise<void> | null = null
+  let pendingProgressRender = false
+  let trailingRenderTimer: ReturnType<typeof setTimeout> | null = null
 
   const THROTTLE_MS = 1500
   const MAX_BLOCKS = 45       // Leave headroom below Slack's 50-block limit
@@ -1002,6 +1004,23 @@ export function createSlackOutput(
     const p = apiQueue.then(fn).catch(err => console.warn('[slack] enqueued api call failed:', err))
     apiQueue = p
     return p
+  }
+
+  function clearTrailingRenderTimer(): void {
+    if (!trailingRenderTimer) return
+    clearTimeout(trailingRenderTimer)
+    trailingRenderTimer = null
+  }
+
+  function scheduleTrailingRender(): void {
+    if (finalized || trailingRenderTimer || !pendingProgressRender) return
+    const delay = activeTs ? Math.max(0, lastRenderTime + THROTTLE_MS - Date.now()) : 0
+    trailingRenderTimer = setTimeout(() => {
+      trailingRenderTimer = null
+      if (finalized || !pendingProgressRender) return
+      pendingProgressRender = false
+      queueRender().catch(err => console.warn('[slack] trailing render failed:', err))
+    }, delay)
   }
 
   // Post thinking indicator immediately
@@ -1112,12 +1131,20 @@ export function createSlackOutput(
   }
 
   async function queueRender(options?: { final?: boolean }): Promise<void> {
+    clearTrailingRenderTimer()
+
     if (renderPromise) {
       if (options?.final) {
         await renderPromise
         return queueRender(options)
       }
+      pendingProgressRender = true
+      scheduleTrailingRender()
       return renderPromise
+    }
+
+    if (!options?.final) {
+      pendingProgressRender = false
     }
 
     renderPromise = enqueue(async () => {
@@ -1125,6 +1152,9 @@ export function createSlackOutput(
       lastRenderTime = Date.now()
     }).finally(() => {
       renderPromise = null
+      if (!options?.final && !finalized && pendingProgressRender) {
+        scheduleTrailingRender()
+      }
     })
 
     return renderPromise
@@ -1239,13 +1269,25 @@ export function createSlackOutput(
       // Throttle rendering — steps naturally space out (tool execution takes time),
       // but streaming deltas can fire rapidly.
       const now = Date.now()
-      if (now - lastRenderTime < THROTTLE_MS && activeTs) return
+      if (renderPromise) {
+        pendingProgressRender = true
+        scheduleTrailingRender()
+        return
+      }
+
+      if (now - lastRenderTime < THROTTLE_MS && activeTs) {
+        pendingProgressRender = true
+        scheduleTrailingRender()
+        return
+      }
 
       await queueRender()
     },
 
     async sendResult(text: string): Promise<void> {
       finalized = true
+      pendingProgressRender = false
+      clearTrailingRenderTimer()
 
       // Flush current progress as a completed step if it differs from the result
       // When progress text is just a growing preview of the final answer,
@@ -1289,6 +1331,8 @@ export function createSlackOutput(
 
     async sendError(message: string): Promise<void> {
       finalized = true
+      pendingProgressRender = false
+      clearTrailingRenderTimer()
 
       // Flush live progress if any
       if (currentText.trim()) {

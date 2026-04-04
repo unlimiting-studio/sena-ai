@@ -45,6 +45,40 @@ function createSlackMock(overrides?: {
 }
 
 describe('createSlackOutput', () => {
+  it('flushes the latest throttled progress after the throttle window even if no new delta arrives', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { slack, postCalls, updateCalls } = createSlackMock()
+      const output = createSlackOutput(
+        slack,
+        { connector: 'slack', conversationId: 'C0AFW5Y133J:1775295864.093159' },
+        ':loading-dots: 브렌이 생각 중이에요',
+      )
+
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(postCalls).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(1600)
+      await output.showProgress('her')
+
+      expect(updateCalls).toHaveLength(1)
+      expect(getText(updateCalls[0])).toBe('her')
+
+      await output.showProgress('hero')
+      expect(updateCalls).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(1500)
+
+      expect(updateCalls).toHaveLength(2)
+      expect(getText(updateCalls[1])).toBe('hero')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps oversized live progress in one message instead of posting duplicate thread messages', async () => {
     const { slack, postCalls, updateCalls } = createSlackMock()
     const output = createSlackOutput(
