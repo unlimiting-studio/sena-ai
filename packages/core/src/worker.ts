@@ -112,7 +112,7 @@ export function createWorker(options: WorkerOptions) {
   const connectorContext: ConnectorContext = {
     cwd: config.cwd,
     configDir,
-    promptBaseDir: config.cwd,
+    promptBaseDir: config.cwdConfigured ? config.cwd : configDir,
   }
   const sessionStore = options.sessionStore
     ?? (config.cwd

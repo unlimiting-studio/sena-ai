@@ -18,6 +18,7 @@ describe('defineConfig()', () => {
     })
     expect(config.name).toBe('test-agent')
     expect(config.cwd).toBe(process.cwd())
+    expect(config.cwdConfigured).toBe(false)
     expect(config.runtime.name).toBe('mock')
     expect(config.connectors).toEqual([])
     expect(config.tools).toEqual([])
@@ -41,6 +42,7 @@ describe('defineConfig()', () => {
       runtime: mockRuntime,
     })
     expect(config.cwd).toBe('/custom/path')
+    expect(config.cwdConfigured).toBe(true)
   })
 
   it('throws on duplicate tool names', () => {
