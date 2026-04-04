@@ -2,6 +2,7 @@ import type { Runtime, RuntimeEvent, RuntimeStreamOptions, ContextFragment, McpT
 import { CodexAppServerClient } from './client.js'
 import { mapCodexNotification } from './mapper.js'
 import { startInlineMcpHttpServer } from './inline-mcp-server.js'
+import { evaluatePreToolUse, evaluatePostToolUse } from './hook-adapter.js'
 
 export type CodexRuntimeOptions = {
   model?: string
@@ -65,6 +66,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         abortSignal,
         tools = [],
         pendingMessages,
+        runtimeHooks,
       } = streamOptions
 
       if (apiKey) {
@@ -109,27 +111,76 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         }
 
         const event = mapCodexNotification(msg.method, params)
-        if (event) pushEvent(event)
+        if (event) {
+          // Fire-and-forget postToolUse hooks for tool.end events
+          if (event.type === 'tool.end' && runtimeHooks) {
+            evaluatePostToolUse(
+              runtimeHooks,
+              event.toolName,
+              (event.toolInput as Record<string, unknown>) ?? {},
+              typeof event.toolResponse === 'string' ? event.toolResponse : JSON.stringify(event.toolResponse ?? ''),
+              event.isError,
+              expectedTurnId ?? 'unknown',
+              sessionId ?? 'unknown',
+              cwd || process.cwd(),
+            ).catch((err) => {
+              console.error('[sena][codex] PostToolUse hook error (fire-and-forget):', err)
+            })
+          }
+          pushEvent(event)
+        }
       })
 
       // Server requests requiring client response (approval, input, etc.)
       client.on('server-request', (msg: { id: number; method: string; params: unknown }) => {
-        switch (msg.method) {
-          // Official approval request methods per ServerRequest.ts
-          case 'item/commandExecution/requestApproval':
-          case 'item/fileChange/requestApproval':
-          case 'item/permissions/requestApproval':
-          case 'applyPatchApproval':
-          case 'execCommandApproval': {
-            const decision = approvalPolicy === 'never' ? 'acceptForSession' : 'accept'
-            client.respond(msg.id, { decision })
-            break
+        const handleApproval = async () => {
+          const params = msg.params as Record<string, unknown> | undefined
+
+          switch (msg.method) {
+            // Official approval request methods per ServerRequest.ts
+            case 'item/commandExecution/requestApproval':
+            case 'item/fileChange/requestApproval':
+            case 'item/permissions/requestApproval':
+            case 'applyPatchApproval':
+            case 'execCommandApproval': {
+              // Evaluate preToolUse hooks before applying approval policy
+              if (runtimeHooks) {
+                const toolName = extractToolNameFromApproval(msg.method, params)
+                const toolInput = extractToolInputFromApproval(msg.method, params)
+                try {
+                  const hookDecision = await evaluatePreToolUse(
+                    runtimeHooks,
+                    toolName,
+                    toolInput,
+                    expectedTurnId ?? 'unknown',
+                    sessionId ?? 'unknown',
+                    cwd || process.cwd(),
+                  )
+                  if (hookDecision.decision === 'deny') {
+                    client.respond(msg.id, { decision: 'decline' })
+                    return
+                  }
+                } catch (err) {
+                  console.error('[sena][codex] PreToolUse hook error:', err)
+                  // Fall through to default approval policy
+                }
+              }
+
+              const decision = approvalPolicy === 'never' ? 'acceptForSession' : 'accept'
+              client.respond(msg.id, { decision })
+              break
+            }
+            default:
+              // Unknown server request — accept to avoid blocking
+              client.respond(msg.id, { decision: 'accept' })
+              break
           }
-          default:
-            // Unknown server request — accept to avoid blocking
-            client.respond(msg.id, { decision: 'accept' })
-            break
         }
+
+        handleApproval().catch((err) => {
+          console.error('[sena][codex] Approval handler error:', err)
+          client.respond(msg.id, { decision: 'accept' })
+        })
       })
 
       abortSignal.addEventListener('abort', () => {
@@ -245,6 +296,38 @@ function wrapUserMessage(text: string, prepend: string, append: string): string 
   parts.push(text)
   if (append) parts.push(append)
   return parts.join('\n\n')
+}
+
+function extractToolNameFromApproval(method: string, params: Record<string, unknown> | undefined): string {
+  const item = params?.item as Record<string, unknown> | undefined
+  switch (method) {
+    case 'item/commandExecution/requestApproval':
+    case 'execCommandApproval':
+      return `shell:${(item?.command as string) ?? (params?.command as string) ?? 'unknown'}`
+    case 'item/fileChange/requestApproval':
+    case 'applyPatchApproval':
+      return `file:${(item?.path as string) ?? (params?.path as string) ?? 'unknown'}`
+    case 'item/permissions/requestApproval':
+      return `permissions:${(item?.type as string) ?? 'unknown'}`
+    default:
+      return `unknown:${method}`
+  }
+}
+
+function extractToolInputFromApproval(method: string, params: Record<string, unknown> | undefined): Record<string, unknown> {
+  const item = params?.item as Record<string, unknown> | undefined
+  switch (method) {
+    case 'item/commandExecution/requestApproval':
+    case 'execCommandApproval':
+      return { command: item?.command ?? params?.command, args: item?.args ?? params?.args }
+    case 'item/fileChange/requestApproval':
+    case 'applyPatchApproval':
+      return { path: item?.path ?? params?.path, changes: item?.changes ?? params?.changes }
+    case 'item/permissions/requestApproval':
+      return { type: item?.type ?? params?.type }
+    default:
+      return params ?? {}
+  }
 }
 
 // codex-cli 0.114.0 expects the legacy string form here, not the newer tagged union.

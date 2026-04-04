@@ -31,24 +31,32 @@ export function mapCodexNotification(method: string, params: any): RuntimeEvent 
             type: 'tool.end',
             toolName: `shell:${item.command ?? 'unknown'}`,
             isError: item.exitCode != null ? item.exitCode !== 0 : false,
+            toolInput: { command: item.command, args: item.args },
+            toolResponse: { exitCode: item.exitCode, output: item.output },
           }
         case 'fileChange':
           return {
             type: 'tool.end',
             toolName: `file:${item.changes?.[0]?.path ?? 'unknown'}`,
             isError: false,
+            toolInput: { path: item.changes?.[0]?.path },
+            toolResponse: { changes: item.changes },
           }
         case 'mcpToolCall':
           return {
             type: 'tool.end',
             toolName: `mcp:${item.server ?? 'unknown'}/${item.tool ?? 'unknown'}`,
             isError: item.error != null,
+            toolInput: item.arguments,
+            toolResponse: item.error ?? item.result,
           }
         case 'dynamicToolCall':
           return {
             type: 'tool.end',
             toolName: `tool:${item.tool ?? 'unknown'}`,
             isError: item.success === false,
+            toolInput: item.arguments,
+            toolResponse: item.result,
           }
         case 'agentMessage': {
           const text = item.content
