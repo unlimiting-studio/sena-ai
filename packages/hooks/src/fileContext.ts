@@ -1,4 +1,4 @@
-import type { TurnStartHook, TurnContext, ContextFragment } from '@sena-ai/core'
+import type { TurnStartHook, TurnContext, ContextFragment, SimpleHookMatcher, TurnStartCallback, TurnStartInput, TurnStartDecision } from '@sena-ai/core'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 
@@ -66,4 +66,16 @@ function matchGlob(filename: string, pattern: string): boolean {
     return filename.endsWith(pattern.slice(1))
   }
   return filename === pattern
+}
+
+export function fileContextHook(options: FileContextOptions): SimpleHookMatcher<TurnStartCallback> {
+  const legacyHook = fileContext(options)
+  return {
+    callback: async (input: TurnStartInput): Promise<TurnStartDecision> => {
+      const fragments = await legacyHook.execute(input.turnContext)
+      if (fragments.length === 0) return { decision: 'allow' }
+      const context = fragments.map(f => `[${f.source}]\n${f.content}`).join('\n\n')
+      return { decision: 'allow', additionalContext: context }
+    },
+  }
 }
