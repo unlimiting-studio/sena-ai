@@ -14,6 +14,7 @@ export type WorkerInfo = {
   ready: boolean
   exited: boolean
   released: boolean
+  bootError?: string
 }
 
 // Grace period before force-killing a draining worker.
@@ -61,13 +62,16 @@ export function createOrchestrator(options: OrchestratorOptions) {
         if (typeof msg.port === 'number') {
           worker.port = msg.port
         }
+      } else if (msg?.type === 'boot-error') {
+        // New worker failed to load config — store the error for restart() to relay
+        worker.bootError = msg.error ?? 'unknown boot error'
       } else if (msg?.type === 'request-restart') {
         // Deferred restart: worker requests a rolling restart via IPC.
         // The orchestrator spawns a new worker, then drains the old one
         // (which waits for its active turn to finish before exiting).
         // This is safe even when called from within an active turn.
         console.log(`[orchestrator] worker gen ${gen} requested restart, performing rolling restart...`)
-        void restart()
+        void restartWithReply(worker)
       }
     })
 
@@ -120,6 +124,12 @@ export function createOrchestrator(options: OrchestratorOptions) {
           clearInterval(check)
           resolve(true)
         }
+        // Early exit if boot error or process already exited
+        if (worker.bootError || worker.exited) {
+          clearTimeout(timer)
+          clearInterval(check)
+          resolve(false)
+        }
       }, 100)
     })
   }
@@ -169,7 +179,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
     })
   }
 
-  async function restart(): Promise<void> {
+  async function restart(): Promise<{ success: boolean; error?: string }> {
     const oldWorker = currentWorker
 
     // Suppress auto-respawn of old worker during rolling restart.
@@ -183,11 +193,12 @@ export function createOrchestrator(options: OrchestratorOptions) {
 
     const ready = await waitForReady(newWorker)
     if (!ready) {
-      console.error('New worker failed to become ready, keeping old worker')
-      newWorker.process.kill()
+      const errorMsg = newWorker.bootError ?? 'New worker failed to become ready (timeout)'
+      console.error(`[orchestrator] restart failed: ${errorMsg}`)
+      try { newWorker.process.kill() } catch { /* already exited */ }
       // Restore old worker if still alive
       if (oldWorker && !oldWorker.exited) oldWorker.released = false
-      return
+      return { success: false, error: errorMsg }
     }
 
     // Switch traffic
@@ -196,6 +207,24 @@ export function createOrchestrator(options: OrchestratorOptions) {
     // Release old worker — it will drain in-flight work and exit naturally
     if (oldWorker) {
       releaseWorker(oldWorker)
+    }
+    return { success: true }
+  }
+
+  /**
+   * Rolling restart triggered by a worker's request-restart IPC message.
+   * After the restart attempt, replies to the requesting worker with the result
+   * so the restart_agent tool can report success/failure back to the LLM.
+   */
+  async function restartWithReply(requestingWorker: WorkerInfo): Promise<void> {
+    const result = await restart()
+    // Reply to the requesting worker (it's still alive if restart failed, or draining if succeeded).
+    // In both cases IPC may still be open briefly. Best-effort delivery.
+    try {
+      requestingWorker.process.send({ type: 'restart-result', ...result })
+    } catch {
+      // IPC already closed — the worker won't get the result, but that's OK
+      // (it's already being drained or has exited)
     }
   }
 

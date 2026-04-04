@@ -25,6 +25,39 @@ export function requestWorkerRestart(): boolean {
   return true
 }
 
+/**
+ * Request a rolling restart and wait for the orchestrator to report the result.
+ * Returns a result object with success/failure and optional error message.
+ * Times out after 60s (new worker ready timeout is 30s + some margin).
+ */
+export function requestWorkerRestartAndWait(): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    if (!process.send) {
+      resolve({ success: false, error: 'No IPC channel (not running under orchestrator)' })
+      return
+    }
+
+    const TIMEOUT_MS = 60_000
+    const timer = setTimeout(() => {
+      process.removeListener('message', onMessage)
+      resolve({ success: false, error: 'Timed out waiting for restart result from orchestrator' })
+    }, TIMEOUT_MS)
+
+    function onMessage(msg: unknown) {
+      if (typeof msg === 'object' && msg !== null && (msg as Record<string, unknown>).type === 'restart-result') {
+        clearTimeout(timer)
+        process.removeListener('message', onMessage)
+        const result = msg as { success: boolean; error?: string }
+        resolve({ success: result.success, error: result.error })
+      }
+    }
+
+    process.on('message', onMessage)
+    console.log('[worker] requesting rolling restart from orchestrator (awaiting result)')
+    process.send({ type: 'request-restart' })
+  })
+}
+
 export type WorkerOptions = {
   config: ResolvedSenaConfig
   port?: number
@@ -83,12 +116,13 @@ export function createWorker(options: WorkerOptions) {
   const builtinTools = [
     defineTool({
       name: 'restart_agent',
-      description: '에이전트 프로세스를 안전하게 재시작합니다. 설정 변경 후 반영이 필요할 때 사용하세요.',
-      handler: () => {
-        const ok = requestWorkerRestart()
-        return ok
-          ? '재시작 요청을 오케스트레이터에 전달했습니다. 현재 턴이 끝나면 새 워커로 교체됩니다.'
-          : '오케스트레이터 IPC 채널이 없어서 재시작할 수 없습니다.'
+      description: '에이전트 프로세스를 안전하게 재시작합니다. 설정 변경 후 반영이 필요할 때 사용하세요. 재시작이 실패하면 에러 내용이 반환됩니다 — 에러를 수정한 후 다시 시도하세요.',
+      handler: async () => {
+        const result = await requestWorkerRestartAndWait()
+        if (result.success) {
+          return '재시작 성공. 현재 턴이 끝나면 새 워커로 교체됩니다.'
+        }
+        return `재시작 실패: ${result.error}\n\n설정 파일(sena.config.ts)에 오류가 있을 수 있습니다. 에러 내용을 확인하고 수정한 후 다시 restart_agent를 호출하세요.`
       },
     }),
   ]

@@ -18,13 +18,21 @@ if (!configPath) {
 
 // Use tsx tsImport for .ts config files (plain import won't work from compiled .js)
 let config: Parameters<typeof createWorker>[0]['config']
-if (configPath.endsWith('.ts') || configPath.endsWith('.tsx')) {
-  const { tsImport } = await import('tsx/esm/api')
-  const mod = await tsImport(configPath, import.meta.url) as { default: typeof config }
-  config = mod.default
-} else {
-  const mod = await import(configPath) as { default: typeof config }
-  config = mod.default
+try {
+  if (configPath.endsWith('.ts') || configPath.endsWith('.tsx')) {
+    const { tsImport } = await import('tsx/esm/api')
+    const mod = await tsImport(configPath, import.meta.url) as { default: typeof config }
+    config = mod.default
+  } else {
+    const mod = await import(configPath) as { default: typeof config }
+    config = mod.default
+  }
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err)
+  console.error(`[worker-entry] failed to load config: ${message}`)
+  // Notify orchestrator about the boot error so it can relay to the requesting worker
+  try { process.send?.({ type: 'boot-error', error: message }) } catch { /* IPC closed */ }
+  process.exit(1)
 }
 
 const port = parseInt(process.env.SENA_WORKER_PORT || '0', 10)
