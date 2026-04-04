@@ -138,6 +138,7 @@ export type RuntimeStreamOptions = {
   pendingMessages?: PendingMessageSource
   /** Tool names/patterns to disable for this turn (blocklist). Runtimes apply this in their own way. */
   disabledTools?: string[]
+  runtimeHooks?: import('./runtime-hooks.js').RuntimeHooks
 }
 
 export type Runtime = {
@@ -256,6 +257,7 @@ export type SenaConfig = {
     onTurnEnd?: TurnEndHook[]
     onError?: ErrorHook[]
   }
+  runtimeHooks?: import('./runtime-hooks.js').RuntimeHooks
   schedules?: Schedule[]
   orchestrator?: OrchestratorConfig
 }
