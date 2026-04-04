@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createTurnEngine } from '../engine.js'
-import { createMockRuntime, createMockHook, createSpyEndHook, createStreamingMockRuntime, createSpyErrorHook } from './helpers.js'
-import type { ContextFragment, RuntimeEvent } from '../types.js'
+import { createMockRuntime, createMockHook, createSpyEndHook, createStreamingMockRuntime, createSpyErrorHook, createHookCapturingRuntime } from './helpers.js'
+import type { ContextFragment, RuntimeEvent, RuntimeStreamOptions } from '../types.js'
+import type { RuntimeHooks, TurnEndInput, ErrorInput } from '../runtime-hooks.js'
 
 describe('TurnEngine', () => {
   it('executes a basic turn and returns a TurnTrace', async () => {
@@ -260,5 +261,167 @@ describe('TurnEngine', () => {
 
     expect(trace.error).toBe('Aborted')
     expect(trace.result).toBeNull()
+  })
+
+  // === RuntimeHooks integration tests ===
+
+  it('passes runtimeHooks through to runtime via RuntimeStreamOptions', async () => {
+    let capturedOptions: RuntimeStreamOptions | null = null
+    const onTurnEndCallback = vi.fn()
+    const runtimeHooks: RuntimeHooks = {
+      onTurnEnd: [{ callback: onTurnEndCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createHookCapturingRuntime((opts) => { capturedOptions = opts }),
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    await engine.processTurn({ input: 'hi' })
+
+    expect(capturedOptions).not.toBeNull()
+    expect(capturedOptions!.runtimeHooks).toBeDefined()
+    // The merged hooks should contain the onTurnEnd callback we provided
+    expect(capturedOptions!.runtimeHooks!.onTurnEnd).toHaveLength(1)
+  })
+
+  it('calls runtimeHooks.onTurnEnd after successful turn with correct TurnEndInput', async () => {
+    const onTurnEndCallback = vi.fn()
+    const runtimeHooks: RuntimeHooks = {
+      onTurnEnd: [{ callback: onTurnEndCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createMockRuntime('hello world'),
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    await engine.processTurn({ input: 'hi' })
+
+    expect(onTurnEndCallback).toHaveBeenCalledTimes(1)
+    const input: TurnEndInput = onTurnEndCallback.mock.calls[0][0]
+    expect(input.hookEventName).toBe('turnEnd')
+    expect(input.result.text).toBe('hello world')
+    expect(input.turnContext.input).toBe('hi')
+  })
+
+  it('calls both legacy hooks and runtimeHooks (merged)', async () => {
+    const legacyEndHook = createSpyEndHook('legacy-end')
+    const runtimeEndCallback = vi.fn()
+    const runtimeHooks: RuntimeHooks = {
+      onTurnEnd: [{ callback: runtimeEndCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createMockRuntime('merged result'),
+      hooks: { onTurnEnd: [legacyEndHook] },
+      tools: [],
+      runtimeHooks,
+    })
+
+    await engine.processTurn({ input: 'go' })
+
+    // Legacy hook was called
+    expect(legacyEndHook.calls).toHaveLength(1)
+    expect(legacyEndHook.calls[0].result.text).toBe('merged result')
+
+    // RuntimeHooks callback was also called (via merged hooks)
+    expect(runtimeEndCallback).toHaveBeenCalledTimes(1)
+    const input: TurnEndInput = runtimeEndCallback.mock.calls[0][0]
+    expect(input.result.text).toBe('merged result')
+  })
+
+  it('isolates runtimeHooks.onTurnEnd errors (hook throws but turn succeeds)', async () => {
+    const throwingCallback = vi.fn().mockRejectedValue(new Error('hook exploded'))
+    const runtimeHooks: RuntimeHooks = {
+      onTurnEnd: [{ callback: throwingCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createMockRuntime('success'),
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    const trace = await engine.processTurn({ input: 'go' })
+
+    // The turn should still succeed despite the hook error
+    expect(trace.error).toBeNull()
+    expect(trace.result).not.toBeNull()
+    expect(trace.result!.text).toBe('success')
+    expect(throwingCallback).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls runtimeHooks.onError when runtime fails', async () => {
+    const failRuntime = {
+      name: 'fail',
+      async *createStream(): AsyncGenerator<never> {
+        throw new Error('runtime broke')
+      },
+    }
+
+    const onErrorCallback = vi.fn()
+    const runtimeHooks: RuntimeHooks = {
+      onError: [{ callback: onErrorCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: failRuntime,
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    const trace = await engine.processTurn({ input: 'fail' })
+
+    expect(trace.error).toBe('runtime broke')
+    expect(onErrorCallback).toHaveBeenCalledTimes(1)
+    const input: ErrorInput = onErrorCallback.mock.calls[0][0]
+    expect(input.hookEventName).toBe('error')
+    expect(input.error.message).toBe('runtime broke')
+  })
+
+  it('isolates runtimeHooks.onError errors', async () => {
+    const failRuntime = {
+      name: 'fail',
+      async *createStream(): AsyncGenerator<never> {
+        throw new Error('runtime broke')
+      },
+    }
+
+    const throwingErrorCallback = vi.fn().mockRejectedValue(new Error('error hook exploded'))
+    const runtimeHooks: RuntimeHooks = {
+      onError: [{ callback: throwingErrorCallback }],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: failRuntime,
+      hooks: {},
+      tools: [],
+      runtimeHooks,
+    })
+
+    // Should not throw despite the hook error
+    const trace = await engine.processTurn({ input: 'fail' })
+
+    expect(trace.error).toBe('runtime broke')
+    expect(throwingErrorCallback).toHaveBeenCalledTimes(1)
   })
 })
