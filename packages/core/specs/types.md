@@ -24,6 +24,7 @@
 - `CORE-TYPES-CON-001`: `RuntimeEvent`는 `session.init`, `progress`, `progress.delta`, `tool.start`, `tool.end`, `result`, `error`를 포함해야 한다.
 - `CORE-TYPES-CON-002`: `TurnTrace`는 assembled context, result, error, hooks, followUps를 표현할 수 있어야 한다.
 - `CORE-TYPES-CON-003`: `ToolPort`는 MCP와 inline 포트를 모두 표현해야 한다.
+- `CORE-TYPES-CON-004`: `ConnectorOutputContext`는 `conversationId`, `connector` 외에 connector-specific per-turn 데이터를 전달할 수 있는 optional `metadata: unknown` 필드를 포함해야 한다.
 
 ## Interface
 
@@ -34,7 +35,7 @@
 - Runtime:
   `UserMessage`, `RuntimeEvent`, `PendingMessageSource`, `RuntimeStreamOptions`, `Runtime`
 - Connector:
-  `InboundEvent`, `ConnectorOutput`, `Connector`, `HttpServer`
+  `InboundEvent`, `ConnectorOutputContext`, `ConnectorOutput`, `Connector`, `HttpServer`
 - Tool:
   `ToolPort`, `McpToolPort`, `InlineToolPort`, `InlineToolDef`
 - Schedule/Session/Config:
@@ -58,6 +59,7 @@
 
 - Given 런타임 구현체가 core 계약을 구현할 때, When `RuntimeEvent`를 발행하면, Then Worker/Turn Engine이 동일 타입으로 소비할 수 있다.
 - Given 커넥터가 inbound 이벤트를 생성할 때, When `InboundEvent`를 전달하면, Then Worker는 conversation/session/tool 비활성화 정보를 해석할 수 있다.
+- Given 커넥터가 `InboundEvent.raw`에 per-turn 메타데이터를 넣을 때, When Worker가 `createOutput()`을 호출하면, Then `ConnectorOutputContext.metadata`로 해당 값이 전달된다.
 - Given 인라인 도구와 MCP 도구가 혼재할 때, When core가 이를 받으면, Then `ToolPort` 유니온으로 동일하게 전달할 수 있다.
 ## 개편 메모
 
