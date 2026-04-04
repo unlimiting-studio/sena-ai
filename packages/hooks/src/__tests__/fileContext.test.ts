@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { fileContext } from '../fileContext.js'
-import type { TurnContext } from '@sena-ai/core'
+import { fileContext, fileContextHook } from '../fileContext.js'
+import type { TurnContext, TurnStartInput } from '@sena-ai/core'
 import { join } from 'node:path'
+import { writeFile, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 
 const fixturesDir = join(import.meta.dirname, 'fixtures')
 
@@ -67,5 +69,52 @@ describe('fileContext', () => {
     const fragments = await hook.execute(mockContext())
 
     expect(fragments[0].content.length).toBeLessThanOrEqual(10)
+  })
+})
+
+describe('fileContextHook', () => {
+  it('returns a SimpleHookMatcher that wraps fileContext as TurnStartCallback', async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), 'sena-hook-test-'))
+    const tmpFile = join(tmpDir, 'test-context.txt')
+    await writeFile(tmpFile, 'Hello from RuntimeHooks', 'utf-8')
+
+    try {
+      const matcher = fileContextHook({ path: tmpFile, as: 'system' })
+
+      // Verify matcher shape
+      expect(matcher).toHaveProperty('callback')
+      expect(typeof matcher.callback).toBe('function')
+
+      const input: TurnStartInput = {
+        hookEventName: 'turnStart',
+        prompt: 'test prompt',
+        turnContext: mockContext(),
+      }
+
+      const result = await matcher.callback(input)
+
+      expect(result.decision).toBe('allow')
+      expect('additionalContext' in result && result.additionalContext).toContain('Hello from RuntimeHooks')
+    } finally {
+      await rm(tmpDir, { recursive: true })
+    }
+  })
+
+  it('returns decision allow without additionalContext when no fragments', async () => {
+    const matcher = fileContextHook({
+      path: join(fixturesDir, 'soul.md'),
+      as: 'system',
+      when: () => false,
+    })
+
+    const input: TurnStartInput = {
+      hookEventName: 'turnStart',
+      prompt: 'test prompt',
+      turnContext: mockContext(),
+    }
+
+    const result = await matcher.callback(input)
+
+    expect(result).toEqual({ decision: 'allow' })
   })
 })
