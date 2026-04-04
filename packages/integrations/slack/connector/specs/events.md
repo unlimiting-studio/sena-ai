@@ -28,7 +28,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - Main Flow:
   - normalized message key(`{channel}:{thread_ts || ts}`)를 만든다.
   - 같은 message key에 대해 중복 raw 이벤트가 들어와도 한 번만 처리한다.
-  - 후보가 여러 개면 `priority` 배열 순서대로 가장 높은 trigger 하나를 선택한다.
+  - 후보가 여러 개면 고정 순서 `mention > thread > channel`로 가장 높은 trigger 하나를 선택한다.
   - 선택된 trigger의 prompt source를 resolve하고, 원본 Slack 메시지와 함께 `InboundEvent.text`를 구성한다.
   - 파일 다운로드, 사용자 이름 해소 후 `engine.submitTurn()` 한다.
 
@@ -53,7 +53,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - Trigger: message trigger 또는 reaction rule이 turn 생성으로 결정됨
 - Main Flow:
   - prompt source가 string이면 그대로 사용한다.
-  - prompt source가 `{ file }`면 UTF-8 텍스트로 읽는다.
+  - prompt source가 `{ file }`면 `config.cwd`를 우선 기준으로, 없으면 `sena.config.ts` 디렉터리 기준으로 UTF-8 텍스트를 읽는다.
   - message trigger는 `resolvedPrompt`와 원본 메시지 텍스트를 함께 보존하는 형태로 입력을 구성한다.
   - reaction trigger는 `resolvedPrompt`와 함께 reaction name, 대상 메시지 text, channel/thread 식별자를 포함한 구조화 텍스트를 만든다.
 
@@ -61,7 +61,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 
 - `SLACK-EVENT-C-001`: `bot_id`가 있는 메시지와 불필요한 subtype 메시지는 처리하면 안 된다.
 - `SLACK-EVENT-C-002`: 동일 message key에 대해 message trigger는 최대 하나의 turn만 생성해야 한다.
-- `SLACK-EVENT-C-003`: priority 배열에는 `mention`, `thread`, `channel`이 중복 없이 들어가야 한다.
+- `SLACK-EVENT-C-003`: 메시지 계열 trigger 우선순위는 고정 `mention > thread > channel`이며 설정으로 override하지 않는다.
 - `SLACK-EVENT-C-004`: 최상위 일반 채널 메시지(`thread_ts` 없음)는 channel trigger가 명시적으로 켜져 있을 때만 처리해야 한다.
 - `SLACK-EVENT-C-005`: prompt file 읽기 실패는 조용히 빈 문자열로 폴백하면 안 되며, 해당 액션은 실패로 기록돼야 한다.
 
@@ -97,7 +97,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 
 - Given `app_mention`이 들어오고 mention trigger가 켜져 있을 때 When connector가 처리하면 Then `mention` trigger로 `InboundEvent`가 생성된다.
 - Given 활성 스레드 후속 메시지가 들어오고 thread trigger가 켜져 있을 때 When connector가 처리하면 Then 멘션 없이도 턴이 제출된다.
-- Given 최상위 메시지가 mention과 channel을 동시에 만족할 때 When connector가 처리하면 Then priority가 높은 trigger 하나만 실행된다.
+- Given 최상위 메시지가 mention과 channel을 동시에 만족할 때 When connector가 처리하면 Then 고정 우선순위에 따라 `mention` 하나만 실행된다.
 - Given `eyes` reaction에 prompt rule이 있을 때 When reaction이 달리면 Then reaction context를 포함한 turn이 제출된다.
 - Given `x` reaction에 abort rule이 있을 때 When reaction이 달리면 Then 해당 대화에 대한 abort가 시도된다.
 

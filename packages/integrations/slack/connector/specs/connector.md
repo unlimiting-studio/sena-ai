@@ -25,25 +25,30 @@ Slack connector는 입력 모드 등록, trigger 설정 정규화, 공통 출력
 
 - connector 시작 시 `triggers` 설정을 검증한다.
 - `triggers`가 없으면 기존 기본값으로 정규화한다.
-  - `priority = ['mention', 'thread', 'channel']`
   - `mention = ''`
   - `thread = ''`
   - `channel = false`
   - `reactions = { x: { action: 'abort' } }`
-- priority가 없으면 기본 순서를 적용한다.
+- 메시지 계열 trigger 우선순위는 connector가 고정한다.
+  - `mention > thread > channel`
 
-### `SLACK-C-03` 봇 사용자 ID lazy 해소
+### `SLACK-C-03` prompt 기준 디렉터리 결정
+
+- prompt source가 `{ file }`면 connector는 파일 기준 디렉터리를 먼저 결정한다.
+- 기준은 `config.cwd`가 있으면 그 경로이고, 없으면 `sena.config.ts`가 있는 디렉터리다.
+
+### `SLACK-C-04` 봇 사용자 ID lazy 해소
 
 - 최초 이벤트 처리 시 `auth.test()`로 봇 user id를 얻어 이후 스레드 복구 판단에 사용한다.
 
-### `SLACK-C-04` 출력 객체 생성
+### `SLACK-C-05` 출력 객체 생성
 
 - `createOutput(context)`는 스레드를 activeThreads에 등록하고 진행/결과 렌더러를 반환한다.
 
 ## Constraints
 
 - `SLACK-C-C-001`: mode에 따라 `signingSecret`과 `appToken`은 상호 배타적이어야 한다.
-- `SLACK-C-C-002`: 입력 처리 경로는 모드와 무관하게 동일한 dedupe/활성 스레드/priority 규칙을 따라야 한다.
+- `SLACK-C-C-002`: 입력 처리 경로는 모드와 무관하게 동일한 dedupe/활성 스레드/고정 우선순위 규칙을 따라야 한다.
 - `SLACK-C-C-003`: `triggers` 생략 시 connector는 기존 동작과 호환돼야 한다.
 - `SLACK-C-C-004`: channel trigger는 명시적으로 설정되기 전까지 활성화되면 안 된다.
 
@@ -60,10 +65,7 @@ type SlackReactionRule =
   | SlackPromptSource
   | { action: 'abort' }
 
-type SlackMessageTriggerKind = 'mention' | 'thread' | 'channel'
-
 type SlackTriggerConfig = {
-  priority?: SlackMessageTriggerKind[]
   mention?: SlackMessageTrigger
   thread?: SlackMessageTrigger
   channel?: SlackMessageTrigger
@@ -98,7 +100,9 @@ type SlackConnectorOptions = {
 - 상태 모델:
   - `activeThreads`, `processingEvents`, `processedEvents`, `userNameCache`를 메모리에 유지한다.
 - 설정 정규화:
-  - trigger 기본값 적용, priority 검증, reaction map 검증을 한곳에서 수행한다.
+  - trigger 기본값 적용, 기준 디렉터리 결정, reaction map 검증을 한곳에서 수행한다.
+- trigger 선택:
+  - 메시지 계열은 고정 순서 `mention > thread > channel`로만 중재한다.
 
 ## Dependencies
 
@@ -110,9 +114,9 @@ type SlackConnectorOptions = {
 
 - Given HTTP 또는 Socket Mode 설정이 있을 때 When connector를 시작하면 Then 적절한 입력 등록이 수행된다.
 - Given `triggers` 설정이 비어 있을 때 When connector를 시작하면 Then 기존 mention/thread/`:x:` 기본값이 주입된다.
-- Given invalid priority 배열이 있을 때 When connector를 초기화하면 Then connector는 조용히 보정하지 않고 설정 오류를 보고한다.
+- Given `{ file: './prompts/slack/mention.md' }` prompt source가 있을 때 When connector가 초기화되면 Then 기준 디렉터리는 `config.cwd` 우선, 없으면 `sena.config.ts` 디렉터리로 결정된다.
 - Given `createOutput()`을 호출할 때 When 같은 스레드의 후속 메시지가 오면 Then active thread 규칙이 적용된다.
 
 ## 개편 메모
 
-- 입력 등록 스펙에 trigger 설정 정규화와 backward-compatible defaults를 추가했다.
+- 입력 등록 스펙에 고정 trigger 우선순위와 prompt 기준 디렉터리 규칙을 추가했다.
