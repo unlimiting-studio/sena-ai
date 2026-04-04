@@ -106,7 +106,7 @@ export type RuntimeEvent =
   | { type: 'progress'; text: string }
   | { type: 'progress.delta'; text: string }
   | { type: 'tool.start'; toolName: string }
-  | { type: 'tool.end'; toolName: string; isError: boolean }
+  | { type: 'tool.end'; toolName: string; isError: boolean; toolInput?: unknown; toolResponse?: unknown }
   | { type: 'result'; text: string }
   | { type: 'error'; message: string }
 
