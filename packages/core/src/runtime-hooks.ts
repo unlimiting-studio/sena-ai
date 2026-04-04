@@ -72,6 +72,7 @@ export type TurnStartDecision =
   | { decision: 'allow'; additionalContext: string }
   | { decision: 'block'; reason: string }
   | { decision: 'modifiedPrompt'; prompt: string }
+  | { decision: 'modifiedPrompt'; prompt: string; additionalContext: string }
 
 export type TurnEndResult = void
 
