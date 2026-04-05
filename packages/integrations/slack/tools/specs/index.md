@@ -8,11 +8,13 @@
 
 - Slack connector만으로는 현재 대화 외 다른 채널/스레드/파일을 탐색하거나 메시지를 발송할 수 없다.
 - 에이전트가 Slack API를 직접 다루지 않고도 구조화된 도구 집합으로 상호작용해야 한다.
+- connector와 tools의 Markdown 변환 규칙이 분리되면 safe mode 정책과 포맷 호환성이 쉽게 어긋난다.
 
 ## 목표 & 성공 지표
 
 - 도구 팩토리 하나로 Slack 관련 inline 도구 배열을 얻는다.
 - 메시지 조회/전송, 채널 목록, 파일 업로드/다운로드, 사용자 조회가 문서화된 계약으로 제공된다.
+- 메시지 전송 Markdown 변환은 connector와 동일한 공용 safe mode 계약을 사용한다.
 
 ## 스펙 안정성 분류
 
@@ -29,15 +31,16 @@
 
 - `SLACK-TOOLS-FR-001 [Committed][Stable]`: 6개 기본 도구를 inline tool로 제공해야 한다.
 - `SLACK-TOOLS-FR-002 [Committed][Stable]`: 메시지 조회는 thread/channel 모드와 Block Kit/attachment 파싱을 지원해야 한다.
-- `SLACK-TOOLS-FR-003 [Committed][Stable]`: 메시지 전송은 Markdown을 Slack payload로 변환해야 한다.
+- `SLACK-TOOLS-FR-003 [Committed][Stable]`: 메시지 전송은 Markdown을 Slack safe payload로 변환해야 한다. 기본 렌더링은 auto parsing에 의존하지 않고 explicit Slack token만 링크/멘션/채널/유저그룹으로 해석한다.
 - `SLACK-TOOLS-FR-004 [Committed][Stable]`: 파일 업로드/다운로드와 사용자/채널 조회를 지원해야 한다.
+- `SLACK-TOOLS-FR-005 [Committed][Stable]`: `slack_post_message`의 Markdown 변환은 connector와 공유하는 공용 Slack Markdown 패키지 계약을 사용해야 한다.
 - `SLACK-TOOLS-NFR-001 [Committed][Stable]`: 모든 도구는 `@sena-ai/core` `ToolPort` 계약을 사용해야 한다.
 
 ## 수용 기준 (AC)
 
 - `SLACK-TOOLS-AC-001`: Given `slackTools()`를 호출할 때 When 도구 배열을 받으면 Then 모든 도구가 inline type이고 기대한 이름을 가진다.
 - `SLACK-TOOLS-AC-002`: Given 메시지 조회 도구를 사용할 때 When thread/channel 조회를 실행하면 Then 사람이 읽기 쉬운 텍스트가 반환된다.
-- `SLACK-TOOLS-AC-003`: Given 메시지 전송 도구를 사용할 때 When Markdown 텍스트를 보내면 Then Slack 호환 payload가 전송된다.
+- `SLACK-TOOLS-AC-003`: Given 메시지 전송 도구를 사용할 때 When Markdown 텍스트를 보내면 Then Slack safe payload가 전송되고 explicit Slack token만 링크/멘션/채널로 해석된다.
 - `SLACK-TOOLS-AC-004`: Given 파일/사용자/채널 도구를 사용할 때 When 호출하면 Then 문서화된 JSON 응답을 반환한다.
 
 ## 범위 경계 (Non-goals)
@@ -55,16 +58,21 @@
 - Slack payload drift 리스크:
   응답 포맷이 Slack API 변경에 영향을 받을 수 있다.
   완화: tool-suite 상세 스펙과 테스트에서 public shape를 고정한다.
+- connector와 tools의 변환 계약이 갈라질 리스크:
+  safe mode 회귀가 한쪽에만 반영될 수 있다.
+  완화: 공용 Slack Markdown 패키지와 단일 테스트 스위트로 변환 계약을 고정한다.
 
 ## 검증 계획
 
 - `slackTools.test.ts`로 도구 이름/타입/기본 구조를 검증한다.
+- shared Slack Markdown 패키지 테스트로 safe mode와 공용 변환 계약을 검증한다.
 - 수동 검증으로 메시지/파일/사용자/채널 도구를 실제 Slack workspace에서 확인한다.
 
 ## 상세 스펙
 
 - [tools.md](/Users/channy/workspace/sena-ai/packages/integrations/slack/tools/specs/tools.md)
 - [mrkdwn.md](/Users/channy/workspace/sena-ai/packages/integrations/slack/tools/specs/mrkdwn.md)
+- [../../mrkdwn/specs/index.md](/Users/channy/workspace/sena-ai/packages/integrations/slack/mrkdwn/specs/index.md)
 
 ## 개편 메모
 

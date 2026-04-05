@@ -6,8 +6,8 @@ Slack connector는 입력 모드 등록, trigger 설정 정규화, 공통 출력
 
 ## 상위 스펙 연결
 
-- Related Requirements: `SLACK-CONN-FR-001`, `SLACK-CONN-FR-002`, `SLACK-CONN-FR-003`, `SLACK-CONN-FR-004`, `SLACK-CONN-FR-007`, `SLACK-CONN-FR-008`, `SLACK-CONN-FR-009`, `SLACK-CONN-FR-010`, `SLACK-CONN-FR-011`, `SLACK-CONN-FR-012`, `SLACK-CONN-FR-013`, `SLACK-CONN-FR-014`, `SLACK-CONN-FR-015`
-- Related AC: `SLACK-CONN-AC-001`, `SLACK-CONN-AC-002`, `SLACK-CONN-AC-003`, `SLACK-CONN-AC-004`, `SLACK-CONN-AC-007`, `SLACK-CONN-AC-008`, `SLACK-CONN-AC-009`, `SLACK-CONN-AC-010`, `SLACK-CONN-AC-011`, `SLACK-CONN-AC-012`, `SLACK-CONN-AC-013`, `SLACK-CONN-AC-014`, `SLACK-CONN-AC-015`, `SLACK-CONN-AC-016`, `SLACK-CONN-AC-017`, `SLACK-CONN-AC-018`, `SLACK-CONN-AC-019`, `SLACK-CONN-AC-020`
+- Related Requirements: `SLACK-CONN-FR-001`, `SLACK-CONN-FR-002`, `SLACK-CONN-FR-003`, `SLACK-CONN-FR-004`, `SLACK-CONN-FR-007`, `SLACK-CONN-FR-008`, `SLACK-CONN-FR-009`, `SLACK-CONN-FR-010`, `SLACK-CONN-FR-011`, `SLACK-CONN-FR-012`, `SLACK-CONN-FR-013`, `SLACK-CONN-FR-014`, `SLACK-CONN-FR-015`, `SLACK-CONN-FR-016`
+- Related AC: `SLACK-CONN-AC-001`, `SLACK-CONN-AC-002`, `SLACK-CONN-AC-003`, `SLACK-CONN-AC-004`, `SLACK-CONN-AC-007`, `SLACK-CONN-AC-008`, `SLACK-CONN-AC-009`, `SLACK-CONN-AC-010`, `SLACK-CONN-AC-011`, `SLACK-CONN-AC-012`, `SLACK-CONN-AC-013`, `SLACK-CONN-AC-014`, `SLACK-CONN-AC-015`, `SLACK-CONN-AC-016`, `SLACK-CONN-AC-017`, `SLACK-CONN-AC-018`, `SLACK-CONN-AC-019`, `SLACK-CONN-AC-020`, `SLACK-CONN-AC-021`, `SLACK-CONN-AC-022`, `SLACK-CONN-AC-023`
 
 ## Behavior
 
@@ -31,8 +31,9 @@ Slack connector는 입력 모드 등록, trigger 설정 정규화, 공통 출력
 - `triggers: {}`는 legacy default가 아니라 "모든 trigger 비활성"으로 해석한다.
 - 기존 mention/thread/`:x:` 동작을 유지한 채 일부 rule만 바꾸고 싶다면 그 key들을 함께 다시 적어야 한다.
 - 메시지 계열 trigger 우선순위는 connector가 고정한다.
-  - `mention > thread > channel > message`
-- `message` trigger는 채널 메시지(thread_ts 없음)와 쓰레드 메시지(봇 참여 여부 무관) 모두 대상이며, 가장 낮은 우선순위다. `thread` key가 활성이면 봇 참여 스레드는 우선순위에서 `thread`가 먼저 선택되므로 중복 실행은 없다.
+  - `mention > thread > directMessage > channel > message`
+- `directMessage` trigger는 Slack 1:1 DM 채널(`channel_type = 'im'`, fallback으로 channel id prefix `D`) 메시지를 대상으로 하며, `message`보다 먼저 평가된다.
+- `message` trigger는 채널 메시지, direct message, 쓰레드 메시지(봇 참여 여부 무관) 모두 대상이며, 가장 낮은 우선순위다. `thread` key가 활성이면 봇 참여 스레드는 우선순위에서 `thread`가 먼저 선택되므로 중복 실행은 없다.
 
 ### `SLACK-C-03` prompt 기준 디렉터리 결정
 
@@ -78,7 +79,7 @@ Slack connector는 입력 모드 등록, trigger 설정 정규화, 공통 출력
 
 ```ts
 type SlackMessageTriggerEvent = {
-  kind: 'mention' | 'thread' | 'channel' | 'message'
+  kind: 'mention' | 'thread' | 'directMessage' | 'channel' | 'message'
   channelId: string
   userId: string
   userName?: string
@@ -153,6 +154,7 @@ type SlackReactionRule =
 type SlackTriggerConfig = {
   mention?: SlackMessagePromptTrigger
   thread?: SlackMessagePromptTrigger
+  directMessage?: SlackMessagePromptTrigger
   channel?: SlackMessagePromptTrigger
   message?: SlackMessagePromptTrigger
   reactions?: Record<string, SlackReactionRule>
@@ -178,7 +180,8 @@ type SlackConnectorOptions = {
 - 설정 정규화:
   - legacy default 적용, omit=disabled 해석, 기준 디렉터리 결정, reaction map 검증을 한곳에서 수행한다.
 - trigger 선택:
-  - 메시지 계열은 고정 순서 `mention > thread > channel > message`로만 중재한다.
+  - 메시지 계열은 고정 순서 `mention > thread > directMessage > channel > message`로만 중재한다.
+  - direct message 판별은 `channel_type = 'im'`을 우선 사용하고, 값이 없으면 channel id prefix `D`를 fallback으로 사용한다.
 - filter/function 평가:
   - trigger 필드가 function이면 event를 인자로 호출하고, 반환값으로 prompt source와 설정을 결정한다. 별도 filter는 실행하지 않는다.
   - trigger 필드가 object이면 메시지 계열은 `SlackMessageTriggerEvent`, reaction은 `SlackReactionTriggerEvent`를 만들어 각 rule의 filter를 평가한다.
@@ -207,9 +210,12 @@ type SlackConnectorOptions = {
 - Given `createOutput()`을 호출할 때 When 같은 스레드의 후속 메시지가 오면 Then active thread 규칙이 적용된다.
 - Given `mention: { text: '...', thinkingMessage: '분석 중...' }`이고 전역 `thinkingMessage: '잠시만요'`일 때 When 멘션 이벤트가 처리되면 Then 출력 객체에 '분석 중...'이 전달된다.
 - Given `message` trigger가 설정됐을 때 When 봇 미참여 쓰레드 메시지가 들어오면 Then `message` trigger로 처리된다.
+- Given `directMessage` trigger가 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then `directMessage` trigger로 처리된다.
+- Given `directMessage`와 `message` trigger가 모두 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then `directMessage`가 우선 처리된다.
+- Given `channel` trigger만 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then 이벤트는 처리되지 않는다.
 - Given `mention: (event) => ({ file: './dynamic.md' })`일 때 When 멘션 이벤트가 들어오면 Then function 반환값의 file을 프롬프트로 사용한다.
 - Given trigger function이 throw할 때 When 이벤트가 처리되면 Then 이벤트는 실패 처리되고 하위 우선순위 후보로 넘어가지 않는다.
 
 ## 개편 메모
 
-- 입력 등록 스펙에 omit=disabled와 per-trigger filter 규칙을 추가했다.
+- 입력 등록 스펙에 omit=disabled와 per-trigger filter 규칙, directMessage trigger 계약을 추가했다.

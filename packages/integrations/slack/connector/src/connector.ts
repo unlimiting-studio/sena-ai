@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
 export type SlackMessageTriggerEvent = {
-  kind: 'mention' | 'thread' | 'channel' | 'message'
+  kind: 'mention' | 'thread' | 'directMessage' | 'channel' | 'message'
   channelId: string
   userId: string
   userName?: string
@@ -100,6 +100,7 @@ export type SlackReactionRule =
 export type SlackTriggerConfig = {
   mention?: SlackMessagePromptTrigger
   thread?: SlackMessagePromptTrigger
+  directMessage?: SlackMessagePromptTrigger
   channel?: SlackMessagePromptTrigger
   message?: SlackMessagePromptTrigger
   reactions?: Record<string, SlackReactionRule>
@@ -140,6 +141,7 @@ export type SlackClientLike = {
 type NormalizedSlackTriggerConfig = {
   mention?: SlackMessagePromptTrigger
   thread?: SlackMessagePromptTrigger
+  directMessage?: SlackMessagePromptTrigger
   channel?: SlackMessagePromptTrigger
   message?: SlackMessagePromptTrigger
   reactions: Record<string, SlackReactionRule>
@@ -155,6 +157,7 @@ type ParsedSlackFile = {
 type ParsedSlackMessageEvent = {
   type: 'app_mention' | 'message'
   channel: string
+  channelType?: string
   ts: string
   userId: string
   text: string
@@ -186,7 +189,7 @@ type SlackLookupMessage = {
   raw: Record<string, unknown>
 }
 
-type MessageTriggerKind = 'mention' | 'thread' | 'channel' | 'message'
+type MessageTriggerKind = 'mention' | 'thread' | 'directMessage' | 'channel' | 'message'
 
 type MessageCandidate = {
   kind: MessageTriggerKind
@@ -334,6 +337,10 @@ export function normalizeTriggerConfig(triggers?: SlackTriggerConfig): Normalize
     assertMessagePromptTrigger(triggers.thread, 'triggers.thread')
     normalized.thread = triggers.thread
   }
+  if (triggers.directMessage !== undefined) {
+    assertMessagePromptTrigger(triggers.directMessage, 'triggers.directMessage')
+    normalized.directMessage = triggers.directMessage
+  }
   if (triggers.channel !== undefined) {
     assertMessagePromptTrigger(triggers.channel, 'triggers.channel')
     normalized.channel = triggers.channel
@@ -401,6 +408,11 @@ function containsBotMention(text: string, botUserId: string | undefined): boolea
   return text.includes(`<@${botUserId}>`)
 }
 
+function isDirectMessageChannel(event: ParsedSlackMessageEvent): boolean {
+  if (event.channelType !== undefined) return event.channelType === 'im'
+  return event.channel.startsWith('D')
+}
+
 function buildConversationId(channel: string, threadTs: string | undefined, ts: string): string {
   return `${channel}:${threadTs ?? ts}`
 }
@@ -465,6 +477,7 @@ function parseMessageEvent(body: Record<string, unknown>): ParsedSlackMessageEve
   return {
     type,
     channel,
+    channelType: readString(event, 'channel_type'),
     ts,
     userId: readString(event, 'user') ?? '',
     text: readString(event, 'text') ?? '',
@@ -508,6 +521,7 @@ export function selectMessageCandidates(
 ): MessageCandidate[] {
   const candidates: MessageCandidate[] = []
   const threadKey = buildConversationId(event.channel, event.threadTs, event.ts)
+  const directMessageActive = isDirectMessageChannel(event)
 
   const mentionActive = triggerConfig.mention !== undefined
     && (event.type === 'app_mention' || containsBotMention(event.text, botUserId))
@@ -522,8 +536,13 @@ export function selectMessageCandidates(
     candidates.push({ kind: 'thread', source: triggerConfig.thread })
   }
 
+  if (directMessageActive && triggerConfig.directMessage !== undefined) {
+    candidates.push({ kind: 'directMessage', source: triggerConfig.directMessage })
+  }
+
   const channelActive = triggerConfig.channel !== undefined
     && event.threadTs === undefined
+    && !directMessageActive
   if (channelActive && triggerConfig.channel !== undefined) {
     candidates.push({ kind: 'channel', source: triggerConfig.channel })
   }
@@ -542,10 +561,12 @@ function messageTriggerPriority(kind: MessageTriggerKind): number {
       return 0
     case 'thread':
       return 1
-    case 'channel':
+    case 'directMessage':
       return 2
-    case 'message':
+    case 'channel':
       return 3
+    case 'message':
+      return 4
   }
 }
 
