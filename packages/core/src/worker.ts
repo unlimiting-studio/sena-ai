@@ -421,7 +421,7 @@ export function createWorker(options: WorkerOptions) {
             sessionId: originalSessionId,
             connector: {
               name: originalEvent.connector,
-              conversationId: forkConversationId,
+              conversationId: originalEvent.conversationId,
               userId: originalEvent.userId,
               userName: originalEvent.userName,
               raw: originalEvent.raw,
@@ -429,7 +429,7 @@ export function createWorker(options: WorkerOptions) {
             metadata: { forkedFrom: originalEvent.conversationId },
           })
 
-          // Save forked session under its own conversationId (don't pollute original)
+          // Save forked session under its own key (don't pollute original)
           if (trace.result?.sessionId) {
             await sessionStore.set(forkConversationId, trace.result.sessionId)
           }
@@ -439,6 +439,33 @@ export function createWorker(options: WorkerOptions) {
             await output.sendResult(trace.result.text)
           } else if (trace.error && !followUp.detached) {
             await output.sendError(trace.error)
+          }
+
+          // Process blocking followUps from the forked turn (fork is downgraded by engine)
+          for (const childFollowUp of trace.followUps ?? []) {
+            if (!childFollowUp.fork) {
+              // Execute blocking followUp in the forked context
+              const childTrace = await engine.processTurn({
+                input: childFollowUp.prompt,
+                trigger: 'connector',
+                sessionId: trace.result?.sessionId ?? originalSessionId,
+                connector: {
+                  name: originalEvent.connector,
+                  conversationId: originalEvent.conversationId,
+                  userId: originalEvent.userId,
+                  userName: originalEvent.userName,
+                  raw: originalEvent.raw,
+                },
+                metadata: { forkedFrom: originalEvent.conversationId },
+              })
+              if (childTrace.result?.sessionId) {
+                await sessionStore.set(forkConversationId, childTrace.result.sessionId)
+              }
+              if (childTrace.result && !followUp.detached) {
+                await output.sendResult(childTrace.result.text)
+              }
+            }
+            // fork followUps from forked turns are already downgraded by engine, but ignore any that slip through
           }
         } finally {
           await output.dispose()
