@@ -1,4 +1,4 @@
-import type { TurnContext, TurnResult } from './types.js'
+import type { TurnContext, TurnResult, ContextFragment } from './types.js'
 
 // ─── Hook Input Types ───────────────────────────────────────────────
 
@@ -69,10 +69,8 @@ export type PostToolUseResult = void | { additionalContext: string }
 
 export type TurnStartDecision =
   | { decision: 'allow' }
-  | { decision: 'allow'; additionalContext: string }
+  | { decision: 'allow'; fragments: ContextFragment[] }
   | { decision: 'block'; reason: string }
-  | { decision: 'modifiedPrompt'; prompt: string }
-  | { decision: 'modifiedPrompt'; prompt: string; additionalContext: string }
 
 export type TurnEndResult = void | {
   /** Execute a follow-up prompt after this turn */

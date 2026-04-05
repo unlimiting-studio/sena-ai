@@ -34,9 +34,12 @@ describe('TurnEngine', () => {
     expect(trace.error).toBeNull()
   })
 
-  it('passes hooks through to runtime via RuntimeStreamOptions', async () => {
+  it('executes onTurnStart hooks in engine and does not forward them to runtime', async () => {
     let capturedOptions: RuntimeStreamOptions | null = null
-    const onTurnStartCallback = vi.fn(async () => ({ decision: 'allow' as const }))
+    const onTurnStartCallback = vi.fn(async () => ({
+      decision: 'allow' as const,
+      fragments: [{ source: 'test', role: 'system' as const, content: 'injected' }],
+    }))
     const hooks: RuntimeHooks = {
       onTurnStart: [onTurnStartCallback],
     }
@@ -51,10 +54,11 @@ describe('TurnEngine', () => {
 
     await engine.processTurn({ input: 'hello' })
 
+    // onTurnStart should have been called by the engine
+    expect(onTurnStartCallback).toHaveBeenCalledOnce()
+    // onTurnStart should NOT be forwarded to the runtime
     expect(capturedOptions).not.toBeNull()
-    expect(capturedOptions!.hooks).toBeDefined()
-    expect(capturedOptions!.hooks!.onTurnStart).toHaveLength(1)
-    expect(capturedOptions!.hooks!.onTurnStart![0]).toBe(onTurnStartCallback)
+    expect(capturedOptions!.hooks?.onTurnStart).toBeUndefined()
   })
 
   it('records error in trace when runtime fails', async () => {
@@ -300,8 +304,7 @@ describe('TurnEngine', () => {
     expect(capturedOptions!.hooks!.onStop![0]).toBe(onStopCallback)
   })
 
-  it('passes onTurnStart hooks through to runtime via hooks (AC-09)', async () => {
-    let capturedOptions: RuntimeStreamOptions | null = null
+  it('blocks turn when onTurnStart hook returns block decision (AC-09)', async () => {
     const onTurnStartCallback = vi.fn(async () => ({ decision: 'block' as const, reason: 'denied' }))
     const hooks: RuntimeHooks = {
       onTurnStart: [onTurnStartCallback],
@@ -310,17 +313,16 @@ describe('TurnEngine', () => {
     const engine = createTurnEngine({
       name: 'test',
       cwd: '/tmp',
-      runtime: createHookCapturingRuntime((opts) => { capturedOptions = opts }),
+      runtime: createMockRuntime('should not reach'),
       hooks,
       tools: [],
     })
 
-    await engine.processTurn({ input: 'hi' })
+    const trace = await engine.processTurn({ input: 'hi' })
 
-    expect(capturedOptions).not.toBeNull()
-    expect(capturedOptions!.hooks).toBeDefined()
-    expect(capturedOptions!.hooks!.onTurnStart).toHaveLength(1)
-    expect(capturedOptions!.hooks!.onTurnStart![0]).toBe(onTurnStartCallback)
+    expect(onTurnStartCallback).toHaveBeenCalledOnce()
+    expect(trace.result).toBeNull()
+    expect(trace.error).toContain('Blocked by onTurnStart hook: denied')
   })
 
   it('collects followUp from onTurnEnd hook into trace.followUps', async () => {

@@ -10,7 +10,7 @@ describe('createAgent()', () => {
       runtime: createMockRuntime('I am test-bot'),
       hooks: {
         onTurnStart: [
-          async () => ({ decision: 'allow' as const, additionalContext: 'You are test-bot' }),
+          async () => ({ decision: 'allow' as const, fragments: [{ source: 'test', role: 'system' as const, content: 'You are test-bot' }] }),
         ],
       },
     })
@@ -20,6 +20,6 @@ describe('createAgent()', () => {
 
     expect(trace.agentName).toBe('test-bot')
     expect(trace.result?.text).toBe('I am test-bot')
-    // Note: onTurnStart hooks are now forwarded to the runtime, not assembled by the engine
+    // onTurnStart hooks are executed by the engine and fragments are assembled into context
   })
 })

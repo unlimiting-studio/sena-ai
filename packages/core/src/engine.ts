@@ -9,7 +9,7 @@ import type {
   RuntimeEvent,
   PendingMessageSource,
 } from './types.js'
-import type { RuntimeHooks, TurnEndInput, ErrorInput } from './runtime-hooks.js'
+import type { RuntimeHooks, TurnEndInput, ErrorInput, TurnStartInput } from './runtime-hooks.js'
 import { randomUUID } from 'node:crypto'
 
 export type TurnEngineConfig = {
@@ -89,9 +89,36 @@ export function createTurnEngine(config: TurnEngineConfig) {
       allFragments.push({ source: 'connector-meta', role: 'append', content: contextContent })
     }
 
-    // === onTurnStart hooks (RuntimeHooks) ===
-    // Note: onTurnStart hooks in RuntimeHooks are forwarded to the runtime
-    // and handled there. No engine-level execution is needed.
+    // === onTurnStart hooks ===
+    for (const callback of hooks?.onTurnStart ?? []) {
+      try {
+        const turnStartInput: TurnStartInput = {
+          hookEventName: 'turnStart',
+          prompt: options.input,
+          turnContext: context,
+        }
+        const decision = await callback(turnStartInput)
+        if (decision.decision === 'block') {
+          console.log(`[engine] turn ${turnId.slice(0, 8)} blocked by onTurnStart hook: ${decision.reason}`)
+          return {
+            turnId,
+            timestamp,
+            agentName: name,
+            trigger,
+            input: options.input,
+            hooks: hookTraces,
+            assembledContext: '',
+            result: null,
+            error: `Blocked by onTurnStart hook: ${decision.reason}`,
+          }
+        }
+        if ('fragments' in decision && decision.fragments) {
+          allFragments.push(...decision.fragments)
+        }
+      } catch (hookErr) {
+        console.error(`[engine] onTurnStart hook threw:`, hookErr)
+      }
+    }
 
     // === Assemble context ===
     const assembledContext = assembleContext(allFragments)
@@ -119,7 +146,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
         onEvent: options.onEvent,
         pendingMessages: options.pendingMessages,
         disabledTools,
-        hooks,
+        hooks: hooks ? { ...hooks, onTurnStart: undefined } : undefined,
       })
       result = {
         text: runtimeResult.text,

@@ -7,7 +7,7 @@
       "dependencies": {
         "@sena-ai/cli": "latest",
         "@sena-ai/core": "latest",
-        "@sena-ai/hooks": "^1.5.2",
+        "@sena-ai/hooks": "latest",
         "@sena-ai/runtime-claude": "latest",
         "@sena-ai/slack": "latest",
       },
@@ -114,7 +114,7 @@
 
     "@sena-ai/core": ["@sena-ai/core@1.5.2", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-Pqe6+1v1f31GuNKRUmYi8dbFf6inhXrLy/QU3Gey6GCx1jFr2+lPt30zqLVVHpXOGMsFkOP0OpQ21Fs7V6aXTQ=="],
 
-    "@sena-ai/hooks": ["@sena-ai/hooks@1.5.2", "", { "dependencies": { "@sena-ai/core": "1.5.2" } }, "sha512-EH0HobFhF740Ft1Q5drLsgAxrHw+KZaU3VxACUPikMPTM1w+2JUSDyN+/SO4yuSkCztQorBcg2jKV3QdGpe+TQ=="],
+    "@sena-ai/hooks": ["@sena-ai/hooks@1.5.3", "", { "dependencies": { "@sena-ai/core": "1.5.2" } }, "sha512-BVTUyZVgJuAA/Etj2QkX26HniAD2ETuW9T8TqYLJx9UzBxyww4+KsRPh8F4JYOIpr3fUJukx7PDZ/koTjqvLCA=="],
 
     "@sena-ai/runtime-claude": ["@sena-ai/runtime-claude@1.5.2", "", { "dependencies": { "@anthropic-ai/claude-agent-sdk": "^0.2.92", "@modelcontextprotocol/sdk": "^1.27.1", "@sena-ai/core": "1.5.2", "zod": "^4.3.6" } }, "sha512-7SKIdW1MtFXi45cv+aXk1WG2wZOF4XwVw6mwXs4KSvZ83bg9IVeTdbBM74sJxqlMulR/mROPtu94OroseBVPTw=="],
 

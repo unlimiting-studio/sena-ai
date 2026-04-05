@@ -8,9 +8,8 @@ describe('E2E: defineConfig → createAgent → processTurn', () => {
       name: 'sena-test',
       runtime: createMockRuntime('안녕하세요!'),
       hooks: {
-        // RuntimeHooks format: onTurnStart hooks are forwarded to the runtime
         onTurnStart: [
-          async () => ({ decision: 'allow' as const, additionalContext: '당신은 세나입니다.' }),
+          async () => ({ decision: 'allow' as const, fragments: [{ source: 'test', role: 'system' as const, content: '당신은 세나입니다.' }] }),
         ],
       },
     })

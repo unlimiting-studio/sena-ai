@@ -1,7 +1,8 @@
-import { defineConfig, env } from "@sena-ai/core";
+import { defineConfig, env, cronSchedule, heartbeat } from "@sena-ai/core";
 import { claudeRuntime } from "@sena-ai/runtime-claude";
 import { slackConnector, slackTools } from "@sena-ai/slack";
-import { fileContextHook } from "@sena-ai/hooks";
+import { fileContextHook, currentTimeHook } from "@sena-ai/hooks";
+import { readFileSync } from "fs";
 
 export default defineConfig({
   name: "%%BOT_NAME%%",
@@ -30,6 +31,28 @@ export default defineConfig({
 
   tools: [...slackTools({ botToken: env("SLACK_BOT_TOKEN") })],
 
+  schedules: [
+    // 매일 오전 9시(KST) — 어제의 journal을 기반으로 일일 브리핑 포스트
+    cronSchedule("0 9 * * 1-5", {
+      name: "daily-briefing",
+      prompt: readFileSync("prompts/DAILY_BRIEFING.md", "utf-8"),
+      timezone: "Asia/Seoul",
+    }),
+
+    // 매주 금요일 오후 5시(KST) — 한 주 활동을 정리하는 주간 회고
+    cronSchedule("0 17 * * 5", {
+      name: "weekly-retrospective",
+      prompt: readFileSync("prompts/WEEKLY_RETROSPECTIVE.md", "utf-8"),
+      timezone: "Asia/Seoul",
+    }),
+
+    // 30분마다 — 채널을 살펴보고 미응답 질문이나 도움 요청에 능동 대응
+    heartbeat("30m", {
+      name: "channel-watch",
+      prompt: readFileSync("prompts/HEARTBEAT_CHECK.md", "utf-8"),
+    }),
+  ],
+
   hooks: {
     onTurnStart: [
       fileContextHook({
@@ -44,6 +67,7 @@ export default defineConfig({
         as: "system",
         path: "prompts/USER.md",
       }),
+      currentTimeHook({ timezone: "Asia/Seoul" }),
     ],
     onTurnEnd: [
       async (input) => {

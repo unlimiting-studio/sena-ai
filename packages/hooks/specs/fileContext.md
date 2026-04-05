@@ -51,9 +51,11 @@
 
 ## AC
 
-- Given 파일 경로와 role, When 훅이 실행되면, Then 하나의 `ContextFragment`가 반환된다.
+- Given 파일 경로와 `as: 'system'`, When 훅이 실행되면, Then `{ decision: 'allow', fragments: [{ role: 'system', ... }] }`가 반환된다.
+- Given 파일 경로와 `as: 'prepend'`, When 훅이 실행되면, Then fragment의 role이 `'prepend'`이다.
+- Given 파일 경로와 `as: 'append'`, When 훅이 실행되면, Then fragment의 role이 `'append'`이다.
 - Given 디렉터리 경로와 glob, When 훅이 실행되면, Then 정렬된 파일들만 fragment로 반환된다.
-- Given `when`이 false를 반환할 때, When 훅이 실행되면, Then 빈 배열을 반환한다.
+- Given `when`이 false를 반환할 때, When 훅이 실행되면, Then `{ decision: 'allow' }` (fragments 없음)를 반환한다.
 ## 개편 메모
 
 - AGENTS.md 가이드에 맞춰 상위/상세 스펙 섹션과 traceability를 정규화했다.

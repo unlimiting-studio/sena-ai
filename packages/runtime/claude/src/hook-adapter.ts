@@ -2,7 +2,6 @@ import type {
   RuntimeHooks,
   PreToolUseInput,
   PostToolUseInput,
-  TurnStartInput,
   StopInput,
   SessionStartInput,
   PreToolUseDecision,
@@ -112,25 +111,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
     })
   }
 
-  if (runtimeHooks.onTurnStart?.length) {
-    sdkHooks.UserPromptSubmit = runtimeHooks.onTurnStart.map((callback) => {
-      const cb: HookCallback = async (input) => {
-        try {
-          const senaInput: TurnStartInput = {
-            hookEventName: 'turnStart',
-            prompt: input?.prompt ?? '',
-            turnContext: STUB_TURN_CONTEXT,
-          }
-          const decision = await callback(senaInput)
-          return mapTurnStartDecision(decision)
-        } catch (err) {
-          console.error('[hook-adapter] UserPromptSubmit hook error:', err)
-          return {}
-        }
-      }
-      return { hooks: [cb] }
-    })
-  }
+  // onTurnStart is handled by the engine directly — not mapped to SDK hooks.
 
   if (runtimeHooks.onStop?.length) {
     sdkHooks.Stop = runtimeHooks.onStop.map((callback) => {
@@ -219,39 +200,6 @@ function mapPreToolUseDecision(decision: PreToolUseDecision): HookJSONOutput {
   }
 }
 
-function mapTurnStartDecision(decision: import('@sena-ai/core').TurnStartDecision): HookJSONOutput {
-  switch (decision.decision) {
-    case 'allow':
-      if ('additionalContext' in decision) {
-        return {
-          hookSpecificOutput: {
-            hookEventName: 'UserPromptSubmit',
-            additionalContext: decision.additionalContext,
-          },
-        }
-      }
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'UserPromptSubmit',
-        },
-      }
-    case 'block':
-      return { decision: 'block', reason: decision.reason }
-    case 'modifiedPrompt':
-      // SDK doesn't have a direct "modify prompt" concept;
-      // we pass the modified prompt as additionalContext.
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'UserPromptSubmit',
-          additionalContext: 'additionalContext' in decision
-            ? `${decision.prompt}\n${decision.additionalContext}`
-            : decision.prompt,
-        },
-      }
-    default:
-      return {}
-  }
-}
 
 // ─── Default Slack Block Hook ──────────────────────────────────────
 

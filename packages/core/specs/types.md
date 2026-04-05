@@ -30,6 +30,8 @@
 
 - Context/Hook:
   `ContextFragment`, `RuntimeHooks` (콜백 기반: `TurnStartCallback`, `TurnEndCallback`, `ErrorCallback` 등)
+  - `TurnStartDecision`: `allow` (선택적 `fragments: ContextFragment[]` 포함) 또는 `block`. `modifiedPrompt`는 제거 — prepend/append fragment로 대체됨.
+  - `TurnStartCallback`은 engine이 직접 실행하며, 런타임 SDK 훅으로 위임하지 않는다.
 - Turn:
   `FileAttachment`, `TurnContext`, `TurnResult`, `TurnFollowUp`, `TurnTrace`, `HookTrace`
 - Runtime:

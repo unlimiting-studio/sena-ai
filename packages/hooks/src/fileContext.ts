@@ -1,4 +1,4 @@
-import type { TurnContext, TurnStartCallback, TurnStartInput, TurnStartDecision } from '@sena-ai/core'
+import type { TurnContext, TurnStartCallback, TurnStartInput, TurnStartDecision, ContextFragment } from '@sena-ai/core'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 
@@ -17,11 +17,10 @@ export function fileContextHook(options: FileContextOptions): TurnStartCallback 
     if (when && !when(input.turnContext)) return { decision: 'allow' }
 
     const info = await stat(path)
-    const fragments: { source: string; content: string }[] = []
+    const fragments: ContextFragment[] = []
 
     if (info.isFile()) {
-      const content = await readFile(path, 'utf-8')
-      fragments.push(makeFragment(path, role, content, maxLength))
+      fragments.push(makeFragment(path, role, await readFile(path, 'utf-8'), maxLength))
     } else if (info.isDirectory()) {
       const entries = await readdir(path)
       const filtered = glob
@@ -32,26 +31,25 @@ export function fileContextHook(options: FileContextOptions): TurnStartCallback 
         const filePath = join(path, entry)
         const fileStat = await stat(filePath)
         if (!fileStat.isFile()) continue
-        const content = await readFile(filePath, 'utf-8')
-        fragments.push(makeFragment(filePath, role, content, maxLength))
+        fragments.push(makeFragment(filePath, role, await readFile(filePath, 'utf-8'), maxLength))
       }
     }
 
     if (fragments.length === 0) return { decision: 'allow' }
-    const context = fragments.map(f => `[${f.source}]\n${f.content}`).join('\n\n')
-    return { decision: 'allow', additionalContext: context }
+    return { decision: 'allow', fragments }
   }
 }
 
 function makeFragment(
   filePath: string,
-  _role: string,
+  role: 'system' | 'prepend' | 'append',
   content: string,
   maxLength?: number,
-): { source: string; content: string } {
+): ContextFragment {
   const trimmed = maxLength ? content.slice(0, maxLength) : content
   return {
     source: `file:${basename(filePath)}`,
+    role,
     content: trimmed,
   }
 }

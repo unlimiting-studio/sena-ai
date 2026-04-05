@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fileContextHook } from '../fileContext.js'
-import type { TurnContext, TurnStartInput } from '@sena-ai/core'
+import type { TurnContext, TurnStartInput, ContextFragment } from '@sena-ai/core'
 import { join } from 'node:path'
 import { writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -27,8 +27,12 @@ function makeInput(overrides?: Partial<TurnContext>): TurnStartInput {
   }
 }
 
+function getFragments(result: { decision: string; fragments?: ContextFragment[] }): ContextFragment[] {
+  return 'fragments' in result ? result.fragments ?? [] : []
+}
+
 describe('fileContextHook', () => {
-  it('loads a single file and returns additionalContext', async () => {
+  it('loads a single file and returns fragments with correct role', async () => {
     const callback = fileContextHook({
       path: join(fixturesDir, 'soul.md'),
       as: 'system',
@@ -36,7 +40,11 @@ describe('fileContextHook', () => {
     const result = await callback(makeInput())
 
     expect(result.decision).toBe('allow')
-    expect('additionalContext' in result && result.additionalContext).toContain('테스트 에이전트')
+    const fragments = getFragments(result)
+    expect(fragments).toHaveLength(1)
+    expect(fragments[0].role).toBe('system')
+    expect(fragments[0].content).toContain('테스트 에이전트')
+    expect(fragments[0].source).toBe('file:soul.md')
   })
 
   it('loads directory with glob filter', async () => {
@@ -48,9 +56,24 @@ describe('fileContextHook', () => {
     const result = await callback(makeInput())
 
     expect(result.decision).toBe('allow')
-    expect('additionalContext' in result && result.additionalContext).toBeTruthy()
+    const fragments = getFragments(result)
+    expect(fragments.length).toBeGreaterThan(0)
+    expect(fragments.every(f => f.role === 'append')).toBe(true)
     // .txt files should be excluded by glob
-    expect('additionalContext' in result && result.additionalContext).not.toContain('무시')
+    const allContent = fragments.map(f => f.content).join('\n')
+    expect(allContent).not.toContain('무시')
+  })
+
+  it('respects prepend role', async () => {
+    const callback = fileContextHook({
+      path: join(fixturesDir, 'soul.md'),
+      as: 'prepend',
+    })
+    const result = await callback(makeInput())
+
+    const fragments = getFragments(result)
+    expect(fragments).toHaveLength(1)
+    expect(fragments[0].role).toBe('prepend')
   })
 
   it('respects when condition', async () => {
@@ -65,7 +88,9 @@ describe('fileContextHook', () => {
 
     const result2 = await callback(makeInput({ trigger: 'schedule' }))
     expect(result2.decision).toBe('allow')
-    expect('additionalContext' in result2 && result2.additionalContext).toContain('테스트 에이전트')
+    const fragments = getFragments(result2)
+    expect(fragments).toHaveLength(1)
+    expect(fragments[0].content).toContain('테스트 에이전트')
   })
 
   it('respects maxLength', async () => {
@@ -77,10 +102,9 @@ describe('fileContextHook', () => {
     const result = await callback(makeInput())
 
     expect(result.decision).toBe('allow')
-    if ('additionalContext' in result) {
-      // additionalContext includes the [file:soul.md] prefix, but the content portion should be truncated
-      expect(result.additionalContext).toBeDefined()
-    }
+    const fragments = getFragments(result)
+    expect(fragments).toHaveLength(1)
+    expect(fragments[0].content.length).toBeLessThanOrEqual(10)
   })
 
   it('returns TurnStartCallback function', async () => {
@@ -96,13 +120,15 @@ describe('fileContextHook', () => {
       const result = await callback(makeInput())
 
       expect(result.decision).toBe('allow')
-      expect('additionalContext' in result && result.additionalContext).toContain('Hello from RuntimeHooks')
+      const fragments = getFragments(result)
+      expect(fragments).toHaveLength(1)
+      expect(fragments[0].content).toContain('Hello from RuntimeHooks')
     } finally {
       await rm(tmpDir, { recursive: true })
     }
   })
 
-  it('returns decision allow without additionalContext when no fragments', async () => {
+  it('returns decision allow without fragments when condition is false', async () => {
     const callback = fileContextHook({
       path: join(fixturesDir, 'soul.md'),
       as: 'system',
