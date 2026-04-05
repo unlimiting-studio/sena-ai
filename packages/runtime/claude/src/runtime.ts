@@ -150,7 +150,7 @@ export type ClaudeRuntimeOptions = {
 
 export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
   const {
-    model = 'claude-sonnet-4-5',
+    model = 'claude-sonnet-4-6',
     apiKey,
     maxTurns,
     permissionMode = 'dontAsk',
