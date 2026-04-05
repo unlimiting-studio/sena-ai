@@ -73,17 +73,15 @@ describe('fileContext', () => {
 })
 
 describe('fileContextHook', () => {
-  it('returns a SimpleHookMatcher that wraps fileContext as TurnStartCallback', async () => {
+  it('returns a TurnStartCallback that wraps fileContext', async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), 'sena-hook-test-'))
     const tmpFile = join(tmpDir, 'test-context.txt')
     await writeFile(tmpFile, 'Hello from RuntimeHooks', 'utf-8')
 
     try {
-      const matcher = fileContextHook({ path: tmpFile, as: 'system' })
+      const callback = fileContextHook({ path: tmpFile, as: 'system' })
 
-      // Verify matcher shape
-      expect(matcher).toHaveProperty('callback')
-      expect(typeof matcher.callback).toBe('function')
+      expect(typeof callback).toBe('function')
 
       const input: TurnStartInput = {
         hookEventName: 'turnStart',
@@ -91,7 +89,7 @@ describe('fileContextHook', () => {
         turnContext: mockContext(),
       }
 
-      const result = await matcher.callback(input)
+      const result = await callback(input)
 
       expect(result.decision).toBe('allow')
       expect('additionalContext' in result && result.additionalContext).toContain('Hello from RuntimeHooks')
@@ -101,7 +99,7 @@ describe('fileContextHook', () => {
   })
 
   it('returns decision allow without additionalContext when no fragments', async () => {
-    const matcher = fileContextHook({
+    const callback = fileContextHook({
       path: join(fixturesDir, 'soul.md'),
       as: 'system',
       when: () => false,
@@ -113,7 +111,7 @@ describe('fileContextHook', () => {
       turnContext: mockContext(),
     }
 
-    const result = await matcher.callback(input)
+    const result = await callback(input)
 
     expect(result).toEqual({ decision: 'allow' })
   })

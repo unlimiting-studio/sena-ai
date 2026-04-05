@@ -24,7 +24,6 @@ export type {
   SessionStartCallback,
   ErrorCallback,
   ToolHookMatcher,
-  SimpleHookMatcher,
   RuntimeHooks,
 } from './runtime-hooks.js'
 export { env, validateEnv } from './env.js'

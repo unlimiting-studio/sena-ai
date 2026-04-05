@@ -48,7 +48,7 @@ describe('adaptLegacyHooks()', () => {
       prompt: 'hello',
       turnContext: makeTurnContext(),
     }
-    const result = await hooks.onTurnStart![0].callback(input)
+    const result = await hooks.onTurnStart![0](input)
 
     expect(legacyHook.execute).toHaveBeenCalledWith(input.turnContext)
     expect(result).toEqual({
@@ -69,7 +69,7 @@ describe('adaptLegacyHooks()', () => {
       prompt: 'hello',
       turnContext: makeTurnContext(),
     }
-    const result = await hooks.onTurnStart![0].callback(input)
+    const result = await hooks.onTurnStart![0](input)
 
     expect(result).toEqual({ decision: 'allow' })
   })
@@ -90,7 +90,7 @@ describe('adaptLegacyHooks()', () => {
       result: turnResult,
       turnContext: makeTurnContext(),
     }
-    await hooks.onTurnEnd![0].callback(input)
+    await hooks.onTurnEnd![0](input)
 
     expect(legacyHook.execute).toHaveBeenCalledWith(input.turnContext, turnResult)
   })
@@ -111,7 +111,7 @@ describe('adaptLegacyHooks()', () => {
       error,
       turnContext: makeTurnContext(),
     }
-    await hooks.onError![0].callback(input)
+    await hooks.onError![0](input)
 
     expect(legacyHook.execute).toHaveBeenCalledWith(input.turnContext, error)
   })
@@ -119,7 +119,7 @@ describe('adaptLegacyHooks()', () => {
   it('merges with existing RuntimeHooks', async () => {
     const existingCallback = vi.fn().mockResolvedValue({ decision: 'allow' as const })
     const existing: RuntimeHooks = {
-      onTurnStart: [{ callback: existingCallback }],
+      onTurnStart: [existingCallback],
     }
 
     const legacyHook: TurnStartHook = {
@@ -131,7 +131,7 @@ describe('adaptLegacyHooks()', () => {
 
     // Legacy hooks come first, existing hooks come after
     expect(hooks.onTurnStart).toHaveLength(2)
-    expect(hooks.onTurnStart![1].callback).toBe(existingCallback)
+    expect(hooks.onTurnStart![1]).toBe(existingCallback)
   })
 
   it('emits deprecation warnings when legacy hooks are adapted (AC-12)', () => {
@@ -158,7 +158,7 @@ describe('adaptLegacyHooks()', () => {
   it('preserves existing hooks on fields not covered by legacy', () => {
     const existingErrorCallback = vi.fn().mockResolvedValue(undefined)
     const existing: RuntimeHooks = {
-      onError: [{ callback: existingErrorCallback }],
+      onError: [existingErrorCallback],
     }
 
     const legacyHook: TurnStartHook = {
@@ -170,6 +170,6 @@ describe('adaptLegacyHooks()', () => {
 
     expect(hooks.onTurnStart).toHaveLength(1)
     expect(hooks.onError).toHaveLength(1)
-    expect(hooks.onError![0].callback).toBe(existingErrorCallback)
+    expect(hooks.onError![0]).toBe(existingErrorCallback)
   })
 })

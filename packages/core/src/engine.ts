@@ -138,9 +138,9 @@ export function createTurnEngine(config: TurnEngineConfig) {
         error: err instanceof Error ? err : new Error(String(err)),
         turnContext: context,
       }
-      for (const matcher of hooks?.onError ?? []) {
+      for (const callback of hooks?.onError ?? []) {
         try {
-          await matcher.callback(errorInput)
+          await callback(errorInput)
         } catch (hookErr) {
           console.error(`[engine] hooks.onError threw:`, hookErr)
         }
@@ -155,9 +155,9 @@ export function createTurnEngine(config: TurnEngineConfig) {
         result,
         turnContext: context,
       }
-      for (const matcher of hooks?.onTurnEnd ?? []) {
+      for (const callback of hooks?.onTurnEnd ?? []) {
         try {
-          await matcher.callback(turnEndInput)
+          await callback(turnEndInput)
         } catch (hookErr) {
           console.error(`[engine] hooks.onTurnEnd threw:`, hookErr)
         }

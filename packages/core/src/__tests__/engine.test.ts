@@ -38,7 +38,7 @@ describe('TurnEngine', () => {
     let capturedOptions: RuntimeStreamOptions | null = null
     const onTurnStartCallback = vi.fn(async () => ({ decision: 'allow' as const }))
     const hooks: RuntimeHooks = {
-      onTurnStart: [{ callback: onTurnStartCallback }],
+      onTurnStart: [onTurnStartCallback],
     }
 
     const engine = createTurnEngine({
@@ -54,7 +54,7 @@ describe('TurnEngine', () => {
     expect(capturedOptions).not.toBeNull()
     expect(capturedOptions!.hooks).toBeDefined()
     expect(capturedOptions!.hooks!.onTurnStart).toHaveLength(1)
-    expect(capturedOptions!.hooks!.onTurnStart![0].callback).toBe(onTurnStartCallback)
+    expect(capturedOptions!.hooks!.onTurnStart![0]).toBe(onTurnStartCallback)
   })
 
   it('records error in trace when runtime fails', async () => {
@@ -209,7 +209,7 @@ describe('TurnEngine', () => {
   it('calls hooks.onTurnEnd after successful turn with correct TurnEndInput', async () => {
     const onTurnEndCallback = vi.fn()
     const hooks: RuntimeHooks = {
-      onTurnEnd: [{ callback: onTurnEndCallback }],
+      onTurnEnd: [onTurnEndCallback],
     }
 
     const engine = createTurnEngine({
@@ -232,7 +232,7 @@ describe('TurnEngine', () => {
   it('isolates hooks.onTurnEnd errors (hook throws but turn succeeds)', async () => {
     const throwingCallback = vi.fn().mockRejectedValue(new Error('hook exploded'))
     const hooks: RuntimeHooks = {
-      onTurnEnd: [{ callback: throwingCallback }],
+      onTurnEnd: [throwingCallback],
     }
 
     const engine = createTurnEngine({
@@ -257,7 +257,7 @@ describe('TurnEngine', () => {
 
     const onErrorCallback = vi.fn()
     const hooks: RuntimeHooks = {
-      onError: [{ callback: onErrorCallback }],
+      onError: [onErrorCallback],
     }
 
     const engine = createTurnEngine({
@@ -281,7 +281,7 @@ describe('TurnEngine', () => {
     let capturedOptions: RuntimeStreamOptions | null = null
     const onStopCallback = vi.fn()
     const hooks: RuntimeHooks = {
-      onStop: [{ callback: onStopCallback }],
+      onStop: [onStopCallback],
     }
 
     const engine = createTurnEngine({
@@ -297,14 +297,14 @@ describe('TurnEngine', () => {
     expect(capturedOptions).not.toBeNull()
     expect(capturedOptions!.hooks).toBeDefined()
     expect(capturedOptions!.hooks!.onStop).toHaveLength(1)
-    expect(capturedOptions!.hooks!.onStop![0].callback).toBe(onStopCallback)
+    expect(capturedOptions!.hooks!.onStop![0]).toBe(onStopCallback)
   })
 
   it('passes onTurnStart hooks through to runtime via hooks (AC-09)', async () => {
     let capturedOptions: RuntimeStreamOptions | null = null
     const onTurnStartCallback = vi.fn(async () => ({ decision: 'block' as const, reason: 'denied' }))
     const hooks: RuntimeHooks = {
-      onTurnStart: [{ callback: onTurnStartCallback }],
+      onTurnStart: [onTurnStartCallback],
     }
 
     const engine = createTurnEngine({
@@ -320,7 +320,7 @@ describe('TurnEngine', () => {
     expect(capturedOptions).not.toBeNull()
     expect(capturedOptions!.hooks).toBeDefined()
     expect(capturedOptions!.hooks!.onTurnStart).toHaveLength(1)
-    expect(capturedOptions!.hooks!.onTurnStart![0].callback).toBe(onTurnStartCallback)
+    expect(capturedOptions!.hooks!.onTurnStart![0]).toBe(onTurnStartCallback)
   })
 
   it('isolates hooks.onError errors', async () => {
@@ -328,7 +328,7 @@ describe('TurnEngine', () => {
 
     const throwingErrorCallback = vi.fn().mockRejectedValue(new Error('error hook exploded'))
     const hooks: RuntimeHooks = {
-      onError: [{ callback: throwingErrorCallback }],
+      onError: [throwingErrorCallback],
     }
 
     const engine = createTurnEngine({

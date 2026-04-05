@@ -100,20 +100,16 @@ export type ToolHookMatcher<T> = {
   callback: T
 }
 
-export type SimpleHookMatcher<T> = {
-  callback: T
-}
-
 // ─── RuntimeHooks ───────────────────────────────────────────────────
 
 export type RuntimeHooks = {
   onPreToolUse?: ToolHookMatcher<PreToolUseCallback>[]
   onPostToolUse?: ToolHookMatcher<PostToolUseCallback>[]
-  onTurnStart?: SimpleHookMatcher<TurnStartCallback>[]
-  onTurnEnd?: SimpleHookMatcher<TurnEndCallback>[]
-  onStop?: SimpleHookMatcher<StopCallback>[]
-  onSessionStart?: SimpleHookMatcher<SessionStartCallback>[]
-  onError?: SimpleHookMatcher<ErrorCallback>[]
+  onTurnStart?: TurnStartCallback[]
+  onTurnEnd?: TurnEndCallback[]
+  onStop?: StopCallback[]
+  onSessionStart?: SessionStartCallback[]
+  onError?: ErrorCallback[]
 }
 
 // ─── Legacy Adapter ─────────────────────────────────────────────────
@@ -142,35 +138,35 @@ export function adaptLegacyHooks(
 
   if (legacy.onTurnStart?.length) {
     console.warn('[sena] onTurnStart hooks are deprecated. Use hooks.onTurnStart instead.')
-    const adapted: SimpleHookMatcher<TurnStartCallback>[] = legacy.onTurnStart.map((h) => ({
-      callback: async (input: TurnStartInput): Promise<TurnStartDecision> => {
+    const adapted: TurnStartCallback[] = legacy.onTurnStart.map((h) =>
+      async (input: TurnStartInput): Promise<TurnStartDecision> => {
         const fragments = await h.execute(input.turnContext)
         if (fragments.length === 0) {
           return { decision: 'allow' }
         }
         return { decision: 'allow', additionalContext: fragmentsToContext(fragments) }
       },
-    }))
+    )
     hooks.onTurnStart = [...adapted, ...(existing?.onTurnStart ?? [])]
   }
 
   if (legacy.onTurnEnd?.length) {
     console.warn('[sena] onTurnEnd hooks are deprecated. Use hooks.onTurnEnd instead.')
-    const adapted: SimpleHookMatcher<TurnEndCallback>[] = legacy.onTurnEnd.map((h) => ({
-      callback: async (input: TurnEndInput): Promise<TurnEndResult> => {
+    const adapted: TurnEndCallback[] = legacy.onTurnEnd.map((h) =>
+      async (input: TurnEndInput): Promise<TurnEndResult> => {
         await h.execute(input.turnContext, input.result)
       },
-    }))
+    )
     hooks.onTurnEnd = [...adapted, ...(existing?.onTurnEnd ?? [])]
   }
 
   if (legacy.onError?.length) {
     console.warn('[sena] onError hooks are deprecated. Use hooks.onError instead.')
-    const adapted: SimpleHookMatcher<ErrorCallback>[] = legacy.onError.map((h) => ({
-      callback: async (input: ErrorInput): Promise<ErrorResult> => {
+    const adapted: ErrorCallback[] = legacy.onError.map((h) =>
+      async (input: ErrorInput): Promise<ErrorResult> => {
         await h.execute(input.turnContext, input.error)
       },
-    }))
+    )
     hooks.onError = [...adapted, ...(existing?.onError ?? [])]
   }
 

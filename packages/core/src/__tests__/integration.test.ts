@@ -10,9 +10,7 @@ describe('E2E: defineConfig → createAgent → processTurn', () => {
       hooks: {
         // RuntimeHooks format: onTurnStart hooks are forwarded to the runtime
         onTurnStart: [
-          {
-            callback: async () => ({ decision: 'allow' as const, additionalContext: '당신은 세나입니다.' }),
-          },
+          async () => ({ decision: 'allow' as const, additionalContext: '당신은 세나입니다.' }),
         ],
       },
     })

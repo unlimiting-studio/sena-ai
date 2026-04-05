@@ -29,7 +29,7 @@ describe('Full sena.config.ts pattern', () => {
       tools: [], // No real tools in test
 
       hooks: {
-        onTurnEnd: [{ callback: onTurnEndCallback }],
+        onTurnEnd: [onTurnEndCallback],
       },
 
       schedules: [
@@ -94,7 +94,7 @@ describe('Full sena.config.ts pattern', () => {
       name: 'error-test',
       runtime: failRuntime,
       hooks: {
-        onError: [{ callback: onErrorCallback }],
+        onError: [onErrorCallback],
       },
     })
 

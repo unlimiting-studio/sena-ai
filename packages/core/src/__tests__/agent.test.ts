@@ -10,9 +10,7 @@ describe('createAgent()', () => {
       runtime: createMockRuntime('I am test-bot'),
       hooks: {
         onTurnStart: [
-          {
-            callback: async () => ({ decision: 'allow' as const, additionalContext: 'You are test-bot' }),
-          },
+          async () => ({ decision: 'allow' as const, additionalContext: 'You are test-bot' }),
         ],
       },
     })

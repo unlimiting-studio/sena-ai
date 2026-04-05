@@ -1,4 +1,4 @@
-import type { TurnEndHook, TurnContext, TurnResult, SimpleHookMatcher, TurnEndCallback, TurnEndInput } from '@sena-ai/core'
+import type { TurnEndHook, TurnContext, TurnResult, TurnEndCallback, TurnEndInput } from '@sena-ai/core'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -30,11 +30,9 @@ export function traceLogger(options: TraceLoggerOptions): TurnEndHook {
   }
 }
 
-export function traceLoggerHook(options: TraceLoggerOptions): SimpleHookMatcher<TurnEndCallback> {
+export function traceLoggerHook(options: TraceLoggerOptions): TurnEndCallback {
   const legacyHook = traceLogger(options)
-  return {
-    callback: async (input: TurnEndInput): Promise<void> => {
-      await legacyHook.execute(input.turnContext, input.result)
-    },
+  return async (input: TurnEndInput): Promise<void> => {
+    await legacyHook.execute(input.turnContext, input.result)
   }
 }
