@@ -5,6 +5,7 @@
   "dependencies": {
     "@sena-ai/cli": "latest",
     "@sena-ai/core": "latest",
+    "@sena-ai/hooks": "latest",
     "@sena-ai/runtime-claude": "latest",
     "@sena-ai/slack": "latest"
   }

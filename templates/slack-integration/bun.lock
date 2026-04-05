@@ -7,6 +7,7 @@
       "dependencies": {
         "@sena-ai/cli": "latest",
         "@sena-ai/core": "latest",
+        "@sena-ai/hooks": "^1.5.2",
         "@sena-ai/runtime-claude": "latest",
         "@sena-ai/slack": "latest",
       },
@@ -107,17 +108,21 @@
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
 
-    "@sena-ai/cli": ["@sena-ai/cli@1.5.0", "", { "dependencies": { "@sena-ai/core": "1.5.0", "commander": "^13", "degit": "^2.8.4", "dotenv": "^16.6", "tsx": "^4.21.0" }, "bin": { "sena": "dist/cli.js" } }, "sha512-+JXvyRdSghzYZF/waC1nGGZwCIqzVactY/nECtzNcI1Bu8s1evJ1arkWgI3DhYhroWtDGOci9UyUob1qXh89wQ=="],
+    "@sena-ai/cli": ["@sena-ai/cli@1.5.2", "", { "dependencies": { "@sena-ai/core": "1.5.2", "commander": "^13", "degit": "^2.8.4", "dotenv": "^16.6", "tsx": "^4.21.0" }, "bin": { "sena": "dist/cli.js" } }, "sha512-VI7yNNCQ4tA6E+eF/DIyDmYc/s/WTCJNgCWIqMcO5BjcmPQO18QsozST2k8GRBzVIxBl7Kj6K17LWdJgEuRAyQ=="],
 
-    "@sena-ai/connector-slack": ["@sena-ai/connector-slack@1.5.0", "", { "dependencies": { "@sena-ai/core": "1.5.0", "@slack/socket-mode": "^2.0.0", "@slack/web-api": "^7.0.0" } }, "sha512-LBlNkQ34PNYuu4Y04XPfUqUqYf4pVo8qU0lzntbqbSuu+FalKRGHcCpGxYliJHe35+EuNXJKOEAVwJKqQXgVDw=="],
+    "@sena-ai/connector-slack": ["@sena-ai/connector-slack@1.5.1", "", { "dependencies": { "@sena-ai/core": "1.5.1", "@sena-ai/slack-mrkdwn": "1.5.1", "@slack/socket-mode": "^2.0.0", "@slack/web-api": "^7.0.0" } }, "sha512-buXtROwABmdHpJQEkfIxeD0pESlmSGZFUWuEmzYVVqLhHaoaoN/Ed+ptXjJ6WDAE2zKLxdBx38TCsSLCaxojSQ=="],
 
-    "@sena-ai/core": ["@sena-ai/core@1.5.0", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-qV0dFcoIHBH11rxYTbRZSxFzgmnmGI6S0iAqJF0R1eYoDButQ0zEmW46vxOqtThOGMIhmZJNhr7NQ1b4l0MVMw=="],
+    "@sena-ai/core": ["@sena-ai/core@1.5.2", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-Pqe6+1v1f31GuNKRUmYi8dbFf6inhXrLy/QU3Gey6GCx1jFr2+lPt30zqLVVHpXOGMsFkOP0OpQ21Fs7V6aXTQ=="],
 
-    "@sena-ai/runtime-claude": ["@sena-ai/runtime-claude@1.5.0", "", { "dependencies": { "@anthropic-ai/claude-agent-sdk": "^0.2.92", "@modelcontextprotocol/sdk": "^1.27.1", "@sena-ai/core": "1.5.0", "zod": "^4.3.6" } }, "sha512-xcF+QAxKmbdEzrjjw2BXO8dBFMziw33bSdKstEZlXAjmdoaL33wpBXvK4nogL6uqWj0UW+mNb7stzSHLoy+xVg=="],
+    "@sena-ai/hooks": ["@sena-ai/hooks@1.5.2", "", { "dependencies": { "@sena-ai/core": "1.5.2" } }, "sha512-EH0HobFhF740Ft1Q5drLsgAxrHw+KZaU3VxACUPikMPTM1w+2JUSDyN+/SO4yuSkCztQorBcg2jKV3QdGpe+TQ=="],
 
-    "@sena-ai/slack": ["@sena-ai/slack@1.5.0", "", { "dependencies": { "@sena-ai/connector-slack": "1.5.0", "@sena-ai/tools-slack": "1.5.0" } }, "sha512-DcGFLXfA9NXaErbmt+q+h2p22ru+CLGQqemOvwT/5yqpsPJOa5VQ6bIQiIaxesuYINyx22YotReT7xEl/3v85Q=="],
+    "@sena-ai/runtime-claude": ["@sena-ai/runtime-claude@1.5.2", "", { "dependencies": { "@anthropic-ai/claude-agent-sdk": "^0.2.92", "@modelcontextprotocol/sdk": "^1.27.1", "@sena-ai/core": "1.5.2", "zod": "^4.3.6" } }, "sha512-7SKIdW1MtFXi45cv+aXk1WG2wZOF4XwVw6mwXs4KSvZ83bg9IVeTdbBM74sJxqlMulR/mROPtu94OroseBVPTw=="],
 
-    "@sena-ai/tools-slack": ["@sena-ai/tools-slack@1.5.0", "", { "dependencies": { "@sena-ai/core": "1.5.0", "@slack/web-api": "^7.0.0", "zod": "^4.3.6" } }, "sha512-TYH+VncXQSNQzZfG6awzBL69uBoifcvCLDyhO05BqkebMqmP7wr7/4K8meuPz9DDmgId1/FDuxq9SF85IT3iKw=="],
+    "@sena-ai/slack": ["@sena-ai/slack@1.5.1", "", { "dependencies": { "@sena-ai/connector-slack": "1.5.1", "@sena-ai/tools-slack": "1.5.1" } }, "sha512-HCD0kyBhTS8eSzzfPdiplQ6f/r/vpZx12fp1DTZSU6QmGxiwiFbm3xAYERu2E9QNWsAw0i8YnPaJcDP6DKjtxw=="],
+
+    "@sena-ai/slack-mrkdwn": ["@sena-ai/slack-mrkdwn@1.5.1", "", {}, "sha512-luuZriRalJqafHiXCX2YwjP3LZvN24kwtMQ4M5fJLG//g10HPOhCNMDHHAo1EDgtmpgwLk+8Y66e1p857FehEw=="],
+
+    "@sena-ai/tools-slack": ["@sena-ai/tools-slack@1.5.1", "", { "dependencies": { "@sena-ai/core": "1.5.1", "@sena-ai/slack-mrkdwn": "1.5.1", "@slack/web-api": "^7.0.0", "zod": "^4.3.6" } }, "sha512-iEOUQAqfy0BbDSa+iu2O8IUF/CbZmXH2iH7h7Yz1s5obEaUMpCsGys7+l2Y+JQV7MmQQXMat6uzDSwLZBTHM+Q=="],
 
     "@slack/logger": ["@slack/logger@4.0.1", "", { "dependencies": { "@types/node": ">=18" } }, "sha512-6cmdPrV/RYfd2U0mDGiMK8S7OJqpCTm7enMLRR3edccsPX8j7zXTLnaEF4fhxxJJTAIOil6+qZrnUPTuaLvwrQ=="],
 
@@ -368,6 +373,10 @@
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
+
+    "@sena-ai/connector-slack/@sena-ai/core": ["@sena-ai/core@1.5.1", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-AtehHhoCqRQq8LyiWF5jun9ydDij3chF4bjseWi3L1hHLlT7rzYtWfKmelECPJWJ9f2XZAhJr1bd0FO4AozmwA=="],
+
+    "@sena-ai/tools-slack/@sena-ai/core": ["@sena-ai/core@1.5.1", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-AtehHhoCqRQq8LyiWF5jun9ydDij3chF4bjseWi3L1hHLlT7rzYtWfKmelECPJWJ9f2XZAhJr1bd0FO4AozmwA=="],
 
     "form-data/mime-types": ["mime-types@2.1.35", "", { "dependencies": { "mime-db": "1.52.0" } }, "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw=="],
 
