@@ -39,11 +39,11 @@ pnpm dlx @sena-ai/cli init my-bot --template platform-integration
 `sena init`은 다음 작업을 자동으로 수행합니다.
 
 - 템플릿 다운로드
-- `%%BOT_NAME%%` 플레이스홀더 치환
+- `%%BOT_NAME%%` 플레이스홀더 치환 (`sena.config.ts`, `package.json`, `slack-app-manifest.json`)
 - `.env.template`을 `.env`로 변경
 - `pnpm install` 실행
 
-생성된 프로젝트에서 `.env`를 채우고 실행하면 됩니다.
+Slack 템플릿의 경우, 생성된 `slack-app-manifest.json`으로 https://api.slack.com/apps 에서 앱을 만들면 scope와 이벤트 구독이 자동 설정됩니다. 앱 생성 후 `.env`에 크레덴셜을 채우고 실행합니다.
 
 ```bash
 npx sena start

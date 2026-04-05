@@ -15,11 +15,24 @@ pnpm dlx @sena-ai/cli init my-bot --template platform-integration
 
 `sena init`이 자동으로 수행하는 작업:
 - 템플릿 다운로드 (GitHub에서 degit)
-- `%%BOT_NAME%%` 플레이스홀더를 프로젝트 이름으로 치환
+- `%%BOT_NAME%%` 플레이스홀더를 프로젝트 이름으로 치환 (`sena.config.ts`, `package.json`, `slack-app-manifest.json`)
 - `.env.template` → `.env` 변환
 - `pnpm install` 실행
 
-생성 후 `.env`에 크레덴셜을 채우고 실행:
+### Slack 앱 등록
+
+생성된 `slack-app-manifest.json`에 봇 이름이 이미 치환되어 있다. 이 파일로 Slack 앱을 만든다:
+
+1. https://api.slack.com/apps → **Create New App** → **From a manifest**
+2. 워크스페이스를 선택한다.
+3. JSON 탭에서 `slack-app-manifest.json` 내용을 붙여넣고 생성한다.
+4. **Basic Information** → **App-Level Tokens** → `connections:write` scope로 토큰 생성 → `xapp-` 접두사 토큰을 `.env`의 `SLACK_APP_TOKEN`에 넣는다.
+5. **OAuth & Permissions** → **Install to Workspace** → 설치 후 `xoxb-` 접두사 Bot Token을 `.env`의 `SLACK_BOT_TOKEN`에 넣는다.
+6. **Basic Information**에서 App ID를 `.env`의 `SLACK_APP_ID`에 넣는다.
+
+manifest에는 Socket Mode, 필요한 scope, 이벤트 구독이 모두 설정되어 있으므로 별도 설정이 필요 없다.
+
+### 실행
 
 ```bash
 npx sena start

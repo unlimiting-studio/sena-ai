@@ -55,6 +55,14 @@ export function registerInit(program: Command): void {
       pkg = pkg.replace('"sena-bot"', `"${botName}"`)
       writeFileSync(pkgPath, pkg)
 
+      // Replace placeholders in manifest if present
+      const manifestPath = resolve(targetDir, 'slack-app-manifest.json')
+      if (existsSync(manifestPath)) {
+        let manifest = readFileSync(manifestPath, 'utf-8')
+        manifest = manifest.replace(/%%BOT_NAME%%/g, botName)
+        writeFileSync(manifestPath, manifest)
+      }
+
       // .env.template → .env
       const envTemplate = resolve(targetDir, '.env.template')
       if (existsSync(envTemplate)) {
