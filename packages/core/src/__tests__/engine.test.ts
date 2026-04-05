@@ -323,6 +323,26 @@ describe('TurnEngine', () => {
     expect(capturedOptions!.hooks!.onTurnStart![0]).toBe(onTurnStartCallback)
   })
 
+  it('collects followUp from onTurnEnd hook into trace.followUps', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => ({ followUp: 'do more work' })],
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime: createMockRuntime('initial response'),
+      hooks,
+      tools: [],
+    })
+
+    const trace = await engine.processTurn({ input: 'hi' })
+
+    expect(trace.followUps).toEqual([
+      { prompt: 'do more work', fork: false, detached: false },
+    ])
+  })
+
   it('isolates hooks.onError errors', async () => {
     const failRuntime = createFailRuntime('runtime broke')
 

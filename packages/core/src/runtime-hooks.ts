@@ -74,7 +74,14 @@ export type TurnStartDecision =
   | { decision: 'modifiedPrompt'; prompt: string }
   | { decision: 'modifiedPrompt'; prompt: string; additionalContext: string }
 
-export type TurnEndResult = void
+export type TurnEndResult = void | {
+  /** Execute a follow-up prompt after this turn */
+  followUp?: string
+  /** Fork into a new session (inherits current session context via resume). Requires followUp. */
+  fork?: boolean
+  /** Suppress connector output for the forked turn. Only effective when fork is true. */
+  detached?: boolean
+}
 
 export type StopDecision = void | { continueWith: string }
 

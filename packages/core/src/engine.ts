@@ -148,16 +148,26 @@ export function createTurnEngine(config: TurnEngineConfig) {
     }
 
     // === onTurnEnd hooks (RuntimeHooks) ===
-    const followUps: string[] = []
+    const followUps: import('./types.js').TurnFollowUp[] = []
     if (result) {
       const turnEndInput: TurnEndInput = {
         hookEventName: 'turnEnd',
         result,
         turnContext: context,
       }
+      const isForkedTurn = context.metadata.forkedFrom != null
       for (const callback of hooks?.onTurnEnd ?? []) {
         try {
-          await callback(turnEndInput)
+          const hookResult = await callback(turnEndInput)
+          if (hookResult && typeof hookResult === 'object' && hookResult.followUp) {
+            // Ignore fork from forked turns (1-level depth limit)
+            const fork = isForkedTurn ? false : (hookResult.fork ?? false)
+            followUps.push({
+              prompt: hookResult.followUp,
+              fork,
+              detached: fork ? (hookResult.detached ?? false) : false,
+            })
+          }
         } catch (hookErr) {
           console.error(`[engine] hooks.onTurnEnd threw:`, hookErr)
         }

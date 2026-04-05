@@ -59,6 +59,12 @@ export type HookTrace = {
   fragments: ContextFragment[]
 }
 
+export type TurnFollowUp = {
+  prompt: string
+  fork: boolean
+  detached: boolean
+}
+
 export type TurnTrace = {
   turnId: string
   timestamp: string
@@ -70,7 +76,7 @@ export type TurnTrace = {
   result: TurnResult | null
   error: string | null
   /** Follow-up prompts from onTurnEnd hooks. Worker will process these as continuation turns. */
-  followUps?: string[]
+  followUps?: TurnFollowUp[]
 }
 
 // === Runtime (Part 5) ===
