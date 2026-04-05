@@ -71,45 +71,24 @@ export default defineConfig({
     ],
     onTurnEnd: [
       async (input) => {
-        const ctx = input.turnContext;
-        const result = input.result;
-
-        // Skip non-connector turns (schedules, programmatic)
-        if (ctx.trigger !== "connector") return;
-
-        const date = new Date().toISOString().slice(0, 10);
-        const time = new Date().toLocaleTimeString("ko-KR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
-        const channel = ctx.connector?.conversationId ?? "unknown";
-        const user = ctx.connector?.userName ?? ctx.connector?.userId ?? "unknown";
+        if (input.turnContext.trigger !== "connector") return;
 
         return {
           fork: true,
           detached: true,
           followUp: [
-            `이전 대화의 핵심 내용을 journal/${date}.md에 기록해.`,
+            `이전 대화의 핵심 내용을 journal에 기록해.`,
             ``,
-            `## 중복 방지 (중요)`,
-            `이 세션은 기존 대화를 이어받았기 때문에, 이전 턴의 내용이 컨텍스트에 포함되어 있어.`,
-            `먼저 journal/${date}.md를 읽어서 이미 기록된 내용을 확인하고,`,
-            `아직 기록되지 않은 이번 턴의 새로운 내용만 추가해.`,
-            `이미 기록된 대화를 다시 요약하거나 반복하지 마.`,
+            `- 현재 시간과 메시지 컨텍스트(채널, 사용자)는 시스템 프롬프트에 이미 있으니 그걸 참고해.`,
+            `- 파일명은 journal/{오늘 날짜}.md (예: journal/2026-04-06.md).`,
+            `- 기존 파일이 있으면 먼저 읽어서 중복 기록하지 마. 새로운 내용만 끝에 추가해.`,
             ``,
-            `## 기록할 엔트리 형식:`,
-            `기존 파일이 있으면 끝에 추가하고, 없으면 새로 생성해.`,
-            ``,
-            `### ${time} — ${user} (${channel})`,
-            `- **요청**: (이번 턴의 사용자 요청을 한 줄로 요약)`,
-            `- **수행**: (이번 턴에서 에이전트가 한 일을 간결하게)`,
-            `- **결과**: (결과 또는 결론)`,
-            `- **의사결정**: (있으면 기록, 없으면 생략)`,
-            ``,
-            `## 이번 턴의 대화 컨텍스트:`,
-            `사용자 입력: ${ctx.input}`,
-            `에이전트 응답 (앞부분): ${result.text.slice(0, 500)}`,
+            `## 엔트리 형식`,
+            `### {시간} — {사용자} ({채널})`,
+            `- **요청**: (사용자 요청 한 줄 요약)`,
+            `- **수행**: (에이전트가 한 일)`,
+            `- **결과**: (결론)`,
+            `- **의사결정**: (있으면 기록)`,
           ].join("\n"),
         };
       },

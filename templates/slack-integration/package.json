@@ -8,5 +8,9 @@
     "@sena-ai/hooks": "latest",
     "@sena-ai/runtime-claude": "latest",
     "@sena-ai/slack": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
   }
 }
