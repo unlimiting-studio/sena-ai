@@ -1,5 +1,4 @@
 export * from './types.js'
-export { adaptLegacyHooks } from './runtime-hooks.js'
 export type {
   PreToolUseInput,
   PostToolUseInput,

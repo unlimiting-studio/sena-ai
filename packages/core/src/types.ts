@@ -6,27 +6,6 @@ export type ContextFragment = {
   content: string
 }
 
-// === Hook interfaces (Part 3) ===
-
-export type TurnStartHook = {
-  name: string
-  execute(context: TurnContext): Promise<ContextFragment[]>
-}
-
-export type TurnEndHook = {
-  name: string
-  /**
-   * Called after a successful turn. Return a string to trigger a follow-up turn
-   * with that string as the prompt. Return void to do nothing.
-   */
-  execute(context: TurnContext, result: TurnResult): Promise<string | void>
-}
-
-export type ErrorHook = {
-  name: string
-  execute(context: TurnContext, error: Error): Promise<void>
-}
-
 // === TurnContext (Part 3) ===
 
 export type FileAttachment = {

@@ -1,4 +1,4 @@
-import type { Runtime, RuntimeEvent, RuntimeStreamOptions, TurnStartHook, TurnEndHook, ErrorHook, TurnContext, ContextFragment, TurnResult } from '../types.js'
+import type { Runtime, RuntimeEvent, RuntimeStreamOptions } from '../types.js'
 
 export function createMockRuntime(response: string = 'mock response'): Runtime {
   return {
@@ -10,26 +10,6 @@ export function createMockRuntime(response: string = 'mock response'): Runtime {
   }
 }
 
-export function createMockHook(name: string, fragments: ContextFragment[]): TurnStartHook {
-  return {
-    name,
-    async execute(_ctx: TurnContext) {
-      return fragments
-    },
-  }
-}
-
-export function createSpyEndHook(name: string): TurnEndHook & { calls: { context: TurnContext; result: TurnResult }[] } {
-  const hook = {
-    name,
-    calls: [] as { context: TurnContext; result: TurnResult }[],
-    async execute(context: TurnContext, result: TurnResult) {
-      hook.calls.push({ context, result })
-    },
-  }
-  return hook
-}
-
 export function createStreamingMockRuntime(events: RuntimeEvent[]): Runtime {
   return {
     name: 'mock-streaming',
@@ -39,17 +19,6 @@ export function createStreamingMockRuntime(events: RuntimeEvent[]): Runtime {
       }
     },
   }
-}
-
-export function createSpyErrorHook(name: string): ErrorHook & { calls: { error: Error }[] } {
-  const hook = {
-    name,
-    calls: [] as { error: Error }[],
-    async execute(_ctx: TurnContext, error: Error) {
-      hook.calls.push({ error })
-    },
-  }
-  return hook
 }
 
 /**

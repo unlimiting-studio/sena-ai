@@ -1,4 +1,4 @@
-import type { ContextFragment, TurnContext, TurnResult, TurnStartHook, TurnEndHook, ErrorHook } from './types.js'
+import type { TurnContext, TurnResult } from './types.js'
 
 // ─── Hook Input Types ───────────────────────────────────────────────
 
@@ -112,63 +112,3 @@ export type RuntimeHooks = {
   onError?: ErrorCallback[]
 }
 
-// ─── Legacy Adapter ─────────────────────────────────────────────────
-
-function fragmentsToContext(fragments: ContextFragment[]): string {
-  return fragments.map((f) => f.content).join('\n')
-}
-
-/**
- * Converts legacy TurnStartHook / TurnEndHook / ErrorHook arrays
- * into the new RuntimeHooks format, merging with any existing RuntimeHooks.
- *
- * @deprecated Legacy hooks will be removed in a future version.
- */
-export function adaptLegacyHooks(
-  legacy: {
-    onTurnStart?: TurnStartHook[]
-    onTurnEnd?: TurnEndHook[]
-    onError?: ErrorHook[]
-  },
-  existing?: RuntimeHooks,
-): RuntimeHooks {
-  const hooks: RuntimeHooks = {
-    ...existing,
-  }
-
-  if (legacy.onTurnStart?.length) {
-    console.warn('[sena] onTurnStart hooks are deprecated. Use hooks.onTurnStart instead.')
-    const adapted: TurnStartCallback[] = legacy.onTurnStart.map((h) =>
-      async (input: TurnStartInput): Promise<TurnStartDecision> => {
-        const fragments = await h.execute(input.turnContext)
-        if (fragments.length === 0) {
-          return { decision: 'allow' }
-        }
-        return { decision: 'allow', additionalContext: fragmentsToContext(fragments) }
-      },
-    )
-    hooks.onTurnStart = [...adapted, ...(existing?.onTurnStart ?? [])]
-  }
-
-  if (legacy.onTurnEnd?.length) {
-    console.warn('[sena] onTurnEnd hooks are deprecated. Use hooks.onTurnEnd instead.')
-    const adapted: TurnEndCallback[] = legacy.onTurnEnd.map((h) =>
-      async (input: TurnEndInput): Promise<TurnEndResult> => {
-        await h.execute(input.turnContext, input.result)
-      },
-    )
-    hooks.onTurnEnd = [...adapted, ...(existing?.onTurnEnd ?? [])]
-  }
-
-  if (legacy.onError?.length) {
-    console.warn('[sena] onError hooks are deprecated. Use hooks.onError instead.')
-    const adapted: ErrorCallback[] = legacy.onError.map((h) =>
-      async (input: ErrorInput): Promise<ErrorResult> => {
-        await h.execute(input.turnContext, input.error)
-      },
-    )
-    hooks.onError = [...adapted, ...(existing?.onError ?? [])]
-  }
-
-  return hooks
-}
