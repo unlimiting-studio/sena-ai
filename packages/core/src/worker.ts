@@ -1,4 +1,5 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import type { ResolvedSenaConfig } from './config.js'
@@ -252,7 +253,7 @@ export function createWorker(options: WorkerOptions) {
     // pending messages so they are not permanently lost.
     let lastError: unknown = null
     while (true) {
-      let followUps: string[] = []
+      let followUps: import('./types.js').TurnFollowUp[] = []
       try {
         followUps = await executeTurn(event, pendingMessages, abortSignal)
       } catch (err) {
@@ -260,10 +261,16 @@ export function createWorker(options: WorkerOptions) {
         lastError = err
       }
 
-      // onTurnEnd hooks may request follow-up turns — enqueue them
-      for (const text of followUps) {
-        pendingEvents.push({ ...event, text })
-        console.log(`[worker] enqueued follow-up from onTurnEnd hook`)
+      // Process followUps from onTurnEnd hooks
+      for (const followUp of followUps) {
+        if (!followUp.fork) {
+          // Blocking followUp: enqueue as pending event (same session)
+          pendingEvents.push({ ...event, text: followUp.prompt })
+          console.log(`[worker] enqueued blocking follow-up from onTurnEnd hook`)
+        } else {
+          // Fork followUp: spawn in background (fire-and-forget)
+          spawnForkedTurn(event, followUp)
+        }
       }
 
       if (pendingEvents.length === 0) break
@@ -284,7 +291,7 @@ export function createWorker(options: WorkerOptions) {
   /**
    * Executes a single turn. Returns follow-up prompts from onTurnEnd hooks (if any).
    */
-  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource, abortSignal?: AbortSignal): Promise<string[]> {
+  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource, abortSignal?: AbortSignal): Promise<import('./types.js').TurnFollowUp[]> {
     // Create output for the originating connector
     const connector = connectorMap.get(event.connector)
     if (!connector) {
@@ -377,6 +384,72 @@ export function createWorker(options: WorkerOptions) {
     } finally {
       await output.dispose()
     }
+  }
+
+  /** Active fork promises — tracked for graceful shutdown */
+  const activeForks = new Set<Promise<void>>()
+
+  /**
+   * Spawns a forked turn in the background (fire-and-forget).
+   * The forked turn inherits the original session via sessionId resume.
+   */
+  function spawnForkedTurn(originalEvent: InboundEvent, followUp: import('./types.js').TurnFollowUp): void {
+    const forkId = randomUUID().slice(0, 8)
+    const forkConversationId = `fork-${originalEvent.conversationId}-${forkId}`
+
+    console.log(`[worker] spawning forked turn ${forkId} (detached:${followUp.detached}) for ${originalEvent.conversationId}`)
+
+    const forkPromise = (async () => {
+      try {
+        // Look up original session to resume from
+        const originalSessionId = await sessionStore.get(originalEvent.conversationId)
+
+        // Create output: NullOutput for detached, or real connector output
+        const connector = connectorMap.get(originalEvent.connector)
+        const output = followUp.detached || !connector
+          ? { showProgress: async () => {}, sendResult: async () => {}, sendError: async () => {}, dispose: async () => {} }
+          : connector.createOutput({
+              conversationId: originalEvent.conversationId,
+              connector: originalEvent.connector,
+              metadata: originalEvent.raw,
+            })
+
+        try {
+          const trace = await engine.processTurn({
+            input: followUp.prompt,
+            trigger: 'connector',
+            sessionId: originalSessionId,
+            connector: {
+              name: originalEvent.connector,
+              conversationId: forkConversationId,
+              userId: originalEvent.userId,
+              userName: originalEvent.userName,
+              raw: originalEvent.raw,
+            },
+            metadata: { forkedFrom: originalEvent.conversationId },
+          })
+
+          // Save forked session under its own conversationId (don't pollute original)
+          if (trace.result?.sessionId) {
+            await sessionStore.set(forkConversationId, trace.result.sessionId)
+          }
+
+          // Send result if not detached
+          if (trace.result) {
+            await output.sendResult(trace.result.text)
+          } else if (trace.error && !followUp.detached) {
+            await output.sendError(trace.error)
+          }
+        } finally {
+          await output.dispose()
+        }
+      } catch (err) {
+        console.error(`[worker] forked turn ${forkId} error:`, err)
+      }
+    })()
+
+    activeForks.add(forkPromise)
+    forkPromise.finally(() => activeForks.delete(forkPromise))
   }
 
   // Simple HTTP server adapter
@@ -493,11 +566,17 @@ export function createWorker(options: WorkerOptions) {
       await Promise.allSettled(
         [...activeConversations.values()].map(s => s.activeTurnPromise),
       )
-      console.log('[worker] all active turns finished, exiting')
-    } else {
-      console.log('[worker] no active turns, exiting immediately')
+      console.log('[worker] all active turns finished')
     }
 
+    // Wait for any forked turns still running
+    if (activeForks.size > 0) {
+      console.log(`[worker] draining: waiting for ${activeForks.size} forked turn(s) to finish`)
+      await Promise.allSettled([...activeForks])
+      console.log('[worker] all forked turns finished')
+    }
+
+    console.log('[worker] exiting')
     process.exit(0)
   }
 
