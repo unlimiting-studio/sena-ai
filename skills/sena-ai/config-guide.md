@@ -16,7 +16,7 @@ export default defineConfig({
   cwd: './context/',
 
   runtime: claudeRuntime({
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4-6',
     maxTurns: 100,
     permissionMode: 'bypassPermissions',
   }),

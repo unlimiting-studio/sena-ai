@@ -1,6 +1,33 @@
 # 프로젝트 세팅 가이드
 
-## 프로젝트 초기화
+## sena init으로 시작하기 (권장)
+
+```bash
+pnpm dlx @sena-ai/cli init my-bot
+cd my-bot
+```
+
+기본 템플릿은 `slack-integration`이다. 다른 템플릿을 쓰려면:
+
+```bash
+pnpm dlx @sena-ai/cli init my-bot --template platform-integration
+```
+
+`sena init`이 자동으로 수행하는 작업:
+- 템플릿 다운로드 (GitHub에서 degit)
+- `%%BOT_NAME%%` 플레이스홀더를 프로젝트 이름으로 치환
+- `.env.template` → `.env` 변환
+- `pnpm install` 실행
+
+생성 후 `.env`에 크레덴셜을 채우고 실행:
+
+```bash
+npx sena start
+```
+
+## 수동 세팅 (템플릿 없이)
+
+템플릿 없이 직접 조립할 수도 있다:
 
 ```bash
 mkdir my-agent && cd my-agent
@@ -11,24 +38,21 @@ npm install @sena-ai/core @sena-ai/cli @sena-ai/runtime-claude
 필요에 따라 추가 패키지 설치:
 
 ```bash
-npm install @sena-ai/connector-slack  # Slack 연결
-npm install @sena-ai/tools-slack      # Slack 도구 (메시지 읽기/쓰기 등)
-npm install @sena-ai/hooks            # 빌트인 훅 (fileContext, traceLogger)
+npm install @sena-ai/slack     # Slack 커넥터 + 도구 번들
+npm install @sena-ai/hooks     # 빌트인 훅 (fileContext, traceLogger, currentTime)
 ```
 
 ## .env 설정
 
+Slack Socket Mode 기준:
+
 ```env
 SLACK_APP_ID=A0XXXXXXXXX
 SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...
-```
-
-Socket Mode를 사용하는 경우 추가:
-
-```env
 SLACK_APP_TOKEN=xapp-1-...
 ```
+
+HTTP Mode를 사용하는 경우 `SLACK_APP_TOKEN` 대신 `SLACK_SIGNING_SECRET` 사용.
 
 ## Minimal Config
 
@@ -38,7 +62,7 @@ import { claudeRuntime } from '@sena-ai/runtime-claude'
 
 export default defineConfig({
   name: 'my-agent',
-  runtime: claudeRuntime({ model: 'claude-sonnet-4-5' }),
+  runtime: claudeRuntime({ model: 'claude-sonnet-4-6' }),
 })
 ```
 

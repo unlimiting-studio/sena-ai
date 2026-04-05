@@ -53,30 +53,41 @@ npx sena start
 
 ### Slack 템플릿 예시
 
-`slack-integration` 템플릿은 현재 다음 형태를 기준으로 생성됩니다.
+`slack-integration` 템플릿은 Socket Mode 기반으로 생성됩니다. 공인 엔드포인트가 불필요하므로 로컬이나 방화벽 뒤 환경에서도 바로 실행할 수 있습니다.
 
 ```ts
-import { defineConfig, env } from '@sena-ai/core'
+import { defineConfig, env, cronSchedule, heartbeat } from '@sena-ai/core'
 import { claudeRuntime } from '@sena-ai/runtime-claude'
 import { slackConnector, slackTools } from '@sena-ai/slack'
+import { fileContextHook, currentTimeHook } from '@sena-ai/hooks'
 
 export default defineConfig({
   name: 'my-bot',
 
   runtime: claudeRuntime({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
   }),
 
   connectors: [
     slackConnector({
+      mode: 'socket',
       appId: env('SLACK_APP_ID'),
+      appToken: env('SLACK_APP_TOKEN'),
       botToken: env('SLACK_BOT_TOKEN'),
-      signingSecret: env('SLACK_SIGNING_SECRET'),
     }),
   ],
 
-  tools: [
-    ...slackTools({ botToken: env('SLACK_BOT_TOKEN') }),
+  tools: [...slackTools({ botToken: env('SLACK_BOT_TOKEN') })],
+
+  hooks: {
+    onTurnStart: [
+      fileContextHook({ as: 'system', path: 'prompts/SYSTEM.md' }),
+      currentTimeHook({ timezone: 'Asia/Seoul' }),
+    ],
+  },
+
+  schedules: [
+    heartbeat('30m', { name: 'channel-watch', prompt: '채널을 확인하세요.' }),
   ],
 })
 ```
@@ -86,8 +97,10 @@ export default defineConfig({
 ```env
 SLACK_APP_ID=
 SLACK_BOT_TOKEN=
-SLACK_SIGNING_SECRET=
+SLACK_APP_TOKEN=
 ```
+
+> HTTP Mode를 사용하려면 `mode: 'socket'`과 `appToken`을 `signingSecret`으로 바꿉니다.
 
 ### 플랫폼 릴레이 템플릿 예시
 
@@ -139,14 +152,14 @@ pnpm add @sena-ai/cli @sena-ai/slack
 
 ```ts
 import { createAgent, defineConfig, defineTool, heartbeat } from '@sena-ai/core'
-import { fileContext, traceLogger } from '@sena-ai/hooks'
+import { fileContextHook, traceLoggerHook } from '@sena-ai/hooks'
 import { mcpServer } from '@sena-ai/tools'
 import { claudeRuntime } from '@sena-ai/runtime-claude'
 
 const config = defineConfig({
   name: 'demo-agent',
   runtime: claudeRuntime({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
   }),
   tools: [
     defineTool({
@@ -162,10 +175,10 @@ const config = defineConfig({
   ],
   hooks: {
     onTurnStart: [
-      fileContext({ path: './AGENTS.md', as: 'system' }),
+      fileContextHook({ path: './AGENTS.md', as: 'system' }),
     ],
     onTurnEnd: [
-      traceLogger({ dir: './traces' }),
+      traceLoggerHook({ dir: './traces' }),
     ],
   },
   schedules: [
