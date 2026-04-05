@@ -22,16 +22,16 @@
 ## Constraints
 
 - `CORE-TYPES-CON-001`: `RuntimeEvent`는 `session.init`, `progress`, `progress.delta`, `tool.start`, `tool.end`, `result`, `error`를 포함해야 한다.
-- `CORE-TYPES-CON-002`: `TurnTrace`는 assembled context, result, error, hooks, followUps를 표현할 수 있어야 한다.
+- `CORE-TYPES-CON-002`: `TurnTrace`는 assembled context, result, error, hooks, followUps(`TurnFollowUp[]`)를 표현할 수 있어야 한다. `TurnFollowUp`은 `{ prompt: string, fork: boolean, detached: boolean }` 구조를 가진다.
 - `CORE-TYPES-CON-003`: `ToolPort`는 MCP와 inline 포트를 모두 표현해야 한다.
 - `CORE-TYPES-CON-004`: `ConnectorOutputContext`는 `conversationId`, `connector` 외에 connector-specific per-turn 데이터를 전달할 수 있는 optional `metadata: unknown` 필드를 포함해야 한다.
 
 ## Interface
 
 - Context/Hook:
-  `ContextFragment`, `TurnStartHook`, `TurnEndHook`, `ErrorHook`
+  `ContextFragment`, `RuntimeHooks` (콜백 기반: `TurnStartCallback`, `TurnEndCallback`, `ErrorCallback` 등)
 - Turn:
-  `FileAttachment`, `TurnContext`, `TurnResult`, `TurnTrace`, `HookTrace`
+  `FileAttachment`, `TurnContext`, `TurnResult`, `TurnFollowUp`, `TurnTrace`, `HookTrace`
 - Runtime:
   `UserMessage`, `RuntimeEvent`, `PendingMessageSource`, `RuntimeStreamOptions`, `Runtime`
 - Connector:

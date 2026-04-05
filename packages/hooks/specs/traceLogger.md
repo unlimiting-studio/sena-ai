@@ -2,7 +2,7 @@
 
 ## 한 줄 요약
 
-`traceLogger()`는 성공한 턴 결과를 JSON 파일로 기록하는 `TurnEndHook`이다.
+`traceLogger()`는 성공한 턴 결과를 JSON 파일로 기록하는 `onTurnEnd` 콜백이다.
 
 ## 상위 스펙 연결
 
@@ -28,7 +28,7 @@
 ## Interface
 
 - API:
-  `traceLogger(options: TraceLoggerOptions): TurnEndHook`
+  `traceLogger(options: TraceLoggerOptions): TurnEndCallback`
 - 옵션:
   `dir`, `format?: 'json'`
 

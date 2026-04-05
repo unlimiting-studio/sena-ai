@@ -2,7 +2,7 @@
 
 ## 한 줄 요약
 
-`fileContext()`는 파일 또는 디렉터리 내용을 읽어 턴 컨텍스트에 주입하는 `TurnStartHook`이다.
+`fileContext()`는 파일 또는 디렉터리 내용을 읽어 턴 컨텍스트에 주입하는 `onTurnStart` 콜백이다.
 
 ## 상위 스펙 연결
 
@@ -31,7 +31,7 @@
 ## Interface
 
 - API:
-  `fileContext(options: FileContextOptions): TurnStartHook`
+  `fileContext(options: FileContextOptions): TurnStartCallback`
 - 옵션:
   `path`, `as`, `glob?`, `when?`, `maxLength?`
 

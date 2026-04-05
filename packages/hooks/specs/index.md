@@ -35,10 +35,10 @@
 
 ## 용어 정의
 
-- `TurnStartHook`: 턴 시작 전에 `ContextFragment[]`를 반환하는 훅.
-- `TurnEndHook`: 턴 종료 후 추가 작업을 수행하는 훅.
-- `fileContext`: 파일/디렉터리 내용을 컨텍스트로 주입하는 기본 훅.
-- `traceLogger`: 턴 결과를 파일로 기록하는 기본 훅.
+- `TurnStartCallback`: 턴 시작 전에 `TurnStartDecision`을 반환하는 `RuntimeHooks.onTurnStart` 콜백.
+- `TurnEndCallback`: 턴 종료 후 `TurnEndResult`를 반환하는 `RuntimeHooks.onTurnEnd` 콜백.
+- `fileContext`: 파일/디렉터리 내용을 컨텍스트로 주입하는 기본 훅 (`onTurnStart` 콜백).
+- `traceLogger`: 턴 결과를 파일로 기록하는 기본 훅 (`onTurnEnd` 콜백).
 
 ## 요구사항
 

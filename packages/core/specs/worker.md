@@ -20,7 +20,14 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
   4. 커넥터 라우트를 서버에 등록하고 `/health`를 제공한다.
   5. `submitTurn()`은 대화별 활성 턴이 없으면 즉시 실행하고, 있으면 pending queue에 넣는다.
   6. 활성 턴은 `pendingMessages`와 follow-up을 steer 또는 후속 턴으로 이어 처리한다.
-  7. drain 시 새 턴을 거부하고 서버/커넥터/스케줄러를 멈춘 뒤 활성 턴 종료를 기다린다.
+  7. follow-up 처리는 `TurnFollowUp.fork` 여부에 따라 분기한다:
+     - **Blocking** (`fork: false`): 같은 대화 큐에 후속 턴으로 추가하여 순차 실행한다.
+     - **Fork** (`fork: true`): `spawnForkedTurn()`으로 별도 세션에서 fire-and-forget 실행한다.
+       - fork 턴은 원본 세션을 resume하되 별도 `fork-{conversationId}-{id}` 대화 ID를 가진다.
+       - `detached: true`이면 커넥터 출력을 억제한다 (NullOutput 사용).
+       - `detached: false`이면 원본 커넥터로 결과를 전송한다.
+       - fork 턴의 에러는 로그만 남기고 원본 턴에 전파하지 않는다.
+  8. drain 시 새 턴을 거부하고 서버/커넥터/스케줄러를 멈춘 뒤 활성 턴과 활성 fork 모두 종료를 기다린다.
 - Failure Modes:
   턴 오류는 해당 커넥터 output으로 전달하되 abort로 인한 종료는 사용자 에러로 전송하지 않는다.
 
@@ -28,7 +35,7 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
 
 - `CORE-WORKER-CON-001`: 같은 대화의 동시 입력은 큐잉되어 순서가 보존되어야 한다.
 - `CORE-WORKER-CON-002`: drain 중에는 새 턴을 받으면 안 된다.
-- `CORE-WORKER-CON-003`: 활성 턴이 끝나기 전 프로세스를 정상 종료하면 안 된다.
+- `CORE-WORKER-CON-003`: 활성 턴과 활성 fork 턴이 모두 끝나기 전 프로세스를 정상 종료하면 안 된다.
 - `CORE-WORKER-CON-004`: `sessionStore` 미지정 시 파일 기반 저장소를 기본으로 사용해야 한다.
 
 ## Interface
@@ -37,6 +44,8 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
   `createWorker(options: WorkerOptions)`
   `createFileSessionStore(filePath: string): SessionStore`
   `requestWorkerRestart(): boolean`
+- 내부 함수:
+  `spawnForkedTurn(originalEvent, followUp)`: fork follow-up을 별도 세션에서 fire-and-forget 실행한다.
 - 반환:
   `start()`, `stop()`, `engine`, `requestRestart()`
 
@@ -61,7 +70,10 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
 ## AC
 
 - Given 같은 conversationId로 새 메시지가 도착할 때, When 활성 턴이 존재하면, Then 새 메시지는 pending queue로 들어가 steer 또는 후속 턴 처리에 사용된다.
-- Given drain이 시작될 때, When 새 턴이 도착하면, Then Worker는 이를 거부하고 기존 활성 턴만 마무리한다.
+- Given drain이 시작될 때, When 새 턴이 도착하면, Then Worker는 이를 거부하고 기존 활성 턴과 활성 fork를 마무리한다.
+- Given 턴이 fork follow-up을 가질 때, When Worker가 follow-up을 처리하면, Then `spawnForkedTurn()`이 호출되어 별도 세션에서 실행되고 원본 턴 처리에는 영향을 주지 않는다.
+- Given 턴이 blocking follow-up을 가질 때, When Worker가 follow-up을 처리하면, Then 같은 대화 큐의 후속 턴으로 순차 실행된다.
+- Given detached fork 턴일 때, When 결과가 생성되면, Then 커넥터 출력이 억제되고 세션만 저장된다.
 - Given 턴이 성공 종료될 때, When 세션 ID가 생기면, Then 세션 스토어에 conversationId -> sessionId가 저장된다.
 - Given 서로 다른 `raw`를 가진 pending event가 steer drain 후 restore될 때, When 후속 turn으로 처리되면, Then 각 event는 자신의 원본 `raw`를 유지하고, 현재 turn의 `raw`로 대체되지 않는다.
 - Given pending event A(먼저 도착), B(나중 도착)가 drain 후 restore될 때, When 후속 turn으로 순차 처리되면, Then A가 B보다 먼저 처리되어 FIFO 순서가 보존된다.
