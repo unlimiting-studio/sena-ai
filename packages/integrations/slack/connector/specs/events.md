@@ -6,8 +6,8 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 
 ## 상위 스펙 연결
 
-- Related Requirements: `SLACK-CONN-FR-002`, `SLACK-CONN-FR-003`, `SLACK-CONN-FR-007`, `SLACK-CONN-FR-008`, `SLACK-CONN-FR-010`, `SLACK-CONN-FR-011`, `SLACK-CONN-FR-012`, `SLACK-CONN-FR-013`, `SLACK-CONN-FR-014`, `SLACK-CONN-FR-015`
-- Related AC: `SLACK-CONN-AC-002`, `SLACK-CONN-AC-003`, `SLACK-CONN-AC-007`, `SLACK-CONN-AC-008`, `SLACK-CONN-AC-010`, `SLACK-CONN-AC-011`, `SLACK-CONN-AC-012`, `SLACK-CONN-AC-013`, `SLACK-CONN-AC-014`, `SLACK-CONN-AC-015`, `SLACK-CONN-AC-016`, `SLACK-CONN-AC-017`, `SLACK-CONN-AC-018`, `SLACK-CONN-AC-019`, `SLACK-CONN-AC-020`
+- Related Requirements: `SLACK-CONN-FR-002`, `SLACK-CONN-FR-003`, `SLACK-CONN-FR-007`, `SLACK-CONN-FR-008`, `SLACK-CONN-FR-010`, `SLACK-CONN-FR-011`, `SLACK-CONN-FR-012`, `SLACK-CONN-FR-013`, `SLACK-CONN-FR-014`, `SLACK-CONN-FR-015`, `SLACK-CONN-FR-016`
+- Related AC: `SLACK-CONN-AC-002`, `SLACK-CONN-AC-003`, `SLACK-CONN-AC-007`, `SLACK-CONN-AC-008`, `SLACK-CONN-AC-010`, `SLACK-CONN-AC-011`, `SLACK-CONN-AC-012`, `SLACK-CONN-AC-013`, `SLACK-CONN-AC-014`, `SLACK-CONN-AC-015`, `SLACK-CONN-AC-016`, `SLACK-CONN-AC-017`, `SLACK-CONN-AC-018`, `SLACK-CONN-AC-019`, `SLACK-CONN-AC-020`, `SLACK-CONN-AC-021`, `SLACK-CONN-AC-022`, `SLACK-CONN-AC-023`
 
 ## Behavior
 
@@ -19,8 +19,9 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
   - 아래 trigger 후보를 동시에 계산한다.
     - `mention`: `app_mention`이거나 본문에 봇 멘션이 포함됨
     - `thread`: `thread_ts`가 있고 봇이 그 스레드에 참여한 상태임
-    - `channel`: `thread_ts` 없는 최상위 일반 채널 메시지임
-    - `message`: 채널 메시지(`thread_ts` 없음) 또는 쓰레드 메시지 (봇 참여 여부 무관). `thread` key가 활성이고 봇이 참여한 스레드이면 `thread` 후보가 우선순위에서 먼저 선택되므로 중복 실행은 없다. `thread` key가 비활성인 설정에서는 봇이 참여한 스레드의 후속 답글도 `message`가 처리하여 대화가 끊기지 않는다. 항상 가장 낮은 우선순위.
+    - `directMessage`: Slack 1:1 DM 채널(`channel_type = 'im'`, fallback으로 channel id prefix `D`) 메시지임. 최상위 메시지와 DM 내부 후속 답글을 모두 포함한다.
+    - `channel`: `thread_ts` 없는 최상위 일반 채널 메시지이며 direct message는 제외한다.
+    - `message`: 채널 메시지, direct message, 또는 쓰레드 메시지(봇 참여 여부 무관)를 모두 받는 범용 후보다. `thread` key가 활성이고 봇이 참여한 스레드이면 `thread` 후보가 우선순위에서 먼저 선택되므로 중복 실행은 없다. `directMessage` key가 활성이고 DM이면 `directMessage` 후보가 먼저 선택된다. 항상 가장 낮은 우선순위.
   - 설정상 key가 없는 후보는 제거한다.
 
 ### `SLACK-EVENT-02` 메시지 trigger 중재와 filter 평가
@@ -29,7 +30,7 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - Main Flow:
   - normalized message key(`{channel}:{thread_ts || ts}`)를 만든다.
   - 같은 message key에 대해 중복 raw 이벤트가 들어와도 한 번만 처리한다.
-  - 후보를 고정 순서 `mention > thread > channel > message`로 평가한다.
+  - 후보를 고정 순서 `mention > thread > directMessage > channel > message`로 평가한다.
   - 각 후보마다 정규화된 `SlackMessageTriggerEvent`를 만든 뒤:
     - trigger 필드가 function이면 function을 호출한다. `false`/`undefined`/`void` 반환 시 다음 후보로 넘어간다. 유효한 반환값이면 해당 후보가 선택되고, 이 반환값을 그대로 `SLACK-EVENT-03` prompt resolution에 전달한다. 같은 Slack 이벤트 내에서 동일 function을 두 번 호출하지 않는다.
     - trigger 필드가 object이고 `filter`가 있으면 filter를 실행한다.
@@ -86,8 +87,9 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 
 - `SLACK-EVENT-C-001`: `bot_id`가 있는 메시지와 불필요한 subtype 메시지는 처리하면 안 된다.
 - `SLACK-EVENT-C-002`: 동일 message key에 대해 message trigger는 최대 하나의 turn만 생성해야 한다.
-- `SLACK-EVENT-C-003`: 메시지 계열 trigger 우선순위는 고정 `mention > thread > channel > message`이며 설정으로 override하지 않는다.
+- `SLACK-EVENT-C-003`: 메시지 계열 trigger 우선순위는 고정 `mention > thread > directMessage > channel > message`이며 설정으로 override하지 않는다.
 - `SLACK-EVENT-C-004`: 최상위 일반 채널 메시지(`thread_ts` 없음)는 `channel` 또는 `message` key가 명시적으로 있을 때만 처리해야 한다.
+- `SLACK-EVENT-C-009`: Slack 1:1 direct message는 `directMessage` 또는 `message` key가 명시적으로 있을 때만 처리해야 하며, `channel` 후보로 분류하면 안 된다.
 - `SLACK-EVENT-C-005`: prompt file 읽기 실패는 조용히 빈 문자열로 폴백하면 안 되며, 해당 액션은 실패로 기록돼야 한다.
 - `SLACK-EVENT-C-006`: filter throw/reject 또는 trigger function throw/reject는 silent pass로 처리하면 안 되며, 해당 이벤트는 실패 처리해야 한다.
 - `SLACK-EVENT-C-007`: reaction filter는 reacted message lookup 뒤, 메시지 작성자/본문/thread 정보가 채워진 event를 받아야 한다.
@@ -103,12 +105,12 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
   - `connector = 'slack'`
   - `conversationId = {channel}:{thread_ts || ts}`
   - `userId`, `userName`, `text`, `files`, `raw`
-  - `raw.triggerKind = 'mention' | 'thread' | 'channel' | 'message' | 'reaction'`
+  - `raw.triggerKind = 'mention' | 'thread' | 'directMessage' | 'channel' | 'message' | 'reaction'`
 
 ## Realization
 
 - 모듈 경계:
-  - `connector.ts` 내부 보조 함수 `resolveUserName`, `wasBotInThread`, `downloadSlackFiles`, `processSlackEvent`, `resolvePromptSource`, `resolveTriggerFunction`, `resolveThinkingMessage`, `selectMessageTrigger`, `buildTriggerEvent`, `runTriggerFilter`
+  - `connector.ts` 내부 보조 함수 `resolveUserName`, `wasBotInThread`, `downloadSlackFiles`, `processSlackEvent`, `resolvePromptSource`, `resolveTriggerFunction`, `resolveThinkingMessage`, `isDirectMessageChannel`, `selectMessageTrigger`, `buildTriggerEvent`, `runTriggerFilter`
 - 상태 모델:
   - dedupe 슬롯, active thread, user cache, normalized message key
 - 실패 처리:
@@ -135,6 +137,9 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 - Given `x` reaction에 abort rule이 있을 때 When reaction이 달리면 Then 해당 대화에 대한 abort가 시도된다.
 - Given `message` trigger가 설정됐을 때 When 봇 미참여 쓰레드 메시지가 들어오면 Then `message` trigger로 `InboundEvent`가 생성된다.
 - Given `message`와 `thread`가 모두 설정되고 봇 참여 쓰레드일 때 When 쓰레드 메시지가 들어오면 Then `thread`가 우선 실행된다.
+- Given `directMessage` trigger가 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then `directMessage` trigger로 `InboundEvent`가 생성된다.
+- Given `directMessage`와 `message`가 모두 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then `directMessage`가 우선 실행된다.
+- Given `channel` trigger만 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then 이벤트는 무시된다.
 - Given `mention: (event) => '동적 프롬프트'`일 때 When 멘션 이벤트가 들어오면 Then function 반환값이 inline prompt로 사용된다.
 - Given `mention: (event) => false`일 때 When 멘션 이벤트가 들어오면 Then mention은 건너뛰고 다음 우선순위 후보를 평가한다.
 - Given trigger function이 throw할 때 When 이벤트가 들어오면 Then 이벤트는 실패 처리되고 하위 우선순위 후보로 넘어가지 않는다.
@@ -145,4 +150,4 @@ Slack 이벤트를 필터링, dedupe, trigger arbitration, 파일 다운로드, 
 
 ## 개편 메모
 
-- 이벤트 스펙에 per-trigger filter 평가 단계를 추가했다.
+- 이벤트 스펙에 per-trigger filter 평가 단계와 direct message 후보 계산 규칙을 추가했다.

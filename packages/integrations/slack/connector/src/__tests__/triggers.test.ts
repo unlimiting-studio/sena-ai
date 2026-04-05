@@ -69,9 +69,11 @@ describe('slack trigger config', () => {
 
     expect(legacy.mention).toBe('')
     expect(legacy.thread).toBe('')
+    expect(legacy.directMessage).toBeUndefined()
     expect(legacy.reactions.x).toEqual({ action: 'abort' })
 
     expect(explicit.mention).toBe('')
+    expect(explicit.directMessage).toBeUndefined()
     expect(explicit.thread).toBeUndefined()
     expect(explicit.reactions).toEqual({})
   })
@@ -155,6 +157,174 @@ describe('processSlackEvent', () => {
     const inbound = firstSubmittedEvent(engine)
     expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('thread')
     expect(inbound.text).toContain('thread prompt')
+  })
+
+  it('runs the directMessage trigger for 1:1 DM messages', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'D1',
+          ts: '152.1',
+          user: 'U1',
+          text: 'DM 메시지',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        directMessage: { text: 'dm prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('directMessage')
+    expect(inbound.text).toContain('dm prompt')
+    expect(inbound.conversationId).toBe('D1:152.1')
+  })
+
+  it('keeps the message trigger working for 1:1 DM messages when directMessage is absent', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'D1',
+          ts: '152.2',
+          user: 'U1',
+          text: 'DM fallback 메시지',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        message: { text: 'message prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('message')
+    expect(inbound.text).toContain('message prompt')
+    expect(inbound.conversationId).toBe('D1:152.2')
+  })
+
+  it('prefers the directMessage trigger over the message trigger for 1:1 DM messages', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'D1',
+          channel_type: 'im',
+          ts: '152.3',
+          user: 'U1',
+          text: 'DM 우선순위 메시지',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        directMessage: { text: 'dm prompt' },
+        message: { text: 'message prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    const inbound = firstSubmittedEvent(engine)
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('directMessage')
+    expect(inbound.text).toContain('dm prompt')
+    expect(inbound.text).not.toContain('message prompt')
+  })
+
+  it('does not treat 1:1 DM messages as channel trigger candidates', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'D1',
+          channel_type: 'im',
+          ts: '152.4',
+          user: 'U1',
+          text: 'DM channel 후보 제외',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        channel: { text: 'channel prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    expect(engine.submitTurn).not.toHaveBeenCalled()
+  })
+
+  it('does not treat non-im channel_type values as directMessage candidates even when the channel id starts with D', async () => {
+    const { slack } = createSlackMock()
+    const engine = createEngineMock()
+
+    await processSlackEvent(
+      {
+        event: {
+          type: 'message',
+          channel: 'DAPPHOME',
+          channel_type: 'app_home',
+          ts: '152.5',
+          user: 'U1',
+          text: '앱 홈 메시지',
+        },
+      },
+      engine,
+      slack,
+      'xoxb-token',
+      new Map<string, string>(),
+      new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
+      normalizeTriggerConfig({
+        directMessage: { text: 'dm prompt' },
+      }),
+      '/tmp',
+      'UBOT',
+    )
+
+    expect(engine.submitTurn).not.toHaveBeenCalled()
   })
 
   it('falls through to the next message trigger when a higher-priority filter returns false', async () => {
