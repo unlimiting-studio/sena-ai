@@ -1,8 +1,10 @@
-# sena.config.ts 작성 및 관리
+# Writing and Managing `sena.config.ts`
 
-모든 에이전트 설정의 진입점. `defineConfig()`으로 선언한다.
+> Korean version: [config-guide.ko.md](./config-guide.ko.md)
 
-## Full Config 예시
+This is the entry point for all agent configuration. Declare it with `defineConfig()`.
+
+## Full Config Example
 
 ```typescript
 import { defineConfig, env, heartbeat, cronSchedule } from '@sena-ai/core'
@@ -26,7 +28,7 @@ export default defineConfig({
       appId: env('SLACK_APP_ID'),
       botToken: env('SLACK_BOT_TOKEN'),
       signingSecret: env('SLACK_SIGNING_SECRET'),
-      thinkingMessage: ':thinking: 생각 중...',
+      thinkingMessage: ':thinking: Thinking...',
     }),
   ],
 
@@ -44,11 +46,11 @@ export default defineConfig({
   schedules: [
     heartbeat('1h', {
       name: 'heartbeat',
-      prompt: '상태를 점검하세요.',
+      prompt: 'Check the system status.',
     }),
     cronSchedule('0 9 * * 1-5', {
       name: 'morning-briefing',
-      prompt: '오늘의 일정을 정리해주세요.',
+      prompt: 'Summarize today\'s schedule.',
     }),
   ],
 
@@ -60,26 +62,26 @@ export default defineConfig({
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | `string` | Y | 에이전트 이름 |
-| `cwd` | `string` | | 작업 디렉토리 (파일 읽기/쓰기 기준) |
-| `runtime` | `Runtime` | Y | LLM 런타임 |
-| `connectors` | `Connector[]` | | 입출력 채널 |
-| `tools` | `ToolPort[]` | | 에이전트가 사용할 도구 |
-| `hooks` | `object` | | 라이프사이클 훅 |
-| `schedules` | `Schedule[]` | | 크론잡 & 하트비트 |
-| `orchestrator` | `{ port?: number }` | | 오케스트레이터 포트 (기본 3100) |
+| `name` | `string` | Y | Agent name |
+| `cwd` | `string` | | Working directory for file reads and writes |
+| `runtime` | `Runtime` | Y | LLM runtime |
+| `connectors` | `Connector[]` | | Input/output channels |
+| `tools` | `ToolPort[]` | | Tools available to the agent |
+| `hooks` | `object` | | Lifecycle hooks |
+| `schedules` | `Schedule[]` | | Cron jobs and heartbeats |
+| `orchestrator` | `{ port?: number }` | | Orchestrator port (default: 3100) |
 
-## env() — 환경 변수
+## `env()` — Environment Variables
 
-`env(key, default?)` 함수로 환경 변수를 안전하게 참조한다.
+Use `env(key, default?)` to reference environment variables safely.
 
 ```typescript
 import { env, validateEnv } from '@sena-ai/core'
 
-const token = env('SLACK_BOT_TOKEN')           // 필수
-const port = env('PORT', '3100')               // 기본값 있음
+const token = env('SLACK_BOT_TOKEN')           // required
+const port = env('PORT', '3100')               // has a default value
 
-validateEnv()  // 누락된 env가 있으면 에러 throw (보통 직접 호출 불필요 — defineConfig 내부에서 처리)
+validateEnv()  // throws if required env vars are missing (usually unnecessary to call directly; defineConfig handles it)
 ```
 
 ## Runtime
@@ -90,36 +92,36 @@ validateEnv()  // 누락된 env가 있으면 에러 throw (보통 직접 호출 
 import { claudeRuntime, DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
 
 claudeRuntime({
-  model?: string,           // 기본: 'claude-sonnet-4-5'
-  apiKey?: string,          // 기본: ANTHROPIC_API_KEY 환경 변수
-  maxTurns?: number,        // 기본: 100
-  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk',  // 기본: 'dontAsk'
-  allowedTools?: string[],  // dontAsk 모드에서 자동 승인할 도구 (기본: DEFAULT_ALLOWED_TOOLS)
-  disallowedTools?: string[], // 항상 차단할 도구 패턴 (per-turn disabledTools와 합산)
+  model?: string,             // default: 'claude-sonnet-4-5'
+  apiKey?: string,            // default: ANTHROPIC_API_KEY environment variable
+  maxTurns?: number,          // default: 100
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk',  // default: 'dontAsk'
+  allowedTools?: string[],    // tools auto-approved in dontAsk mode (default: DEFAULT_ALLOWED_TOOLS)
+  disallowedTools?: string[], // tool patterns always blocked (merged with per-turn disabledTools)
 })
 ```
 
-- Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)를 사용한다.
-- 인라인 도구는 내부적으로 in-process MCP 서버(`__native__`)로 변환된다.
+- Uses Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+- Internally converts inline tools into an in-process MCP server (`__native__`)
 
-### permissionMode
+### `permissionMode`
 
-| 모드 | 동작 |
+| Mode | Behavior |
 |---|---|
-| `default` | 위험 작업마다 터미널 프롬프트 (비대화형 환경에서 사용 불가) |
-| `acceptEdits` | 파일 수정 자동 승인, 나머지 프롬프트 |
-| **`dontAsk`** | **기본값.** 프롬프트 없음. `allowedTools`에 없으면 자동 거부 |
-| `bypassPermissions` | 전부 스킵. 기존 에이전트는 이걸 명시적으로 지정해야 기존 동작 유지 |
-| `plan` | 도구 실행 안 함, 계획만 |
+| `default` | Shows terminal prompts for risky actions; cannot be used in non-interactive environments |
+| `acceptEdits` | Auto-approves file edits, but still prompts for the rest |
+| **`dontAsk`** | **Default.** No prompts. Any tool not in `allowedTools` is automatically rejected |
+| `bypassPermissions` | Skips everything. Existing agents must opt into this explicitly to preserve old behavior |
+| `plan` | Produces a plan only and does not execute tools |
 
-### DEFAULT_ALLOWED_TOOLS
+### `DEFAULT_ALLOWED_TOOLS`
 
-`dontAsk` 모드에서 `allowedTools`를 지정하지 않으면 자동으로 적용되는 프리셋:
+If you do not specify `allowedTools` in `dontAsk` mode, this preset is applied automatically.
 
 ```typescript
 import { DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
 
-// DEFAULT_ALLOWED_TOOLS 내용:
+// DEFAULT_ALLOWED_TOOLS contains:
 // File operations: Read, Write, Edit, MultiEdit
 // Search & navigation: Glob, Grep, LS
 // Execution: Bash
@@ -127,7 +129,7 @@ import { DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
 // Agent & planning: Agent, ToolSearch
 ```
 
-Slack 도구 등 추가 도구가 필요하면 `allowedTools`에 합쳐서 지정:
+If you need extra tools such as Slack tools, merge them into `allowedTools`.
 
 ```typescript
 import { DEFAULT_ALLOWED_TOOLS } from '@sena-ai/runtime-claude'
@@ -139,15 +141,15 @@ claudeRuntime({
 })
 ```
 
-MCP 서버로 등록된 도구(`tools` config)는 자동으로 허용되므로 별도 추가 불필요.
+Tools registered through MCP server config in `tools` are allowed automatically, so you do not need to add them separately.
 
-## Hooks — 라이프사이클 훅
+## Hooks — Lifecycle Hooks
 
-훅은 턴의 각 단계에서 실행되는 함수다. 세 가지 타이밍이 있다.
+Hooks are functions that run at different stages of a turn. There are three timing points.
 
-### onTurnStart — 컨텍스트 주입
+### `onTurnStart` — Context Injection
 
-턴 시작 전에 실행. `ContextFragment[]`를 반환하여 시스템 프롬프트에 주입한다.
+Runs before a turn starts. Returns `ContextFragment[]`, which is injected into the system prompt.
 
 ```typescript
 type TurnStartHook = {
@@ -156,18 +158,18 @@ type TurnStartHook = {
 }
 
 type ContextFragment = {
-  source: string          // 표시 이름 (e.g. 'file:AGENTS.md')
-  role: 'system' | 'context'  // system: 시스템 프롬프트, context: 참고 컨텍스트
+  source: string                // display label (e.g. 'file:AGENTS.md')
+  role: 'system' | 'context'    // system: system prompt, context: supporting reference
   content: string
 }
 ```
 
-- `system` 역할: 에이전트의 행동 규칙, 정체성 등 (시스템 프롬프트 앞부분에 배치)
-- `context` 역할: 참고 정보, 기억 등 (시스템 프롬프트 뒷부분에 배치)
+- `system`: behavior rules, identity, and other material placed at the front of the system prompt
+- `context`: reference information and memory placed after the system fragments
 
-### onTurnEnd — 후처리
+### `onTurnEnd` — Post-processing
 
-턴이 성공적으로 완료된 후 실행. 로깅, 기록 저장 등에 사용한다.
+Runs after a turn completes successfully. Use it for logging or persistence.
 
 ```typescript
 type TurnEndHook = {
@@ -176,9 +178,9 @@ type TurnEndHook = {
 }
 ```
 
-### onError — 에러 처리
+### `onError` — Error Handling
 
-런타임 에러 발생 시 실행. 에러를 로깅하거나 알림을 보낼 때 사용한다.
+Runs when a runtime error occurs. Use it for logging or alerts.
 
 ```typescript
 type ErrorHook = {
@@ -187,28 +189,28 @@ type ErrorHook = {
 }
 ```
 
-### 빌트인 훅: fileContext
+### Built-in Hook: `fileContext`
 
 ```typescript
 import { fileContext } from '@sena-ai/hooks'
 
 fileContext({
-  path: string,          // 파일 경로 또는 디렉토리 경로
+  path: string,          // file path or directory path
   as: 'system' | 'context',
-  glob?: string,         // 디렉토리일 때 파일 필터 (e.g. '*.md')
-  when?: (ctx: TurnContext) => boolean,  // 조건부 실행
-  maxLength?: number,    // 콘텐츠 길이 제한
+  glob?: string,         // file filter when path is a directory (e.g. '*.md')
+  when?: (ctx: TurnContext) => boolean,  // conditional execution
+  maxLength?: number,    // content length limit
 })
 ```
 
 ```typescript
-// 단일 파일
+// Single file
 fileContext({ path: './AGENTS.md', as: 'system' })
 
-// 디렉토리 내 특정 패턴
+// Specific pattern inside a directory
 fileContext({ path: './memory/', as: 'context', glob: '*.md' })
 
-// 조건부 (Slack 커넥터일 때만)
+// Conditional usage (only for the Slack connector)
 fileContext({
   path: './slack-guide.md',
   as: 'system',
@@ -216,19 +218,19 @@ fileContext({
 })
 ```
 
-### 빌트인 훅: traceLogger
+### Built-in Hook: `traceLogger`
 
 ```typescript
 import { traceLogger } from '@sena-ai/hooks'
 
 hooks: {
   onTurnEnd: [
-    traceLogger({ dir: './traces/' }),  // {turnId}-{timestamp}.json 파일 생성
+    traceLogger({ dir: './traces/' }),  // creates {turnId}-{timestamp}.json files
   ],
 }
 ```
 
-### 커스텀 훅 작성
+### Writing a Custom Hook
 
 ```typescript
 import type { TurnStartHook, TurnContext, ContextFragment } from '@sena-ai/core'
@@ -252,11 +254,11 @@ const myHook: TurnStartHook = {
 }
 ```
 
-## Schedules — 크론잡 & 하트비트
+## Schedules — Cron Jobs and Heartbeats
 
-스케줄은 외부 입력 없이 에이전트가 자율적으로 턴을 실행하게 만든다.
+Schedules let the agent run autonomously without external input.
 
-### Heartbeat — 고정 간격 실행
+### Heartbeat — Fixed Interval Execution
 
 ```typescript
 import { heartbeat } from '@sena-ai/core'
@@ -267,18 +269,18 @@ heartbeat(interval: string, options: {
 })
 ```
 
-- `interval` 형식: `'30s'`, `'15m'`, `'1h'`
-- 에이전트 시작 시 **즉시 1회 실행**, 이후 간격마다 반복
-- 동시 실행 방지: 이전 턴이 진행 중이면 스킵
+- `interval` format: `'30s'`, `'15m'`, `'1h'`
+- Runs **immediately once when the agent starts**, then repeats on the interval
+- Prevents overlapping execution: if the previous turn is still running, the next one is skipped
 
 ```typescript
 heartbeat('1h', {
   name: 'health-check',
-  prompt: '시스템 상태를 점검하세요.',
+  prompt: 'Check the system status.',
 })
 ```
 
-### Cron — 정확한 시간 기반 실행
+### Cron — Exact Time-based Execution
 
 ```typescript
 import { cronSchedule } from '@sena-ai/core'
@@ -289,52 +291,52 @@ cronSchedule(expression: string, options: {
 })
 ```
 
-- `expression`: 5필드 cron 형식 (minute hour day month weekday)
-- 타임존: `Asia/Seoul` (하드코딩)
-- 지원 문법: `*`, `*/n` (스텝), `n-m` (범위), `n,m,...` (리스트)
-- 에이전트 시작 시 실행하지 않음 — cron 표현식과 일치하는 시간에만 실행
+- `expression`: five-field cron format (`minute hour day month weekday`)
+- Timezone: `Asia/Seoul` (currently hardcoded)
+- Supported syntax: `*`, `*/n` (step), `n-m` (range), `n,m,...` (list)
+- Does not run on startup; it runs only when the current time matches the cron expression
 
 ```typescript
-// 평일 매일 오전 9시
+// Every weekday at 9:00 AM
 cronSchedule('0 9 * * 1-5', {
   name: 'morning-briefing',
-  prompt: '오늘의 일정을 정리하고 Slack에 공유하세요.',
+  prompt: 'Prepare today\'s schedule and share it in Slack.',
 })
 
-// 30분마다 (:13, :43에)
+// Every 30 minutes (:13 and :43)
 cronSchedule('13,43 * * * *', {
   name: 'email-check',
-  prompt: '미읽음 이메일을 확인하세요.',
+  prompt: 'Check unread email.',
 })
 ```
 
-### Heartbeat vs Cron 선택 기준
+### Choosing Between Heartbeat and Cron
 
 | | Heartbeat | Cron |
 |---|---|---|
-| 시간 정확도 | 시작 시점 기준 상대적 | 절대 시간 |
-| 시작 시 즉시 실행 | Y | N |
-| 사용 예 | 상태 점검, 메모리 정리 | 일정 알림, 정기 리포트 |
+| Time precision | Relative to startup time | Absolute time |
+| Runs immediately on startup | Y | N |
+| Typical use cases | Health checks, memory cleanup | Schedule reminders, recurring reports |
 
-## TurnContext Reference
+## `TurnContext` Reference
 
 ```typescript
 type TurnContext = {
   turnId: string              // UUID
-  agentName: string           // defineConfig의 name
+  agentName: string           // name from defineConfig
   trigger: 'connector' | 'schedule' | 'programmatic'
-  input: string               // 사용자 메시지 또는 스케줄 프롬프트
+  input: string               // user message or schedule prompt
   connector?: {
-    name: string              // 커넥터 이름 (e.g. 'slack')
+    name: string              // connector name (e.g. 'slack')
     conversationId: string    // e.g. 'C0AFW5Y133J:1234567890.123456'
     userId: string
     userName: string
     files?: FileAttachment[]
-    raw: unknown              // 원본 이벤트 데이터
-    disabledTools?: string[]  // 이 턴에서 비활성화된 도구 목록
+    raw: unknown              // raw event payload
+    disabledTools?: string[]  // tools disabled for this turn
   }
   schedule?: {
-    name: string              // 스케줄 이름
+    name: string              // schedule name
     type: 'cron' | 'heartbeat'
   }
   sessionId: string | null
@@ -344,7 +346,7 @@ type TurnContext = {
 
 ## Common Patterns
 
-### 파일 기반 에이전트 페르소나
+### File-based Agent Persona
 
 ```typescript
 hooks: {
@@ -356,7 +358,7 @@ hooks: {
 }
 ```
 
-### 채널별 컨텍스트 주입 (커스텀 훅)
+### Channel-specific Context Injection (Custom Hook)
 
 ```typescript
 const channelHook: TurnStartHook = {
@@ -376,7 +378,7 @@ const channelHook: TurnStartHook = {
 }
 ```
 
-### 오늘 + 어제 메모리만 주입
+### Inject Only Today and Yesterday Memory
 
 ```typescript
 function recentMemoryGlob(): string {

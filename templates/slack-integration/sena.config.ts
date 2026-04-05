@@ -32,21 +32,21 @@ export default defineConfig({
   tools: [...slackTools({ botToken: env("SLACK_BOT_TOKEN") })],
 
   schedules: [
-    // 매일 오전 9시(KST) — 어제의 journal을 기반으로 일일 브리핑 포스트
+    // Every weekday at 9:00 AM KST — post a daily briefing based on yesterday's journal
     cronSchedule("0 9 * * 1-5", {
       name: "daily-briefing",
       prompt: readFileSync("prompts/DAILY_BRIEFING.md", "utf-8"),
       timezone: "Asia/Seoul",
     }),
 
-    // 매주 금요일 오후 5시(KST) — 한 주 활동을 정리하는 주간 회고
+    // Every Friday at 5:00 PM KST — post a weekly retrospective of the week's activity
     cronSchedule("0 17 * * 5", {
       name: "weekly-retrospective",
       prompt: readFileSync("prompts/WEEKLY_RETROSPECTIVE.md", "utf-8"),
       timezone: "Asia/Seoul",
     }),
 
-    // 30분마다 — 채널을 살펴보고 미응답 질문이나 도움 요청에 능동 대응
+    // Every 30 minutes — watch channels and respond proactively to unanswered questions or requests for help
     heartbeat("30m", {
       name: "channel-watch",
       prompt: readFileSync("prompts/HEARTBEAT_CHECK.md", "utf-8"),
@@ -77,18 +77,18 @@ export default defineConfig({
           fork: true,
           detached: true,
           followUp: [
-            `이전 대화의 핵심 내용을 journal에 기록해.`,
+            `Record the key points of the previous conversation in the journal.`,
             ``,
-            `- 현재 시간과 메시지 컨텍스트(채널, 사용자)는 시스템 프롬프트에 이미 있으니 그걸 참고해.`,
-            `- 파일명은 journal/{오늘 날짜}.md (예: journal/2026-04-06.md).`,
-            `- 기존 파일이 있으면 먼저 읽어서 중복 기록하지 마. 새로운 내용만 끝에 추가해.`,
+            `- The current time and message context (channel, user) are already present in the system prompt, so use them.`,
+            `- Use the filename journal/{today's date}.md, for example journal/2026-04-06.md.`,
+            `- If the file already exists, read it first so you do not duplicate entries. Append only the new information.`,
             ``,
-            `## 엔트리 형식`,
-            `### {시간} — {사용자} ({채널})`,
-            `- **요청**: (사용자 요청 한 줄 요약)`,
-            `- **수행**: (에이전트가 한 일)`,
-            `- **결과**: (결론)`,
-            `- **의사결정**: (있으면 기록)`,
+            `## Entry Format`,
+            `### {time} — {user} ({channel})`,
+            `- **Request**: (one-line summary of the user's request)`,
+            `- **Action**: (what the agent did)`,
+            `- **Result**: (the conclusion)`,
+            `- **Decision**: (record this if there was a decision)`,
           ].join("\n"),
         };
       },

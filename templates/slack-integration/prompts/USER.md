@@ -1,47 +1,49 @@
-# 사용자 - <!-- 사용자 이름을 채워 넣으세요 -->
+# User - <!-- Fill in the user's name -->
+
+> Korean version: [USER.ko.md](./USER.ko.md)
 
 <!--
-이 파일은 당신이 함께 일하는 사용자에 대한 정보예요.
-사용자가 직접 채워넣거나, 대화하면서 알게 된 내용을 여기에 기록하세요.
+This file stores information about the user you work with.
+The user can fill it in directly, or you can update it with things learned through conversation.
 
-잘 채워진 사용자 파일은 당신이 더 적절한 톤, 깊이, 방향으로 답하는 데 도움을 줘요.
-비어 있어도 동작에는 문제없지만, 채워질수록 당신은 더 좋은 동료가 돼요.
+A well-maintained user file helps you answer with a better tone, depth, and direction.
+It can stay empty without breaking anything, but the more useful it becomes, the better teammate you become.
 -->
 
-## 기본 정보
+## Basic Information
 
-- 이름:
-- 시간대:
-- 역할/직책:
+- Name:
+- Timezone:
+- Role / Title:
 
-## 선호
+## Preferences
 
-<!-- 응답 언어, 톤, 형식 등. 예: "한국어 응답, 불필요한 장문 설명 최소화" -->
+<!-- Response language, tone, format, etc. Example: "Reply in Korean, keep unnecessary long explanations to a minimum" -->
 
-## 협업 방식
+## Working Style
 
-<!-- 이 사용자와 일할 때 지켜야 할 것. 예: "결과는 변경 파일, 핵심 요약, 리스크 순서로 정리" -->
+<!-- Rules to follow when working with this user. Example: "Present results in this order: changed files, short summary, risks" -->
 
-## 맥락
+## Context
 
-<!-- 사용자의 현재 관심사, 진행 중인 프로젝트, 알아두면 좋은 배경 등 -->
+<!-- The user's current interests, active projects, and background worth keeping in mind -->
 
 ---
 
-## 이 문서의 업데이트 규칙
+## Update Rules for This Document
 
-이 파일은 사용자를 이해하기 위한 살아있는 문서예요. 다음 상황에서 업데이트하세요.
+This file is a living document for understanding the user. Update it in the following cases.
 
-**즉시 반영할 것:**
-- 사용자가 "이렇게 해줘" / "이건 하지 마" 같은 명시적 선호를 표현했을 때
-- 사용자가 직접 이 파일을 수정했을 때 (수정 내용을 존중하고 덮어쓰지 마세요)
+**Update immediately when:**
+- The user expresses an explicit preference such as "Do it this way" or "Don't do this"
+- The user edits this file directly, in which case you must respect those edits and not overwrite them casually
 
-**대화 중 자연스럽게 파악되면 반영할 것:**
-- 반복되는 패턴이 보일 때 (예: 항상 짧은 답변을 선호, 특정 형식을 요청)
-- 새로운 프로젝트나 역할 변화가 감지될 때
-- 기존 기록이 더 이상 맞지 않을 때 (오래된 정보는 삭제하거나 갱신)
+**Update when it becomes clear naturally through conversation:**
+- A repeated pattern becomes visible, for example a preference for short answers or a repeated request for a certain format
+- A new project or role change becomes visible
+- Existing information is no longer accurate and should be updated or removed
 
-**하지 말 것:**
-- 한두 번의 대화로 성급하게 일반화하지 마세요
-- 사용자의 감정이나 성향을 판단하는 내용은 쓰지 마세요
-- 민감한 개인 정보(주소, 금융 정보 등)는 사용자가 직접 기록한 경우에만 유지하세요
+**Do not:**
+- Generalize too aggressively from one or two conversations
+- Write judgments about the user's emotions or personality traits
+- Store sensitive personal information such as addresses or financial details unless the user explicitly recorded it here

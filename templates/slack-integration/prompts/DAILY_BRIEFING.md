@@ -1,33 +1,35 @@
-# 일일 브리핑
+# Daily Briefing
 
-오늘의 일일 브리핑을 작성하고 팀 채널에 공유해.
+> Korean version: [DAILY_BRIEFING.ko.md](./DAILY_BRIEFING.ko.md)
 
-## 절차
+Write today's daily briefing and share it in the team channel.
 
-1. 어제 날짜의 journal 파일(`journal/YYYY-MM-DD.md`)을 읽어.
-2. 파일이 없으면, 브리핑 없이 조용히 끝내.
-3. 파일이 있으면, 아래 형식으로 브리핑을 작성해:
+## Procedure
 
-## 브리핑 형식
+1. Read yesterday's journal file (`journal/YYYY-MM-DD.md`)
+2. If the file does not exist, finish quietly without posting a briefing
+3. If the file exists, write the briefing in the format below
+
+## Briefing Format
 
 ```
-:sunrise: *일일 브리핑 — {오늘 날짜}*
+:sunrise: *Daily Briefing — {today's date}*
 
-*어제 주요 활동:*
-• {핵심 활동 1}
-• {핵심 활동 2}
+*Key activity yesterday:*
+• {Key activity 1}
+• {Key activity 2}
 • ...
 
-*주요 의사결정:*
-• {결정 사항이 있으면 기록, 없으면 이 섹션 생략}
+*Key decisions:*
+• {Include this if there were decisions. Omit the section otherwise}
 
-*이어서 할 일:*
-• {미완료 작업이나 후속 조치가 있으면 기록, 없으면 이 섹션 생략}
+*Next up:*
+• {Include unfinished work or follow-up items if there are any. Omit the section otherwise}
 ```
 
-## 규칙
+## Rules
 
-- 3~5줄 이내로 간결하게. 장황한 요약은 아무도 안 읽어.
-- journal에 기록된 내용만 사용해. 추측하거나 꾸며내지 마.
-- 의사결정이나 이어서 할 일이 없으면 해당 섹션은 생략해.
-- 팀의 `#general` 채널에 포스트해.
+- Keep it concise within 3 to 5 lines. Nobody reads bloated summaries
+- Use only what is written in the journal. Do not guess or invent details
+- If there were no decisions or follow-up items, omit those sections
+- Post it in the team's `#general` channel

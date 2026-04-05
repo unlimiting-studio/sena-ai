@@ -1,59 +1,61 @@
 # Sena AI
 
-설정 중심 AI 에이전트 프레임워크 모노레포입니다. `sena.config.ts` 하나로 런타임, 커넥터, 도구, 훅, 스케줄, 오케스트레이터를 조립하고, `sena` CLI로 로컬 운영과 템플릿 부트스트랩을 처리합니다.
+> Korean version: [README.ko.md](./README.ko.md)
 
-## 핵심 기능
+A config-driven AI agent framework monorepo. Compose runtimes, connectors, tools, hooks, schedules, and the orchestrator in a single `sena.config.ts`, then use the `sena` CLI for local operations and template bootstrapping.
 
-- `defineConfig()` 기반의 config-driven 에이전트 구성
-- `@sena-ai/runtime-claude`, `@sena-ai/runtime-codex` 런타임 교체
-- Slack 직접 연동과 플랫폼 릴레이 연동 지원
-- 인라인 도구, MCP 도구, Slack 도구 번들 지원
-- `start`, `stop`, `restart`, `status`, `logs`, `init` CLI 제공
-- 워커 기반 실행, rolling restart, 세션 유지, 스케줄 실행 지원
-- 모든 패키지에 `specs/`를 두는 스펙 중심 개발 방식
+## Key Features
 
-## 요구 사항
+- Config-driven agent composition with `defineConfig()`
+- Swappable runtimes such as `@sena-ai/runtime-claude` and `@sena-ai/runtime-codex`
+- Support for both direct Slack integration and platform relay integration
+- Inline tools, MCP tools, and bundled Slack tools
+- A CLI with `start`, `stop`, `restart`, `status`, `logs`, and `init`
+- Worker-based execution, rolling restart, session persistence, and schedules
+- Spec-first development with a `specs/` directory in every package
+
+## Requirements
 
 - Node.js `>= 22`
 - `pnpm`
-- ESM 기반 TypeScript 실행 환경
+- An ESM-based TypeScript runtime environment
 
-## 빠른 시작
+## Quick Start
 
-### 템플릿으로 새 프로젝트 만들기
+### Create a New Project from a Template
 
-기본 템플릿은 Slack 직접 연동입니다.
+The default template is direct Slack integration.
 
 ```bash
 pnpm dlx @sena-ai/cli init my-bot
 cd my-bot
 ```
 
-다른 템플릿을 고르려면 `--template`을 사용합니다.
+Use `--template` if you want a different template.
 
 ```bash
 pnpm dlx @sena-ai/cli init my-bot --template slack-integration
 pnpm dlx @sena-ai/cli init my-bot --template platform-integration
 ```
 
-`sena init`은 다음 작업을 자동으로 수행합니다.
+`sena init` automatically performs the following steps.
 
-- 템플릿 다운로드
-- `%%BOT_NAME%%` 플레이스홀더 치환 (`sena.config.ts`, `package.json`, `slack-app-manifest.json`)
-- `.env.template`을 `.env`로 변경
-- `pnpm install` 실행
+- Downloads the template
+- Replaces the `%%BOT_NAME%%` placeholder in `sena.config.ts`, `package.json`, and `slack-app-manifest.json`
+- Renames `.env.template` to `.env`
+- Runs `pnpm install`
 
-Slack 템플릿의 경우, 생성된 `slack-app-manifest.json`으로 https://api.slack.com/apps 에서 앱을 만들면 scope와 이벤트 구독이 자동 설정됩니다. 앱 생성 후 `.env`에 크레덴셜을 채우고 실행합니다.
+For the Slack template, you can create the app at https://api.slack.com/apps with the generated `slack-app-manifest.json`, and the scopes plus event subscriptions are configured automatically. After that, fill in the credentials in `.env` and run the agent.
 
 ```bash
 npx sena start
 ```
 
-기본 설정 파일 경로는 `sena.config.ts`이고, 기본 포트는 `3100`입니다. CLI는 시작 시 현재 작업 디렉터리의 `.env`를 자동으로 로드합니다.
+The default config file path is `sena.config.ts`, and the default port is `3100`. The CLI automatically loads `.env` from the current working directory when it starts.
 
-### Slack 템플릿 예시
+### Slack Template Example
 
-`slack-integration` 템플릿은 Socket Mode 기반으로 생성됩니다. 공인 엔드포인트가 불필요하므로 로컬이나 방화벽 뒤 환경에서도 바로 실행할 수 있습니다.
+The `slack-integration` template is generated in Socket Mode. It does not require a public endpoint, so it can run locally or behind a firewall without extra setup.
 
 ```ts
 import { defineConfig, env, cronSchedule, heartbeat } from '@sena-ai/core'
@@ -87,12 +89,12 @@ export default defineConfig({
   },
 
   schedules: [
-    heartbeat('30m', { name: 'channel-watch', prompt: '채널을 확인하세요.' }),
+    heartbeat('30m', { name: 'channel-watch', prompt: 'Check the channel and summarize what matters.' }),
   ],
 })
 ```
 
-필요한 환경 변수:
+Required environment variables:
 
 ```env
 SLACK_APP_ID=
@@ -100,11 +102,11 @@ SLACK_BOT_TOKEN=
 SLACK_APP_TOKEN=
 ```
 
-> HTTP Mode를 사용하려면 `mode: 'socket'`과 `appToken`을 `signingSecret`으로 바꿉니다.
+> To use HTTP Mode, replace `mode: 'socket'` and `appToken` with `signingSecret`.
 
-### 플랫폼 릴레이 템플릿 예시
+### Platform Relay Template Example
 
-`platform-integration` 템플릿은 Slack 토큰을 로컬 런타임에 두지 않고 플랫폼을 경유합니다.
+The `platform-integration` template routes Slack traffic through the platform instead of storing Slack tokens in the local runtime.
 
 ```ts
 import { defineConfig, env } from '@sena-ai/core'
@@ -127,28 +129,28 @@ export default defineConfig({
 })
 ```
 
-필요한 환경 변수:
+Required environment variables:
 
 ```env
 CONNECT_KEY=
 PLATFORM_URL=
 ```
 
-## 라이브러리로 직접 조립하기
+## Build It Directly from Libraries
 
-템플릿 없이 원하는 패키지만 골라 직접 조립할 수도 있습니다.
+You can also assemble exactly the packages you want without using a template.
 
 ```bash
 pnpm add @sena-ai/core @sena-ai/hooks @sena-ai/tools @sena-ai/runtime-claude
 ```
 
-Slack 직접 연동이 필요하면 편의 번들인 `@sena-ai/slack`을 추가합니다.
+If you need direct Slack integration, add the convenience bundle `@sena-ai/slack`.
 
 ```bash
 pnpm add @sena-ai/cli @sena-ai/slack
 ```
 
-최소 조립 예시는 다음과 같습니다.
+A minimal example looks like this.
 
 ```ts
 import { createAgent, defineConfig, defineTool, heartbeat } from '@sena-ai/core'
@@ -182,32 +184,32 @@ const config = defineConfig({
     ],
   },
   schedules: [
-    heartbeat('1h', { name: 'heartbeat', prompt: '현재 상태를 점검해 요약하세요.' }),
+    heartbeat('1h', { name: 'heartbeat', prompt: 'Check the current state and summarize it.' }),
   ],
 })
 
 const agent = createAgent(config)
-const trace = await agent.processTurn({ input: '지금 상태를 요약해줘' })
+const trace = await agent.processTurn({ input: 'Summarize the current state.' })
 
 console.log(trace.result?.text)
 ```
 
 ## CLI
 
-| 명령 | 설명 |
+| Command | Description |
 | --- | --- |
-| `sena init <name>` | 새 프로젝트 생성. 템플릿 다운로드, 치환, 의존성 설치 포함 |
-| `sena start` | 포그라운드에서 오케스트레이터 실행 |
-| `sena start -d` | 백그라운드 데몬 모드 실행. 로그는 `sena.log`에 기록 |
-| `sena stop` | 실행 중인 프로세스에 `SIGTERM`, 필요 시 `SIGKILL` |
-| `sena restart` | 워커 rolling restart |
-| `sena restart --full` | 전체 프로세스 재시작 |
-| `sena status` | PID와 `/health` 상태 확인 |
-| `sena logs` | `sena.log` 조회 |
+| `sena init <name>` | Creates a new project, including template download, placeholder replacement, and dependency installation |
+| `sena start` | Starts the orchestrator in the foreground |
+| `sena start -d` | Starts in background daemon mode and writes logs to `sena.log` |
+| `sena stop` | Sends `SIGTERM` to the running process, and `SIGKILL` if needed |
+| `sena restart` | Performs a rolling restart of the worker |
+| `sena restart --full` | Restarts the entire process |
+| `sena status` | Checks the PID and `/health` status |
+| `sena logs` | Shows `sena.log` |
 
-CLI는 현재 작업 디렉터리에 `.sena.pid`와 `sena.log`를 사용합니다.
+The CLI uses `.sena.pid` and `sena.log` in the current working directory.
 
-## 아키텍처
+## Architecture
 
 ```text
 Connector / Schedule / Programmatic Call
@@ -226,59 +228,59 @@ Orchestrator
      -> Pending message queue
 ```
 
-핵심 동작은 다음과 같습니다.
+The core behavior works like this.
 
-- 같은 대화의 동시 입력은 워커가 큐잉해 순서를 보존합니다.
-- 워커는 도구 경계에서 pending message를 steer로 주입할 수 있습니다.
-- 세션 스토어를 통해 `conversationId -> sessionId`를 유지합니다.
-- 오케스트레이터는 새 워커가 ready 된 뒤에만 트래픽을 전환합니다.
-- 스케줄은 `cronSchedule()`과 `heartbeat()`로 정의하고 동일 스케줄의 중복 실행을 막습니다.
+- Concurrent inputs for the same conversation are queued by the worker to preserve ordering.
+- The worker can inject pending messages through steer at tool boundaries.
+- The session store keeps the `conversationId -> sessionId` mapping.
+- The orchestrator only switches traffic after the new worker is ready.
+- Schedules are defined with `cronSchedule()` and `heartbeat()`, and duplicate runs of the same schedule are prevented.
 
-## 패키지 구성
+## Package Overview
 
-| 패키지 | 역할 |
+| Package | Role |
 | --- | --- |
-| `@sena-ai/core` | 설정 정규화, 턴 엔진, 워커, 오케스트레이터, 스케줄, 도구 계약 |
-| `@sena-ai/hooks` | `fileContext`, `traceLogger` 같은 기본 훅 |
-| `@sena-ai/tools` | 외부 MCP 서버를 연결하는 `mcpServer()` |
-| `@sena-ai/cli` | 프로젝트 초기화와 에이전트 운영 CLI |
-| `@sena-ai/runtime-claude` | Claude Agent SDK 기반 런타임 |
-| `@sena-ai/runtime-codex` | Codex CLI App Server 기반 런타임 |
-| `@sena-ai/slack-mrkdwn` | Slack safe-mode Markdown 변환 공용 패키지 |
-| `@sena-ai/connector-slack` | Slack Events API / Socket Mode 커넥터 |
-| `@sena-ai/tools-slack` | Slack 메시지, 채널, 파일, 사용자 도구 모음 |
-| `@sena-ai/slack` | Slack 커넥터와 도구 번들 |
-| `@sena-ai/platform-connector` | 플랫폼 릴레이를 통한 로컬 런타임 연결 |
-| `@sena-ai/platform-core` | 멀티테넌트 플랫폼 코어 라이브러리 |
-| `@sena-ai/platform-node` | Node.js 기반 플랫폼 서버 진입점, MySQL 조합 패키지 |
-| `@sena-ai/platform-worker` | Cloudflare Workers 기반 플랫폼 배포 패키지 |
+| `@sena-ai/core` | Config normalization, turn engine, worker, orchestrator, scheduler, and tool contracts |
+| `@sena-ai/hooks` | Built-in hooks such as `fileContext` and `traceLogger` |
+| `@sena-ai/tools` | `mcpServer()` for connecting external MCP servers |
+| `@sena-ai/cli` | CLI for project initialization and agent operations |
+| `@sena-ai/runtime-claude` | Runtime built on Claude Agent SDK |
+| `@sena-ai/runtime-codex` | Runtime built on the Codex CLI App Server |
+| `@sena-ai/slack-mrkdwn` | Shared package for Slack safe-mode Markdown conversion |
+| `@sena-ai/connector-slack` | Slack Events API / Socket Mode connector |
+| `@sena-ai/tools-slack` | Slack tools for messages, channels, files, and users |
+| `@sena-ai/slack` | Bundle of the Slack connector and Slack tools |
+| `@sena-ai/platform-connector` | Local runtime connection through the platform relay |
+| `@sena-ai/platform-core` | Multi-tenant platform core library |
+| `@sena-ai/platform-node` | Node.js platform server entry point with MySQL composition |
+| `@sena-ai/platform-worker` | Cloudflare Workers-based platform deployment package |
 
-`@sena-ai/platform-node`와 `@sena-ai/platform-worker`는 현재 애플리케이션 배포용 패키지로 운영되며, 일반 라이브러리 패키지처럼 배포해 쓰는 용도와는 결이 다릅니다.
+`@sena-ai/platform-node` and `@sena-ai/platform-worker` are currently operated as application deployment packages rather than general-purpose library packages.
 
-## 런타임과 도구
+## Runtimes and Tools
 
-### 런타임
+### Runtimes
 
 - `@sena-ai/runtime-claude`
-  - Claude Agent SDK를 Sena `Runtime` 계약에 맞춰 감쌉니다.
-  - 인라인 도구와 외부 MCP 도구를 함께 사용할 수 있습니다.
-  - 세션 재개, steer, abort 흐름을 지원합니다.
+  - Wraps Claude Agent SDK around the Sena `Runtime` contract.
+  - Supports inline tools and external MCP tools together.
+  - Supports session resume, steer, and abort flows.
 - `@sena-ai/runtime-codex`
-  - Codex CLI App Server를 Sena `Runtime` 계약에 연결합니다.
-  - 인라인 MCP HTTP 서버와 MCP 서버 오버라이드를 구성합니다.
-  - approval policy, sandbox mode, reasoning effort 옵션을 제공합니다.
-  - 기본적으로 공식 `@openai/codex` 패키지가 제공하는 managed executable을 사용하고, 필요할 때만 `codexBin`으로 override 합니다.
+  - Connects the Codex CLI App Server to the Sena `Runtime` contract.
+  - Configures an inline MCP HTTP server plus MCP server overrides.
+  - Provides approval policy, sandbox mode, and reasoning effort options.
+  - Uses the managed executable from the official `@openai/codex` package by default, and only overrides it with `codexBin` when needed.
 
-### 도구
+### Tools
 
-- 인라인 도구는 `defineTool()`로 정의합니다.
-- 외부 MCP 도구는 `mcpServer()`로 연결합니다.
-- Slack 작업이 많으면 `slackTools()` 또는 `@sena-ai/slack` 번들을 사용합니다.
-- 도구 결과는 `toolResult()`로 멀티모달 콘텐츠를 반환할 수 있습니다.
+- Define inline tools with `defineTool()`.
+- Connect external MCP tools with `mcpServer()`.
+- If your agent does a lot of Slack work, use `slackTools()` or the `@sena-ai/slack` bundle.
+- Tool results can return multimodal content with `toolResult()`.
 
-## 스펙 중심 개발
+## Spec-first Development
 
-이 저장소의 모든 패키지는 자체 `specs/` 디렉터리를 가집니다.
+Every package in this repository has its own `specs/` directory.
 
 ```text
 packages/<package>/specs/
@@ -286,13 +288,13 @@ packages/<package>/specs/
   <responsibility>.md
 ```
 
-원칙은 단순합니다.
+The rules are simple.
 
-- 동작을 바꾸는 작업은 스펙을 먼저 수정합니다.
-- 상위 스펙 `index.md`와 상세 스펙 사이의 traceability를 유지합니다.
-- 구현은 freeze 된 스펙을 기준으로 진행합니다.
+- Update the spec first when changing behavior.
+- Maintain traceability between the top-level `index.md` and the detailed specs.
+- Implement against frozen specs.
 
-대표 예시:
+Representative examples:
 
 - `packages/core/specs/`
 - `packages/cli/specs/`
@@ -301,7 +303,7 @@ packages/<package>/specs/
 - `packages/integrations/slack/connector/specs/`
 - `packages/platform/core/specs/`
 
-## 저장소 구조
+## Repository Structure
 
 ```text
 sena-ai/
@@ -331,7 +333,7 @@ sena-ai/
 └── vitest.config.ts
 ```
 
-## 개발
+## Development
 
 ```bash
 git clone https://github.com/unlimiting-studio/sena-ai
@@ -342,4 +344,4 @@ pnpm test
 pnpm typecheck
 ```
 
-테스트는 `packages/**/src/**/*.test.ts` 패턴을 기준으로 실행됩니다.
+Tests run against the `packages/**/src/**/*.test.ts` pattern.

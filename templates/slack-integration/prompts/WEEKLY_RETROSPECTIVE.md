@@ -1,34 +1,36 @@
-# 주간 회고
+# Weekly Retrospective
 
-이번 주의 활동을 정리하고 팀 채널에 공유해.
+> Korean version: [WEEKLY_RETROSPECTIVE.ko.md](./WEEKLY_RETROSPECTIVE.ko.md)
 
-## 절차
+Summarize this week's activity and share it in the team channel.
 
-1. 이번 주 월~금의 journal 파일들(`journal/YYYY-MM-DD.md`)을 모두 읽어.
-2. 파일이 하나도 없으면, 조용히 끝내.
-3. 파일이 있으면, 아래 형식으로 주간 회고를 작성해:
+## Procedure
 
-## 회고 형식
+1. Read all journal files for Monday through Friday of this week (`journal/YYYY-MM-DD.md`)
+2. If there are no files at all, end quietly
+3. If files exist, write the retrospective in the format below
+
+## Retrospective Format
 
 ```
-:calendar: *주간 회고 — {월}월 {첫째 날}일 ~ {마지막 날}일*
+:calendar: *Weekly Retrospective — {month} {first day} ~ {last day}*
 
-*이번 주 하이라이트:*
-• {가장 중요했던 활동/성과 3~5개}
+*Highlights of the week:*
+• {3 to 5 most important activities or outcomes}
 
-*주요 의사결정:*
-• {주 전체에서 내려진 결정들. 없으면 생략}
+*Key decisions:*
+• {Decisions made across the week. Omit this section if there were none}
 
-*다음 주 이어갈 것:*
-• {미완료 작업, 후속 조치. 없으면 생략}
+*What carries into next week:*
+• {Unfinished work or follow-up actions. Omit this section if there were none}
 
-*숫자로 보는 한 주:*
-• 대화 {N}건 | 활동일 {N}일
+*The week in numbers:*
+• Conversations {N} | Active days {N}
 ```
 
-## 규칙
+## Rules
 
-- 전체 10줄 이내. 핵심만 뽑아.
-- journal에 기록된 내용만 사용해.
-- 날짜별로 나열하지 말고, 주제별로 묶어서 정리해.
-- `#general` 채널에 포스트해.
+- Keep the whole thing within 10 lines. Pull out only the essentials
+- Use only what is recorded in the journal
+- Do not list the week day by day. Group it by theme
+- Post it in the `#general` channel

@@ -1,30 +1,32 @@
-# 하트비트 체크
+# Heartbeat Check
 
-주기적으로 팀 채널을 확인하고, 필요하면 능동적으로 도와.
+> Korean version: [HEARTBEAT_CHECK.ko.md](./HEARTBEAT_CHECK.ko.md)
 
-## 절차
+Check team channels periodically and help proactively when it makes sense.
 
-1. 주요 채널의 최근 메시지를 확인해.
-2. 아래 기준에 해당하는 메시지가 있으면 행동해.
-3. 해당 없으면 아무것도 하지 마. 조용히 끝내.
+## Procedure
 
-## 행동 기준
+1. Check recent messages in the main channels
+2. If a message matches the criteria below, act on it
+3. If nothing matches, do nothing and end quietly
 
-### 응답해야 하는 경우
-- 누군가 나를 멘션했지만 아직 응답하지 않은 메시지
-- 명시적으로 도움을 요청하는 메시지 ("도와줘", "알려줘", "확인해줘" 등)
+## Action Criteria
 
-### 능동적으로 끼어들 수 있는 경우 (신중하게)
-- 기술적 질문이 30분 이상 답변 없이 방치된 경우 — 답을 알면 스레드에 답변
-- 잘못된 정보가 공유되고 있고, 정정이 명확한 경우
+### Cases That Require a Response
+- A message that mentions me but has not been answered yet
+- A message that explicitly asks for help, such as "help me", "tell me", or "check this"
 
-### 절대 하지 않는 경우
-- 잡담이나 가벼운 대화에 끼어들기
-- 이미 다른 사람이 충분히 답변한 질문에 추가 답변
-- 맥락 없이 "뭐 도와드릴까요?" 같은 메시지 보내기
+### Cases Where Proactive Interruption Is Acceptable, Carefully
+- A technical question has been left unanswered for more than 30 minutes, and I know the answer
+- Incorrect information is being shared and the correction is clear
 
-## 규칙
+### Cases Where I Must Not Intervene
+- Casual chatter or lightweight conversation
+- A question that someone else has already answered sufficiently
+- Sending context-free messages such as "How can I help?"
 
-- 행동할 게 없으면 진짜로 아무것도 하지 마. 메시지를 보내지 마.
-- 끼어들 때는 반드시 해당 스레드에 답변해. 채널에 새 메시지를 만들지 마.
-- 하트비트 자체를 알리지 마 ("체크 완료" 같은 메시지 금지).
+## Rules
+
+- If there is nothing to do, really do nothing. Do not send any message
+- When stepping in, always reply in the relevant thread. Do not create a new channel message
+- Do not announce the heartbeat itself. Messages such as "check complete" are forbidden

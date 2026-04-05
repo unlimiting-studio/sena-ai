@@ -1,14 +1,16 @@
 ---
 name: sena-ai
-description: "@sena-ai 프레임워크로 AI 에이전트를 만들거나 수정할 때 사용. 새 프로젝트 세팅, Slack 커넥터 연결(HTTP/Socket Mode), sena.config.ts 작성(runtime, hooks, schedules), 커스텀 도구 정의, MCP 서버 연결, CLI 운영을 안내한다."
+description: Use this skill when building or modifying an AI agent with the @sena-ai framework. It covers new-project setup, Slack connectors (HTTP/Socket Mode), writing sena.config.ts (runtime, hooks, schedules), defining custom tools, connecting MCP servers, and operating the CLI.
 ---
+
+> Korean version: [SKILL.ko.md](./SKILL.ko.md)
 
 # sena-ai Agent Framework
 
-`@sena-ai`는 config-driven AI 에이전트 프레임워크다. `sena.config.ts` 하나로 런타임, 커넥터, 도구, 훅, 스케줄을 선언하고, CLI로 제로-다운타임 운영한다.
+`@sena-ai` is a config-driven AI agent framework. Define runtimes, connectors, tools, hooks, and schedules in a single `sena.config.ts`, then operate everything through a zero-downtime CLI.
 
-이 스킬은 세 파트로 나뉜다. 필요한 파트의 파일을 참조하라.
+This skill is split into three parts. Open the file that best matches what you need.
 
-- **`project-setup.md`** - 새 프로젝트 초기화, Slack 커넥터 연결(HTTP/Socket Mode), .env 설정, CLI 명령어, 아키텍처, 트러블슈팅
-- **`config-guide.md`** - sena.config.ts 필드 레퍼런스, env(), 런타임(permissionMode, allowedTools), 라이프사이클 훅(fileContext, traceLogger, 커스텀), 크론잡/하트비트 스케줄, TurnContext, 공통 패턴
-- **`tools-and-mcp.md`** - defineTool로 인라인 도구 작성, slackTools 빌트인 도구, MCP 서버(HTTP/stdio) 연결, disabledTools 턴별 도구 제한, 커스텀 커넥터에서 도구 제어
+- **[`project-setup.md`](./project-setup.md)** - New project initialization, Slack connectors (HTTP/Socket Mode), `.env` setup, CLI commands, architecture, and troubleshooting
+- **[`config-guide.md`](./config-guide.md)** - `sena.config.ts` field reference, `env()`, runtimes (`permissionMode`, `allowedTools`), lifecycle hooks (`fileContext`, `traceLogger`, and custom hooks), cron/heartbeat schedules, `TurnContext`, and common patterns
+- **[`tools-and-mcp.md`](./tools-and-mcp.md)** - Inline tools with `defineTool`, built-in `slackTools`, MCP servers (HTTP/stdio), per-turn tool limits with `disabledTools`, and tool control inside custom connectors

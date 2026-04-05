@@ -1,6 +1,8 @@
-# 커스텀 도구 정의 및 MCP 연결
+# Defining Custom Tools and Connecting MCP
 
-## 인라인 도구 (defineTool)
+> Korean version: [tools-and-mcp.ko.md](./tools-and-mcp.ko.md)
+
+## Inline Tools (`defineTool`)
 
 ```typescript
 import { defineTool, toolResult } from '@sena-ai/core'
@@ -8,9 +10,9 @@ import { z } from 'zod'
 
 const weatherTool = defineTool({
   name: 'get_weather',
-  description: '지정한 도시의 현재 날씨를 조회합니다',
+  description: 'Look up the current weather for a city',
   params: {
-    city: z.string().describe('도시 이름'),
+    city: z.string().describe('City name'),
     unit: z.enum(['celsius', 'fahrenheit']).optional().default('celsius'),
   },
   handler: async ({ city, unit }) => {
@@ -20,42 +22,42 @@ const weatherTool = defineTool({
 })
 ```
 
-### 반환 타입
+### Return Types
 
-| 반환값 | 처리 |
+| Return value | Handling |
 |---|---|
-| `string` | 텍스트 콘텐츠로 전달 |
-| `object` | `JSON.stringify()` 후 텍스트로 전달 |
-| `toolResult([...])` | 멀티 콘텐츠 (텍스트 + 이미지 등) |
+| `string` | Sent as text content |
+| `object` | Sent as text after `JSON.stringify()` |
+| `toolResult([...])` | Multi-content output such as text + image |
 
-### 멀티 콘텐츠 반환 (이미지 포함)
+### Returning Multi-content Output (Including Images)
 
 ```typescript
 import { defineTool, toolResult } from '@sena-ai/core'
 
 const screenshotTool = defineTool({
   name: 'take_screenshot',
-  description: '스크린샷을 찍습니다',
+  description: 'Capture a screenshot',
   handler: async () => {
     const imageData = await captureScreen()
     return toolResult([
-      { type: 'text', text: '스크린샷 완료' },
+      { type: 'text', text: 'Screenshot captured' },
       { type: 'image', data: imageData, mimeType: 'image/png' },
     ])
   },
 })
 ```
 
-## Slack 도구
+## Slack Tools
 
 ```typescript
 import { slackTools, ALLOWED_SLACK_TOOLS } from '@sena-ai/tools-slack'
 
-// 6개 도구를 한 번에 등록
+// Register all 6 tools at once
 const tools = slackTools({ botToken: env('SLACK_BOT_TOKEN') })
 ```
 
-`ALLOWED_SLACK_TOOLS`는 `dontAsk` 모드에서 Slack 도구를 허용 목록에 추가할 때 사용:
+Use `ALLOWED_SLACK_TOOLS` when you want to add Slack tools to the allowlist in `dontAsk` mode.
 
 ```typescript
 claudeRuntime({
@@ -63,20 +65,20 @@ claudeRuntime({
 })
 ```
 
-| 도구 | 설명 |
+| Tool | Description |
 |---|---|
-| `slack_get_messages` | 채널 히스토리 또는 스레드 답글 조회 |
-| `slack_post_message` | 채널/스레드에 메시지 전송 |
-| `slack_list_channels` | 접근 가능한 채널 목록 |
-| `slack_upload_file` | 텍스트 콘텐츠를 파일로 업로드 |
-| `slack_get_users` | 사용자 프로필 조회 |
-| `slack_download_file` | 파일 다운로드 (이미지는 base64로 반환) |
+| `slack_get_messages` | Read channel history or thread replies |
+| `slack_post_message` | Send a message to a channel or thread |
+| `slack_list_channels` | List accessible channels |
+| `slack_upload_file` | Upload text content as a file |
+| `slack_get_users` | Read user profiles |
+| `slack_download_file` | Download a file, with images returned as base64 |
 
-## MCP 서버 연결
+## Connecting MCP Servers
 
-외부 MCP 서버를 도구로 등록할 수 있다.
+You can register external MCP servers as tools.
 
-### HTTP 기반 MCP
+### HTTP-based MCP
 
 ```typescript
 const mcpHttpTool: McpToolPort = {
@@ -86,7 +88,7 @@ const mcpHttpTool: McpToolPort = {
 }
 ```
 
-### stdio 기반 MCP
+### stdio-based MCP
 
 ```typescript
 const mcpStdioTool: McpToolPort = {
@@ -99,7 +101,7 @@ const mcpStdioTool: McpToolPort = {
 }
 ```
 
-### config에 등록
+### Register It in Config
 
 ```typescript
 export default defineConfig({
@@ -108,11 +110,11 @@ export default defineConfig({
 })
 ```
 
-MCP 서버로 등록된 도구는 `dontAsk` 모드에서 자동으로 허용되므로 `allowedTools`에 별도 추가 불필요.
+Tools registered through MCP server config are automatically allowed in `dontAsk` mode, so you do not need to add them to `allowedTools`.
 
-## disabledTools — 턴별 도구 비활성화
+## `disabledTools` — Disable Tools Per Turn
 
-커넥터가 `InboundEvent`에 `disabledTools`를 지정하면 해당 턴에서 특정 도구를 비활성화할 수 있다 (blocklist 방식).
+If a connector sets `disabledTools` on `InboundEvent`, it can disable specific tools for that turn using a blocklist approach.
 
 ```typescript
 engine.submitTurn({
@@ -126,32 +128,32 @@ engine.submitTurn({
 })
 ```
 
-### 동작 방식 (2단계 필터링)
+### How It Works (Two-stage Filtering)
 
-1. **엔진 레벨**: `disabledTools`에 이름이 정확히 일치하는 ToolPort를 제거한다. MCP 서버나 인라인 도구를 통째로 빼고 싶을 때 사용한다.
-2. **런타임 레벨**: 전체 `disabledTools` 패턴을 런타임에 전달한다. 런타임별로 자체 방식으로 적용한다.
-   - **Claude**: SDK의 `disallowedTools`에 합쳐진다. 와일드카드 패턴(`mcp__server__*`), 개별 도구명, 빌트인 도구(Read, Bash 등) 모두 지원.
+1. **Engine level**: removes `ToolPort`s whose names exactly match entries in `disabledTools`. Use this when you want to remove an entire MCP server or inline tool.
+2. **Runtime level**: passes the full `disabledTools` pattern list into the runtime. Each runtime applies it in its own way.
+   - **Claude**: merges the list into the SDK's `disallowedTools`. Wildcard patterns such as `mcp__server__*`, individual tool names, and built-in tools like `Read` or `Bash` are all supported.
 
-### 패턴 예시
+### Pattern Examples
 
 ```typescript
 disabledTools: [
-  'Bash',                    // Claude 빌트인 도구
-  'Write',                   // Claude 빌트인 도구
-  'mcp__slack-tools__*',     // MCP 서버 와일드카드 (서버 내 모든 도구)
-  'mcp____native____my_tool', // 특정 인라인 도구
-  'my-mcp-server',           // ToolPort 이름으로 MCP 서버 통째로 제거
+  'Bash',                    // Claude built-in tool
+  'Write',                   // Claude built-in tool
+  'mcp__slack-tools__*',     // wildcard for every tool in one MCP server
+  'mcp____native____my_tool', // one specific inline tool
+  'my-mcp-server',           // remove the entire MCP server by ToolPort name
 ]
 ```
 
-### 활용 예시 — 조건별 도구 제한
+### Example — Restrict Tools by Condition
 
 ```typescript
 registerRoutes(server, engine) {
   server.post('/api/webhook', async (req, res) => {
     const event = parseEvent(req)
 
-    // emoji 반응에서 트리거된 경우: 읽기 전용 도구만 허용
+    // If triggered by an emoji reaction, allow only read-only tools
     const isEmojiTrigger = event.type === 'reaction_added'
 
     await engine.submitTurn({
@@ -169,7 +171,7 @@ registerRoutes(server, engine) {
 }
 ```
 
-## 커스텀 커넥터에서 도구 제어
+## Tool Control Inside a Custom Connector
 
 ```typescript
 import type { Connector, HttpServer, TurnEngine, ConnectorOutput } from '@sena-ai/core'
@@ -179,18 +181,18 @@ const myConnector: Connector = {
 
   registerRoutes(server: HttpServer, engine: TurnEngine) {
     server.post('/api/my-platform/webhook', async (req, res) => {
-      // 1. 요청 파싱 & 검증
-      // 2. engine.submitTurn(inboundEvent) 호출
-      // 3. 즉시 응답 반환
+      // 1. Parse and validate the request
+      // 2. Call engine.submitTurn(inboundEvent)
+      // 3. Return an immediate response
     })
   },
 
   createOutput(context) {
     return {
-      async showProgress(text) { /* 진행 상태 표시 */ },
-      async sendResult(text) { /* 최종 결과 전송 */ },
-      async sendError(message) { /* 에러 메시지 전송 */ },
-      async dispose() { /* 정리 작업 */ },
+      async showProgress(text) { /* show progress state */ },
+      async sendResult(text) { /* send the final result */ },
+      async sendError(message) { /* send an error message */ },
+      async dispose() { /* cleanup work */ },
     }
   },
 }
