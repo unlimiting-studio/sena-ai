@@ -113,7 +113,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
   }
 
   if (runtimeHooks.onTurnStart?.length) {
-    sdkHooks.UserPromptSubmit = runtimeHooks.onTurnStart.map((matcher) => {
+    sdkHooks.UserPromptSubmit = runtimeHooks.onTurnStart.map((callback) => {
       const cb: HookCallback = async (input) => {
         try {
           const senaInput: TurnStartInput = {
@@ -121,7 +121,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
             prompt: input?.prompt ?? '',
             turnContext: STUB_TURN_CONTEXT,
           }
-          const decision = await matcher.callback(senaInput)
+          const decision = await callback(senaInput)
           return mapTurnStartDecision(decision)
         } catch (err) {
           console.error('[hook-adapter] UserPromptSubmit hook error:', err)
@@ -133,7 +133,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
   }
 
   if (runtimeHooks.onStop?.length) {
-    sdkHooks.Stop = runtimeHooks.onStop.map((matcher) => {
+    sdkHooks.Stop = runtimeHooks.onStop.map((callback) => {
       const cb: HookCallback = async (input) => {
         try {
           const senaInput: StopInput = {
@@ -141,7 +141,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
             reason: input?.reason ?? 'endTurn',
             turnContext: STUB_TURN_CONTEXT,
           }
-          const result = await matcher.callback(senaInput)
+          const result = await callback(senaInput)
           if (result && 'continueWith' in result) {
             return { decision: 'block', reason: result.continueWith }
           }
@@ -156,7 +156,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
   }
 
   if (runtimeHooks.onSessionStart?.length) {
-    sdkHooks.SessionStart = runtimeHooks.onSessionStart.map((matcher) => {
+    sdkHooks.SessionStart = runtimeHooks.onSessionStart.map((callback) => {
       const cb: HookCallback = async (input) => {
         try {
           const senaInput: SessionStartInput = {
@@ -164,7 +164,7 @@ export function buildSdkHooks(runtimeHooks: RuntimeHooks): SdkHooks {
             sessionId: input?.session_id ?? '',
             turnContext: STUB_TURN_CONTEXT,
           }
-          const result = await matcher.callback(senaInput)
+          const result = await callback(senaInput)
           if (result && 'additionalContext' in result) {
             return {
               hookSpecificOutput: {

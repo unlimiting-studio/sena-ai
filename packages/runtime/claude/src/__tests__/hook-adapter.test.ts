@@ -152,9 +152,9 @@ describe('buildSdkHooks — PostToolUse', () => {
 describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
   it('maps allow decision', async () => {
     const hooks: RuntimeHooks = {
-      onTurnStart: [{
-        callback: async () => ({ decision: 'allow' as const }),
-      }],
+      onTurnStart: [
+        async () => ({ decision: 'allow' as const }),
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.UserPromptSubmit!, { prompt: 'hello' })
@@ -165,12 +165,12 @@ describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
 
   it('maps allow with additionalContext', async () => {
     const hooks: RuntimeHooks = {
-      onTurnStart: [{
-        callback: async () => ({
+      onTurnStart: [
+        async () => ({
           decision: 'allow' as const,
           additionalContext: 'system note',
         }),
-      }],
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.UserPromptSubmit!, { prompt: 'hello' })
@@ -184,12 +184,12 @@ describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
 
   it('maps block decision', async () => {
     const hooks: RuntimeHooks = {
-      onTurnStart: [{
-        callback: async () => ({
+      onTurnStart: [
+        async () => ({
           decision: 'block' as const,
           reason: 'rate limited',
         }),
-      }],
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.UserPromptSubmit!, { prompt: 'hello' })
@@ -198,12 +198,12 @@ describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
 
   it('maps modifiedPrompt to additionalContext', async () => {
     const hooks: RuntimeHooks = {
-      onTurnStart: [{
-        callback: async () => ({
+      onTurnStart: [
+        async () => ({
           decision: 'modifiedPrompt' as const,
           prompt: 'modified prompt text',
         }),
-      }],
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.UserPromptSubmit!, { prompt: 'hello' })
@@ -217,13 +217,13 @@ describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
 
   it('maps modifiedPrompt with additionalContext — combines prompt and context (AC-08)', async () => {
     const hooks: RuntimeHooks = {
-      onTurnStart: [{
-        callback: async () => ({
+      onTurnStart: [
+        async () => ({
           decision: 'modifiedPrompt' as const,
           prompt: 'new prompt',
           additionalContext: 'extra context',
         }),
-      }],
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.UserPromptSubmit!, { prompt: 'hello' })
@@ -241,9 +241,9 @@ describe('buildSdkHooks — UserPromptSubmit (TurnStart)', () => {
 describe('buildSdkHooks — Stop', () => {
   it('maps continueWith to block decision', async () => {
     const hooks: RuntimeHooks = {
-      onStop: [{
-        callback: async () => ({ continueWith: 'keep going' }),
-      }],
+      onStop: [
+        async () => ({ continueWith: 'keep going' }),
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.Stop!, { reason: 'endTurn' })
@@ -252,9 +252,9 @@ describe('buildSdkHooks — Stop', () => {
 
   it('maps void (normal stop) to empty object', async () => {
     const hooks: RuntimeHooks = {
-      onStop: [{
-        callback: async () => undefined,
-      }],
+      onStop: [
+        async () => undefined,
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.Stop!, { reason: 'endTurn' })
@@ -267,9 +267,9 @@ describe('buildSdkHooks — Stop', () => {
 describe('buildSdkHooks — SessionStart', () => {
   it('maps result with additionalContext', async () => {
     const hooks: RuntimeHooks = {
-      onSessionStart: [{
-        callback: async () => ({ additionalContext: 'session context' }),
-      }],
+      onSessionStart: [
+        async () => ({ additionalContext: 'session context' }),
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.SessionStart!, { session_id: 'abc' })
@@ -283,9 +283,9 @@ describe('buildSdkHooks — SessionStart', () => {
 
   it('maps void result', async () => {
     const hooks: RuntimeHooks = {
-      onSessionStart: [{
-        callback: async () => undefined,
-      }],
+      onSessionStart: [
+        async () => undefined,
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.SessionStart!, { session_id: 'abc' })
@@ -331,9 +331,9 @@ describe('buildSdkHooks — error isolation', () => {
   it('returns empty object when Stop callback throws', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const hooks: RuntimeHooks = {
-      onStop: [{
-        callback: async () => { throw new Error('boom') },
-      }],
+      onStop: [
+        async () => { throw new Error('boom') },
+      ],
     }
     const sdk = buildSdkHooks(hooks)
     const result = await invokeFirst(sdk.Stop!, { reason: 'endTurn' })
