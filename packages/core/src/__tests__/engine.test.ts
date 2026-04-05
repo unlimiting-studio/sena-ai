@@ -343,6 +343,110 @@ describe('TurnEngine', () => {
     ])
   })
 
+  // === TurnEndResult followUp/fork/detached combination tests ===
+
+  it('onTurnEnd returning void produces no followUps', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => {}],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('done'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({ input: 'hi' })
+    expect(trace.followUps).toBeUndefined()
+  })
+
+  it('collects fork followUp from onTurnEnd hook', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => ({ fork: true, followUp: 'summarize' })],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('response'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({ input: 'hi' })
+    expect(trace.followUps).toEqual([
+      { prompt: 'summarize', fork: true, detached: false },
+    ])
+  })
+
+  it('collects fork+detached followUp from onTurnEnd hook', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => ({ fork: true, detached: true, followUp: 'background task' })],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('response'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({ input: 'hi' })
+    expect(trace.followUps).toEqual([
+      { prompt: 'background task', fork: true, detached: true },
+    ])
+  })
+
+  it('ignores fork without followUp', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => ({ fork: true })],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('response'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({ input: 'hi' })
+    expect(trace.followUps).toBeUndefined()
+  })
+
+  it('ignores detached when fork is not set', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => ({ followUp: 'do work', detached: true })],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('response'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({ input: 'hi' })
+    expect(trace.followUps).toEqual([
+      { prompt: 'do work', fork: false, detached: false },
+    ])
+  })
+
+  it('ignores fork from a forked turn (depth limit)', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [async () => ({ fork: true, followUp: 'nested fork' })],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('response'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({
+      input: 'hi',
+      metadata: { forkedFrom: 'original-turn-id' },
+    })
+    expect(trace.followUps).toEqual([
+      { prompt: 'nested fork', fork: false, detached: false },
+    ])
+  })
+
+  it('collects followUps from multiple onTurnEnd hooks', async () => {
+    const hooks: RuntimeHooks = {
+      onTurnEnd: [
+        async () => ({ followUp: 'first' }),
+        async () => {},
+        async () => ({ fork: true, followUp: 'second', detached: true }),
+      ],
+    }
+    const engine = createTurnEngine({
+      name: 'test', cwd: '/tmp',
+      runtime: createMockRuntime('response'), hooks, tools: [],
+    })
+    const trace = await engine.processTurn({ input: 'hi' })
+    expect(trace.followUps).toEqual([
+      { prompt: 'first', fork: false, detached: false },
+      { prompt: 'second', fork: true, detached: true },
+    ])
+  })
+
   it('isolates hooks.onError errors', async () => {
     const failRuntime = createFailRuntime('runtime broke')
 
