@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { traceLogger } from '../traceLogger.js'
+import { traceLoggerHook } from '../traceLogger.js'
 import { readFile, rm, mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { TurnContext, TurnResult } from '@sena-ai/core'
+import type { TurnContext, TurnResult, TurnEndInput } from '@sena-ai/core'
 
 const testDir = join(tmpdir(), 'sena-trace-test-' + Date.now())
 
@@ -27,16 +27,21 @@ function mockResult(): TurnResult {
   }
 }
 
-describe('traceLogger', () => {
+describe('traceLoggerHook', () => {
   afterEach(async () => {
     await rm(testDir, { recursive: true, force: true })
   })
 
   it('writes trace as JSON file', async () => {
     await mkdir(testDir, { recursive: true })
-    const hook = traceLogger({ dir: testDir })
+    const callback = traceLoggerHook({ dir: testDir })
 
-    await hook.execute(mockContext(), mockResult())
+    const input: TurnEndInput = {
+      hookEventName: 'turnEnd',
+      turnContext: mockContext(),
+      result: mockResult(),
+    }
+    await callback(input)
 
     const entries = await readdir(testDir)
     expect(entries).toHaveLength(1)

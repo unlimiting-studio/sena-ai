@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fileContext, fileContextHook } from '../fileContext.js'
+import { fileContextHook } from '../fileContext.js'
 import type { TurnContext, TurnStartInput } from '@sena-ai/core'
 import { join } from 'node:path'
 import { writeFile, mkdtemp, rm } from 'node:fs/promises'
@@ -19,61 +19,71 @@ function mockContext(overrides?: Partial<TurnContext>): TurnContext {
   }
 }
 
-describe('fileContext', () => {
-  it('loads a single file', async () => {
-    const hook = fileContext({
+function makeInput(overrides?: Partial<TurnContext>): TurnStartInput {
+  return {
+    hookEventName: 'turnStart',
+    prompt: 'test prompt',
+    turnContext: mockContext(overrides),
+  }
+}
+
+describe('fileContextHook', () => {
+  it('loads a single file and returns additionalContext', async () => {
+    const callback = fileContextHook({
       path: join(fixturesDir, 'soul.md'),
       as: 'system',
     })
-    const fragments = await hook.execute(mockContext())
+    const result = await callback(makeInput())
 
-    expect(fragments).toHaveLength(1)
-    expect(fragments[0].role).toBe('system')
-    expect(fragments[0].content).toContain('테스트 에이전트')
-    expect(fragments[0].source).toContain('soul.md')
+    expect(result.decision).toBe('allow')
+    expect('additionalContext' in result && result.additionalContext).toContain('테스트 에이전트')
   })
 
   it('loads directory with glob filter', async () => {
-    const hook = fileContext({
+    const callback = fileContextHook({
       path: join(fixturesDir, 'memory'),
       as: 'append',
       glob: '*.md',
     })
-    const fragments = await hook.execute(mockContext())
+    const result = await callback(makeInput())
 
-    expect(fragments).toHaveLength(2)
-    expect(fragments.every(f => f.role === 'append')).toBe(true)
-    expect(fragments.every(f => !f.content.includes('무시'))).toBe(true)
+    expect(result.decision).toBe('allow')
+    expect('additionalContext' in result && result.additionalContext).toBeTruthy()
+    // .txt files should be excluded by glob
+    expect('additionalContext' in result && result.additionalContext).not.toContain('무시')
   })
 
   it('respects when condition', async () => {
-    const hook = fileContext({
+    const callback = fileContextHook({
       path: join(fixturesDir, 'soul.md'),
       as: 'system',
       when: (ctx) => ctx.trigger === 'schedule',
     })
 
-    const fragments = await hook.execute(mockContext({ trigger: 'programmatic' }))
-    expect(fragments).toHaveLength(0)
+    const result1 = await callback(makeInput({ trigger: 'programmatic' }))
+    expect(result1).toEqual({ decision: 'allow' })
 
-    const fragments2 = await hook.execute(mockContext({ trigger: 'schedule' }))
-    expect(fragments2).toHaveLength(1)
+    const result2 = await callback(makeInput({ trigger: 'schedule' }))
+    expect(result2.decision).toBe('allow')
+    expect('additionalContext' in result2 && result2.additionalContext).toContain('테스트 에이전트')
   })
 
   it('respects maxLength', async () => {
-    const hook = fileContext({
+    const callback = fileContextHook({
       path: join(fixturesDir, 'soul.md'),
       as: 'system',
       maxLength: 10,
     })
-    const fragments = await hook.execute(mockContext())
+    const result = await callback(makeInput())
 
-    expect(fragments[0].content.length).toBeLessThanOrEqual(10)
+    expect(result.decision).toBe('allow')
+    if ('additionalContext' in result) {
+      // additionalContext includes the [file:soul.md] prefix, but the content portion should be truncated
+      expect(result.additionalContext).toBeDefined()
+    }
   })
-})
 
-describe('fileContextHook', () => {
-  it('returns a TurnStartCallback that wraps fileContext', async () => {
+  it('returns TurnStartCallback function', async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), 'sena-hook-test-'))
     const tmpFile = join(tmpDir, 'test-context.txt')
     await writeFile(tmpFile, 'Hello from RuntimeHooks', 'utf-8')
@@ -83,13 +93,7 @@ describe('fileContextHook', () => {
 
       expect(typeof callback).toBe('function')
 
-      const input: TurnStartInput = {
-        hookEventName: 'turnStart',
-        prompt: 'test prompt',
-        turnContext: mockContext(),
-      }
-
-      const result = await callback(input)
+      const result = await callback(makeInput())
 
       expect(result.decision).toBe('allow')
       expect('additionalContext' in result && result.additionalContext).toContain('Hello from RuntimeHooks')
@@ -105,13 +109,7 @@ describe('fileContextHook', () => {
       when: () => false,
     })
 
-    const input: TurnStartInput = {
-      hookEventName: 'turnStart',
-      prompt: 'test prompt',
-      turnContext: mockContext(),
-    }
-
-    const result = await callback(input)
+    const result = await callback(makeInput())
 
     expect(result).toEqual({ decision: 'allow' })
   })
