@@ -42,6 +42,7 @@ Slack connector와 tools가 공용으로 사용하는 safe mode Markdown 변환 
 - `SLACK-MR-FR-004 [Committed][Stable]`: Markdown 텍스트의 `&`, `<`, `>`는 코드 블록과 explicit Slack token 바깥에서 Slack 규칙에 맞게 escape해야 한다.
 - `SLACK-MR-FR-005 [Committed][Stable]`: Markdown table이 있을 때 첫 table만 Slack `table` block으로 변환하고, 추가 table은 안전한 fallback으로 렌더링해야 한다.
 - `SLACK-MR-FR-006 [Committed][Stable]`: mrkdwn text object를 사용하는 block은 기본적으로 `verbatim: true`를 사용해야 한다.
+- `SLACK-MR-FR-008 [Committed][Stable]`: 반환 payload는 no-table 경로에서도 safe mode를 강제할 수 있도록 Slack 전송 옵션(`parse`, `link_names`, `unfurl_links`, `unfurl_media`)을 함께 포함해야 한다.
 - `SLACK-MR-FR-007 [Committed][Stable]`: connector와 tools는 이 공용 패키지를 통해 동일한 변환 계약을 사용해야 한다.
 - `SLACK-MR-NFR-001 [Committed][Stable]`: safe mode 회귀는 단일 테스트 스위트로 검증 가능해야 한다.
 
@@ -52,6 +53,7 @@ Slack connector와 tools가 공용으로 사용하는 safe mode Markdown 변환 
 - `SLACK-MR-AC-003`: Given `@name` 또는 `#channel` 같은 일반 문자열이 있을 때 When 변환하면 Then Slack auto parsing에 기대지 않는 plain text로 남는다.
 - `SLACK-MR-AC-004`: Given table이 포함된 Markdown이 있을 때 When `markdownToSlack()`을 호출하면 Then 첫 table은 table block, 추가 table은 fallback section으로 변환된다.
 - `SLACK-MR-AC-005`: Given table 주변 텍스트가 있을 때 When block payload를 만들면 Then mrkdwn text object는 `verbatim: true`로 렌더링된다.
+- `SLACK-MR-AC-007`: Given table이 없는 일반 메시지일 때 When `markdownToSlack()`을 호출하면 Then payload는 safe mode 전송 옵션(`parse: 'none'`, `link_names: false`, `unfurl_links: false`, `unfurl_media: false`)을 포함한다.
 - `SLACK-MR-AC-006`: Given connector와 tools가 같은 Markdown 입력을 사용할 때 When 각각 payload를 생성하면 Then 동일한 safe mode semantics를 가진다.
 
 ## 범위 경계 (Non-goals)

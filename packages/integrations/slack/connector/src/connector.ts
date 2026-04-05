@@ -8,10 +8,14 @@ import type {
   TurnEngine,
   FileAttachment,
 } from '@sena-ai/core'
+import {
+  createSlackTextPayload,
+  markdownToSlack,
+  type SlackMessagePayload,
+} from '@sena-ai/slack-mrkdwn'
 import { WebClient } from '@slack/web-api'
 import { SocketModeClient } from '@slack/socket-mode'
 import { verifySignature } from './verify.js'
-import { markdownToSlack, type SlackMessagePayload } from './mrkdwn.js'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -1225,8 +1229,8 @@ export function createSlackOutput(
         const result = await slack.chat.postMessage({
           channel,
           thread_ts: threadTs,
-          text: thinkingMessage,
-          blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage }] }],
+          ...createSlackTextPayload(thinkingMessage),
+          blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage, verbatim: true }] }],
         })
         activeTs = result.ts
         lastRenderTime = Date.now()
@@ -1256,7 +1260,7 @@ export function createSlackOutput(
     if (liveText?.trim()) {
       parts.push(liveText)
     }
-    if (parts.length === 0) return { text: '' }
+    if (parts.length === 0) return createSlackTextPayload('')
     const combined = parts.join('\n\n')
     return markdownToSlack(combined)
   }
@@ -1266,7 +1270,7 @@ export function createSlackOutput(
     const truncated = text.length + suffix.length > MAX_TEXT_LENGTH
       ? text.slice(0, MAX_TEXT_LENGTH - suffix.length) + suffix
       : text
-    return { text: truncated }
+    return createSlackTextPayload(truncated)
   }
 
   function splitTextForSlack(text: string, maxLength: number): string[] {
@@ -1315,14 +1319,22 @@ export function createSlackOutput(
     if (chunks.length === 0) return
 
     if (activeTs) {
-      await slack.chat.update({ channel, ts: activeTs, text: chunks[0] })
+      await slack.chat.update({ channel, ts: activeTs, ...createSlackTextPayload(chunks[0]) })
     } else {
-      const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, text: chunks[0] })
+      const result = await slack.chat.postMessage({
+        channel,
+        thread_ts: threadTs,
+        ...createSlackTextPayload(chunks[0]),
+      })
       activeTs = result.ts
     }
 
     for (const chunk of chunks.slice(1)) {
-      await slack.chat.postMessage({ channel, thread_ts: threadTs, text: chunk })
+      await slack.chat.postMessage({
+        channel,
+        thread_ts: threadTs,
+        ...createSlackTextPayload(chunk),
+      })
     }
   }
 
@@ -1408,7 +1420,7 @@ export function createSlackOutput(
       if (overflowBlocks > MAX_BLOCKS || overflowTextLen > MAX_TEXT_LENGTH) {
         // Truncate text to fit, strip blocks
         const truncated = overflowPayload.text.slice(0, MAX_TEXT_LENGTH - 20) + '\n\n_(truncated)_'
-        safePayload = { text: truncated }
+        safePayload = createSlackTextPayload(truncated)
       } else {
         safePayload = overflowPayload
       }
@@ -1551,20 +1563,20 @@ export function createSlackOutput(
                 await slack.chat.update({
                   channel,
                   ts: activeTs,
-                  text: `:warning: ${message}`,
+                  ...createSlackTextPayload(`:warning: ${message}`),
                 })
               } catch {
                 await slack.chat.postMessage({
                   channel,
                   thread_ts: threadTs,
-                  text: `:warning: ${message}`,
+                  ...createSlackTextPayload(`:warning: ${message}`),
                 })
               }
             } else {
               await slack.chat.postMessage({
                 channel,
                 thread_ts: threadTs,
-                text: `:warning: ${message}`,
+                ...createSlackTextPayload(`:warning: ${message}`),
               })
             }
           }

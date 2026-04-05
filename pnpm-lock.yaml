@@ -84,6 +84,9 @@ importers:
       '@sena-ai/core':
         specifier: workspace:*
         version: link:../../../core
+      '@sena-ai/slack-mrkdwn':
+        specifier: workspace:*
+        version: link:../mrkdwn
       '@slack/socket-mode':
         specifier: ^2.0.0
         version: 2.0.6
@@ -95,11 +98,20 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/integrations/slack/mrkdwn:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/integrations/slack/tools:
     dependencies:
       '@sena-ai/core':
         specifier: workspace:*
         version: link:../../../core
+      '@sena-ai/slack-mrkdwn':
+        specifier: workspace:*
+        version: link:../mrkdwn
       '@slack/web-api':
         specifier: ^7.0.0
         version: 7.15.0
