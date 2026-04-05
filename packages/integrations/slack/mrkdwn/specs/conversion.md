@@ -6,8 +6,8 @@
 
 ## 상위 스펙 연결
 
-- 관련 요구사항: `SLACK-MR-FR-001`, `SLACK-MR-FR-002`, `SLACK-MR-FR-003`, `SLACK-MR-FR-004`, `SLACK-MR-FR-005`, `SLACK-MR-FR-006`, `SLACK-MR-FR-007`
-- 관련 수용 기준: `SLACK-MR-AC-001`, `SLACK-MR-AC-002`, `SLACK-MR-AC-003`, `SLACK-MR-AC-004`, `SLACK-MR-AC-005`, `SLACK-MR-AC-006`
+- 관련 요구사항: `SLACK-MR-FR-001`, `SLACK-MR-FR-002`, `SLACK-MR-FR-003`, `SLACK-MR-FR-004`, `SLACK-MR-FR-005`, `SLACK-MR-FR-006`, `SLACK-MR-FR-007`, `SLACK-MR-FR-008`
+- 관련 수용 기준: `SLACK-MR-AC-001`, `SLACK-MR-AC-002`, `SLACK-MR-AC-003`, `SLACK-MR-AC-004`, `SLACK-MR-AC-005`, `SLACK-MR-AC-006`, `SLACK-MR-AC-007`
 
 ## Behavior
 
@@ -19,11 +19,11 @@
   3. 일반 텍스트의 `&`, `<`, `>`를 escape한다.
   4. table이 있으면 첫 table은 Slack `table` block으로 만들고, 주변 텍스트는 `verbatim: true`인 section block으로 분리한다.
   5. 추가 table은 안전한 fallback section으로 렌더링한다.
-  6. Block Kit payload를 만들더라도 safe mode fallback text를 함께 반환한다.
+  6. Block Kit payload를 만들더라도 safe mode fallback text와 safe mode 전송 옵션을 함께 반환한다.
 - Alternative Flow
-  - table이 없으면 plain `text` payload만 반환할 수 있다.
+  - table이 없어도 payload는 safe mode 전송 옵션을 반드시 포함해야 한다.
 - Outputs / Side Effects / Failure Modes
-  - 출력은 `{ text, blocks? }` 형태다.
+  - 출력은 `{ text, blocks?, parse, link_names, unfurl_links, unfurl_media }` 형태다.
   - safe mode에서 이름 문자열 기반 auto parsing은 발생하지 않는다.
   - Slack 제약을 넘는 긴 텍스트는 section limit 내로 분할한다.
 
@@ -35,6 +35,7 @@
 - `SLACK-MR-CON-004`: Slack 메시지 하나에는 직접 `table` block을 최대 1개만 사용해야 한다.
 - `SLACK-MR-CON-005`: section text는 Slack 3000자 제한 안으로 분할해야 한다.
 - `SLACK-MR-CON-006`: connector와 tools는 로컬 포크 구현이 아니라 이 공용 패키지를 사용해야 한다.
+- `SLACK-MR-CON-007`: `markdownToSlack()` 반환 payload는 no-table 경로에서도 `parse: 'none'`, `link_names: false`, `unfurl_links: false`, `unfurl_media: false`를 포함해야 한다.
 
 ## Interface
 
@@ -45,6 +46,10 @@
   - `SlackMessagePayload`
     - `text: string`
     - `blocks?: Array<Record<string, unknown>>`
+    - `parse: 'none'`
+    - `link_names: false`
+    - `unfurl_links: false`
+    - `unfurl_media: false`
 
 ## Realization
 
@@ -71,8 +76,9 @@
 ## AC
 
 - Given `a < b & c > d`가 있을 때 When `markdownToMrkdwn()`을 호출하면 Then safe mode escape가 적용된다.
-- Given `<@U123>`와 `<#C123>`가 있는 텍스트일 때 When 변환하면 Then token이 그대로 유지된다.
+- Given `<@U123>`, `<#C123>`, `<https://example.com|문서>`가 있는 텍스트일 때 When 변환하면 Then token이 그대로 유지된다.
 - Given `@alice`, `#general`이 있는 텍스트일 때 When 변환하면 Then 일반 문자열 그대로 남고 auto parsing에 의존하지 않는다.
+- Given table이 없는 일반 메시지일 때 When `markdownToSlack()`을 호출하면 Then payload는 `parse: 'none'`, `link_names: false`, `unfurl_links: false`, `unfurl_media: false`를 포함한다.
 - Given table과 주변 설명문이 함께 있을 때 When `markdownToSlack()`을 호출하면 Then 설명문 section block은 `verbatim: true`를 가진다.
 - Given table이 두 개 이상일 때 When `markdownToSlack()`을 호출하면 Then 첫 table만 table block이고 이후 table은 fallback section이 된다.
 - Given connector와 tools가 같은 입력을 쓸 때 When 각각 렌더링하면 Then 공용 패키지 import를 통해 같은 semantics를 가진 payload를 만든다.

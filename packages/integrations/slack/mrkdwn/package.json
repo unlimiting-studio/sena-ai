@@ -1,5 +1,5 @@
 {
-  "name": "@sena-ai/tools-slack",
+  "name": "@sena-ai/slack-mrkdwn",
   "version": "1.5.0",
   "type": "module",
   "exports": {
@@ -15,12 +15,6 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch"
-  },
-  "dependencies": {
-    "@sena-ai/core": "workspace:*",
-    "@sena-ai/slack-mrkdwn": "workspace:*",
-    "@slack/web-api": "^7.0.0",
-    "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.8.0"

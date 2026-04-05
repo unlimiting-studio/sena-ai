@@ -231,6 +231,7 @@ Orchestrator
 | `@sena-ai/cli` | 프로젝트 초기화와 에이전트 운영 CLI |
 | `@sena-ai/runtime-claude` | Claude Agent SDK 기반 런타임 |
 | `@sena-ai/runtime-codex` | Codex CLI App Server 기반 런타임 |
+| `@sena-ai/slack-mrkdwn` | Slack safe-mode Markdown 변환 공용 패키지 |
 | `@sena-ai/connector-slack` | Slack Events API / Socket Mode 커넥터 |
 | `@sena-ai/tools-slack` | Slack 메시지, 채널, 파일, 사용자 도구 모음 |
 | `@sena-ai/slack` | Slack 커넥터와 도구 번들 |

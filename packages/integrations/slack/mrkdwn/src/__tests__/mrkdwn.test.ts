@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { markdownToMrkdwn, markdownToSlack } from '../mrkdwn.js'
+import {
+  SAFE_SLACK_MESSAGE_OPTIONS,
+  createSlackTextPayload,
+  markdownToMrkdwn,
+  markdownToSlack,
+} from '../mrkdwn.js'
 
 describe('markdownToMrkdwn', () => {
   it('converts bold', () => {
@@ -18,12 +23,22 @@ describe('markdownToMrkdwn', () => {
     expect(markdownToMrkdwn('this is ~~deleted~~ text')).toBe('this is ~deleted~ text')
   })
 
-  it('converts links', () => {
-    expect(markdownToMrkdwn('click [here](https://example.com)')).toBe('click <https://example.com|here>')
+  it('converts links with nested parentheses', () => {
+    expect(markdownToMrkdwn('click [here](https://example.com/a_(b))')).toBe(
+      'click <https://example.com/a_(b)|here>',
+    )
   })
 
   it('converts images to links', () => {
     expect(markdownToMrkdwn('![alt text](https://img.png)')).toBe('<https://img.png|alt text>')
+  })
+
+  it('preserves explicit Slack link tokens', () => {
+    expect(markdownToMrkdwn('열기 <https://example.com|문서>')).toBe('열기 <https://example.com|문서>')
+  })
+
+  it('preserves explicit mention and channel tokens', () => {
+    expect(markdownToMrkdwn('<@U123> in <#C123|general>')).toBe('<@U123> in <#C123|general>')
   })
 
   it('converts headings to bold', () => {
@@ -36,6 +51,10 @@ describe('markdownToMrkdwn', () => {
 
   it('converts unordered list markers to bullets', () => {
     expect(markdownToMrkdwn('- item 1\n- item 2\n* item 3')).toBe('• item 1\n• item 2\n• item 3')
+  })
+
+  it('escapes plain-text angle brackets and ampersands', () => {
+    expect(markdownToMrkdwn('a < b & c > d')).toBe('a &lt; b &amp; c &gt; d')
   })
 
   it('preserves inline code', () => {
@@ -69,10 +88,22 @@ describe('markdownToMrkdwn', () => {
   })
 })
 
+describe('createSlackTextPayload', () => {
+  it('applies safe-mode message options', () => {
+    expect(createSlackTextPayload('hello')).toEqual({
+      text: 'hello',
+      ...SAFE_SLACK_MESSAGE_OPTIONS,
+    })
+  })
+})
+
 describe('markdownToSlack', () => {
-  it('returns plain text when no tables', () => {
+  it('returns safe text payload when no tables', () => {
     const result = markdownToSlack('just **bold** text')
-    expect(result).toEqual({ text: 'just *bold* text' })
+    expect(result).toEqual({
+      text: 'just *bold* text',
+      ...SAFE_SLACK_MESSAGE_OPTIONS,
+    })
     expect(result.blocks).toBeUndefined()
   })
 
@@ -84,7 +115,7 @@ describe('markdownToSlack', () => {
 
     const table = result.blocks![0]
     expect(table.type).toBe('table')
-    expect(table.rows).toHaveLength(3) // header + 2 data rows
+    expect(table.rows).toHaveLength(3)
     expect(table.column_settings).toEqual([{ align: 'left' }, { align: 'left' }])
 
     const rows = table.rows as Array<Array<{ type: string; text: string }>>
@@ -98,6 +129,12 @@ describe('markdownToSlack', () => {
     ])
   })
 
+  it('detects single-column markdown tables', () => {
+    const md = '| Col |\n|---|\n| value |'
+    const result = markdownToSlack(md)
+    expect(result.blocks?.[0].type).toBe('table')
+  })
+
   it('respects column alignment from separator row', () => {
     const md = '| Left | Center | Right |\n|:-----|:------:|------:|\n| a | b | c |'
     const result = markdownToSlack(md)
@@ -109,13 +146,17 @@ describe('markdownToSlack', () => {
     ])
   })
 
-  it('wraps surrounding text in section blocks', () => {
+  it('wraps surrounding text in verbatim section blocks', () => {
     const md = 'Before table\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAfter table'
     const result = markdownToSlack(md)
     expect(result.blocks).toHaveLength(3)
-    expect(result.blocks![0].type).toBe('section')
+    const first = result.blocks![0] as { type: string; text?: { verbatim?: boolean } }
+    const last = result.blocks![2] as { type: string; text?: { verbatim?: boolean } }
+    expect(first.type).toBe('section')
+    expect(first.text?.verbatim).toBe(true)
     expect(result.blocks![1].type).toBe('table')
-    expect(result.blocks![2].type).toBe('section')
+    expect(last.type).toBe('section')
+    expect(last.text?.verbatim).toBe(true)
   })
 
   it('does not convert tables inside code blocks', () => {
@@ -129,10 +170,9 @@ describe('markdownToSlack', () => {
     const result = markdownToSlack(md)
     expect(result.blocks).toBeDefined()
     const tableBlocks = result.blocks!.filter(b => b.type === 'table')
-    expect(tableBlocks).toHaveLength(1) // only first table is a real table block
+    expect(tableBlocks).toHaveLength(1)
 
     const sectionBlocks = result.blocks!.filter(b => b.type === 'section')
-    // second table should be in a section as a code block
     const hasCodeBlock = sectionBlocks.some(b => {
       const text = (b.text as { text: string })?.text ?? ''
       return text.includes('```')
@@ -144,15 +184,17 @@ describe('markdownToSlack', () => {
     const md = '| A | B | C |\n|---|---|---|\n| 1 |'
     const result = markdownToSlack(md)
     const rows = result.blocks![0].rows as Array<Array<{ type: string; text: string }>>
-    expect(rows[1]).toHaveLength(3) // padded to match header count
+    expect(rows[1]).toHaveLength(3)
     expect(rows[1][1].text).toBe('')
     expect(rows[1][2].text).toBe('')
   })
 
-  it('includes fallback text for notifications', () => {
+  it('includes fallback text and safe-mode options for notifications', () => {
     const md = '| A | B |\n|---|---|\n| 1 | 2 |'
     const result = markdownToSlack(md)
-    expect(typeof result.text).toBe('string')
-    expect(result.text.length).toBeGreaterThan(0)
+    expect(result).toMatchObject({
+      text: expect.any(String),
+      ...SAFE_SLACK_MESSAGE_OPTIONS,
+    })
   })
 })

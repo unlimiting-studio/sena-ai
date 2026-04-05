@@ -10,6 +10,14 @@ function getText(args: object): string {
   return typeof value === 'string' ? value : ''
 }
 
+function getParse(args: object): unknown {
+  return Reflect.get(args, 'parse')
+}
+
+function getLinkNames(args: object): unknown {
+  return Reflect.get(args, 'link_names')
+}
+
 function createSlackMock(overrides?: {
   update?: SlackClientLike['chat']['update']
   postMessage?: SlackClientLike['chat']['postMessage']
@@ -63,6 +71,8 @@ describe('createSlackOutput', () => {
 
     expect(postCalls).toHaveLength(1)
     expect(getText(postCalls[0])).toBe('트리거별 메시지')
+    expect(getParse(postCalls[0])).toBe('none')
+    expect(getLinkNames(postCalls[0])).toBe(false)
   })
 
   it('suppresses the global thinkingMessage when metadata sets it to false', async () => {
@@ -139,6 +149,31 @@ describe('createSlackOutput', () => {
     expect(postCalls).toHaveLength(1)
     expect(updateCalls).toHaveLength(1)
     expect(getText(updateCalls[0])).toContain('계속 생성 중')
+    expect(getParse(updateCalls[0])).toBe('none')
+  })
+
+  it('sends plain-text chunk fallbacks with safe-mode options', async () => {
+    const { slack, postCalls, updateCalls } = createSlackMock({
+      update: vi.fn(async (args) => {
+        updateCalls.push(args)
+        throw new Error('force chunk fallback')
+      }),
+    })
+
+    const output = createSlackOutput(
+      slack,
+      { connector: 'slack', conversationId: 'C0AFW5Y133J:1775295864.093159' },
+      ':loading-dots: 브렌이 생각 중이에요',
+    )
+
+    const longText = '설명 '.repeat(1400)
+    await output.sendResult(longText)
+
+    expect(updateCalls.length).toBeGreaterThan(0)
+    expect(getParse(updateCalls[updateCalls.length - 1])).toBe('none')
+    expect(getLinkNames(updateCalls[updateCalls.length - 1])).toBe(false)
+    expect(getParse(postCalls[postCalls.length - 1])).toBe('none')
+    expect(getLinkNames(postCalls[postCalls.length - 1])).toBe(false)
   })
 
   it('replaces the last growing preview with the final answer instead of duplicating both', async () => {
