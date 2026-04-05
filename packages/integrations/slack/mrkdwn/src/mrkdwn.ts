@@ -80,7 +80,7 @@ export function markdownToMrkdwn(md: string): string {
   text = escapePlainText(text)
 
   for (let i = placeholders.length - 1; i >= 0; i--) {
-    text = text.replace(`${PH}PH_${i}${PH}`, placeholders[i])
+    text = text.replaceAll(`${PH}PH_${i}${PH}`, placeholders[i])
   }
 
   return text
