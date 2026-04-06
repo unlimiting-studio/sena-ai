@@ -99,7 +99,24 @@ export function registerInit(program: Command): void {
       console.log('')
       console.log('Next steps:')
       console.log(`  cd ${botName}`)
-      console.log(tmpl.envHint)
-      console.log('  npx sena start')
+      console.log('')
+      if (existsSync(resolve(targetDir, 'slack-app-manifest.json'))) {
+        console.log('  1. Create a Slack app using the manifest:')
+        console.log('     → https://api.slack.com/apps?new_app=1')
+        console.log('     → Choose "From a manifest" and paste the contents of slack-app-manifest.json')
+        console.log('')
+        console.log('  2. Install the app to your workspace and copy the tokens into .env:')
+        console.log('     → SLACK_APP_ID    : Basic Information → App ID')
+        console.log('     → SLACK_BOT_TOKEN : OAuth & Permissions → Bot User OAuth Token (xoxb-...)')
+        console.log('     → SLACK_APP_TOKEN : Basic Information → App-Level Tokens → Generate (connections:write scope, xapp-...)')
+        console.log('')
+        console.log('  3. Start your bot:')
+        console.log('     npx sena start')
+      } else {
+        console.log(tmpl.envHint)
+        console.log('  npx sena start')
+      }
+
+      process.exit(0)
     })
 }
