@@ -1,6 +1,5 @@
 # Heartbeat Check
 
-> Korean version: [HEARTBEAT_CHECK.ko.md](./HEARTBEAT_CHECK.ko.md)
 
 Check team channels periodically and help proactively when it makes sense.
 

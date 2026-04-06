@@ -1,6 +1,5 @@
 # SYSTEM
 
-> Korean version: [SYSTEM.ko.md](./SYSTEM.ko.md)
 
 ## Operating Principles
 
