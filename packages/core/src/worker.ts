@@ -252,6 +252,9 @@ export function createWorker(options: WorkerOptions) {
     // IMPORTANT: if a turn errors, catch it and continue processing remaining
     // pending messages so they are not permanently lost.
     let lastError: unknown = null
+    // Track whether the current event originated from a follow-up hook.
+    // Follow-up turns must NOT spawn further follow-ups (prevents recursive onTurnEnd).
+    let isFollowUpTurn = false
     while (true) {
       let followUps: import('./types.js').TurnFollowUp[] = []
       try {
@@ -261,24 +264,31 @@ export function createWorker(options: WorkerOptions) {
         lastError = err
       }
 
-      // Process followUps from onTurnEnd hooks
-      for (const followUp of followUps) {
-        if (!followUp.fork) {
-          // Blocking followUp: enqueue as pending event (same session)
-          pendingEvents.push({ ...event, text: followUp.prompt })
-          console.log(`[worker] enqueued blocking follow-up from onTurnEnd hook`)
-        } else {
-          // Fork followUp: spawn in background (fire-and-forget)
-          spawnForkedTurn(event, followUp)
+      // Process followUps from onTurnEnd hooks — but only for non-follow-up turns.
+      // This prevents turn1 → followUp turn2 → followUp turn3 → ... recursion.
+      if (!isFollowUpTurn) {
+        for (const followUp of followUps) {
+          if (!followUp.fork) {
+            // Blocking followUp: enqueue as pending event (same session)
+            pendingEvents.push({ ...event, text: followUp.prompt, _isFollowUp: true } as InboundEvent & { _isFollowUp: boolean })
+            console.log(`[worker] enqueued blocking follow-up from onTurnEnd hook`)
+          } else {
+            // Fork followUp: spawn in background (fire-and-forget)
+            spawnForkedTurn(event, followUp)
+          }
         }
+      } else if (followUps.length > 0) {
+        console.log(`[worker] ignoring ${followUps.length} follow-up(s) from hook-originated turn (recursion guard)`)
       }
 
       if (pendingEvents.length === 0) break
 
       // Leftover messages that weren't steered or follow-ups — process as new turn
       // using the original event's full metadata (userId, userName, files, raw)
-      event = pendingEvents.shift()!
-      console.log(`[worker] processing next pending message as new turn (${pendingEvents.length} remaining)`)
+      const nextEvent = pendingEvents.shift()!
+      isFollowUpTurn = '_isFollowUp' in nextEvent && (nextEvent as InboundEvent & { _isFollowUp?: boolean })._isFollowUp === true
+      event = nextEvent
+      console.log(`[worker] processing next pending message as new turn (${pendingEvents.length} remaining)${isFollowUpTurn ? ' [follow-up]' : ''}`)
     }
 
     // Note: we intentionally do NOT re-throw lastError here.
