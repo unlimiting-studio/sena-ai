@@ -1,4 +1,7 @@
 # Daily Briefing
+
+> Korean version: [DAILY_BRIEFING.ko.md](./DAILY_BRIEFING.ko.md)
+
 Write today's daily briefing and share it in the team channel.
 
 ## Procedure

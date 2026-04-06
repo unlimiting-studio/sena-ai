@@ -1,4 +1,7 @@
 # Project Setup Guide
+
+> Korean version: [project-setup.ko.md](./project-setup.ko.md)
+
 ## Start with `sena init` (Recommended)
 
 ```bash
