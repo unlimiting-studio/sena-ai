@@ -258,7 +258,7 @@ export function createWorker(options: WorkerOptions) {
     while (true) {
       let followUps: import('./types.js').TurnFollowUp[] = []
       try {
-        followUps = await executeTurn(event, pendingMessages, abortSignal)
+        followUps = await executeTurn(event, pendingMessages, abortSignal, isFollowUpTurn ? { isFollowUp: true } : undefined)
       } catch (err) {
         console.error(`[worker] turn error in ${event.conversationId}, will process remaining pending messages (${pendingEvents.length} left):`, err)
         lastError = err
@@ -301,7 +301,7 @@ export function createWorker(options: WorkerOptions) {
   /**
    * Executes a single turn. Returns follow-up prompts from onTurnEnd hooks (if any).
    */
-  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource, abortSignal?: AbortSignal): Promise<import('./types.js').TurnFollowUp[]> {
+  async function executeTurn(event: InboundEvent, pendingMessages?: import('./types.js').PendingMessageSource, abortSignal?: AbortSignal, metadata?: Record<string, unknown>): Promise<import('./types.js').TurnFollowUp[]> {
     // Create output for the originating connector
     const connector = connectorMap.get(event.connector)
     if (!connector) {
@@ -326,6 +326,7 @@ export function createWorker(options: WorkerOptions) {
         trigger: 'connector',
         sessionId: existingSessionId,
         abortSignal,
+        metadata,
         connector: {
           name: event.connector,
           conversationId: event.conversationId,

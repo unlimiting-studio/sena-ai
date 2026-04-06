@@ -176,13 +176,15 @@ export function createTurnEngine(config: TurnEngineConfig) {
 
     // === onTurnEnd hooks (RuntimeHooks) ===
     const followUps: import('./types.js').TurnFollowUp[] = []
-    if (result) {
+    const isFollowUpTurn = context.metadata.isFollowUp === true
+    const isForkedTurn = context.metadata.forkedFrom != null
+    // Skip onTurnEnd hooks entirely for follow-up turns (prevents recursive chain)
+    if (result && !isFollowUpTurn) {
       const turnEndInput: TurnEndInput = {
         hookEventName: 'turnEnd',
         result,
         turnContext: context,
       }
-      const isForkedTurn = context.metadata.forkedFrom != null
       for (const callback of hooks?.onTurnEnd ?? []) {
         try {
           const hookResult = await callback(turnEndInput)
