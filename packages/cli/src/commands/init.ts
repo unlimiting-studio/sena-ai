@@ -2,41 +2,62 @@ import type { Command } from 'commander'
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { resolve, basename } from 'node:path'
 import { execSync } from 'node:child_process'
+import { input, select } from '@inquirer/prompts'
 
-const TEMPLATES: Record<string, { repo: string; envHint: string }> = {
+const TEMPLATES: Record<string, { label: string; repo: string; envHint: string }> = {
   'slack-integration': {
+    label: 'Slack Integration — Slack Socket Mode 직접 연결',
     repo: 'unlimiting-studio/sena-ai/templates/slack-integration',
     envHint: '  # Edit .env with your Slack credentials',
   },
-  'platform-integration': {
-    repo: 'unlimiting-studio/sena-ai/templates/platform-integration',
-    envHint: '  # Edit .env with your CONNECT_KEY and PLATFORM_URL',
-  },
 }
-
-const DEFAULT_TEMPLATE = 'slack-integration'
 
 export function registerInit(program: Command): void {
   program
-    .command('init <name>')
+    .command('init [name]')
     .description('Create a new Sena bot project')
-    .option('-t, --template <template>', `template to use (${Object.keys(TEMPLATES).join(', ')})`, DEFAULT_TEMPLATE)
-    .action(async (name: string, opts: { template: string }) => {
+    .option('-t, --template <template>', 'template to use')
+    .action(async (nameArg: string | undefined, opts: { template?: string }) => {
+      // Interactive name prompt if not provided
+      const name =
+        nameArg ||
+        (await input({
+          message: 'Bot name:',
+          validate: (v) => (v.trim() ? true : 'Name is required'),
+        }))
+
       const targetDir = resolve(process.cwd(), name)
       const botName = basename(targetDir)
-
-      const tmpl = TEMPLATES[opts.template]
-      if (!tmpl) {
-        console.error(`Unknown template '${opts.template}'. Available: ${Object.keys(TEMPLATES).join(', ')}`)
-        process.exit(1)
-      }
 
       if (existsSync(targetDir)) {
         console.error(`Directory '${botName}' already exists.`)
         process.exit(1)
       }
 
-      console.log(`Creating '${botName}' (template: ${opts.template})...`)
+      // Interactive template selection if not provided
+      const templateKeys = Object.keys(TEMPLATES)
+      let templateKey = opts.template
+      if (!templateKey) {
+        if (templateKeys.length === 1) {
+          templateKey = templateKeys[0]
+        } else {
+          templateKey = await select({
+            message: 'Template:',
+            choices: templateKeys.map((key) => ({
+              name: TEMPLATES[key].label,
+              value: key,
+            })),
+          })
+        }
+      }
+
+      const tmpl = TEMPLATES[templateKey]
+      if (!tmpl) {
+        console.error(`Unknown template '${templateKey}'. Available: ${templateKeys.join(', ')}`)
+        process.exit(1)
+      }
+
+      console.log(`\nCreating '${botName}' (template: ${templateKey})...\n`)
 
       // Download template via degit
       const degit = (await import('degit')).default
