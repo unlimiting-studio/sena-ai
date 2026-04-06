@@ -80,7 +80,7 @@ export default defineConfig({
             `Record the key points of the previous conversation in the journal.`,
             ``,
             `- The current time and message context (channel, user) are already present in the system prompt, so use them.`,
-            `- Use the filename journal/{today's date}.md, for example journal/2026-04-06.md.`,
+            `- Use the filename ./journal/{today's date}.md, for example ./journal/2026-04-06.md.`,
             `- If the file already exists, read it first so you do not duplicate entries. Append only the new information.`,
             ``,
             `## Entry Format`,
