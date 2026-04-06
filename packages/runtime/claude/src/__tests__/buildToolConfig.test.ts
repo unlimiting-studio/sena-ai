@@ -124,7 +124,7 @@ describe('buildToolConfig', () => {
 
   it('formats debug options without throwing for SDK native MCP servers', () => {
     const nativeServer = createSdkMcpServer({
-      name: '__native__',
+      name: '_native',
       tools: [{
         name: 'hello',
         description: 'hello tool',
@@ -135,15 +135,15 @@ describe('buildToolConfig', () => {
 
     expect(() => formatDebugOptionsForLog({
       model: 'claude-opus-4-6',
-      mcpServers: { __native__: nativeServer },
+      mcpServers: { _native: nativeServer },
     }, 'system prompt')).not.toThrow()
 
     const debugOutput = formatDebugOptionsForLog({
       model: 'claude-opus-4-6',
-      mcpServers: { __native__: nativeServer },
+      mcpServers: { _native: nativeServer },
     }, 'system prompt')
 
-    expect(debugOutput).toContain('"__native__"')
+    expect(debugOutput).toContain('"_native"')
     expect(debugOutput).toContain('"type": "sdk"')
   })
 })

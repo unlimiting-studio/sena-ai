@@ -4,7 +4,7 @@ import { SdkMessageMapper, type ToolResultMeta } from './mapper.js'
 import { startInlineMcpHttpBridge } from './inline-mcp-bridge.js'
 import { buildSdkHooks, defaultSlackBlockHook } from './hook-adapter.js'
 
-const NATIVE_SERVER_NAME = '__native__'
+const NATIVE_SERVER_NAME = '_native'
 const NATIVE_SLACK_TOOL_PREFIX = `mcp__${NATIVE_SERVER_NAME}__slack_`
 const STREAM_CLOSED_TEXT = 'Stream closed'
 const MAX_RECONNECTS = 1
