@@ -1,7 +1,4 @@
 # Weekly Retrospective
-
-> Korean version: [WEEKLY_RETROSPECTIVE.ko.md](./WEEKLY_RETROSPECTIVE.ko.md)
-
 Summarize this week's activity and share it in the team channel.
 
 ## Procedure

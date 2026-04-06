@@ -1,7 +1,4 @@
 # Writing and Managing `sena.config.ts`
-
-> Korean version: [config-guide.ko.md](./config-guide.ko.md)
-
 This is the entry point for all agent configuration. Declare it with `defineConfig()`.
 
 ## Full Config Example

@@ -2,9 +2,6 @@
 name: sena-ai
 description: Use this skill when building or modifying an AI agent with the @sena-ai framework. It covers new-project setup, Slack connectors (HTTP/Socket Mode), writing sena.config.ts (runtime, hooks, schedules), defining custom tools, connecting MCP servers, and operating the CLI.
 ---
-
-> Korean version: [SKILL.ko.md](./SKILL.ko.md)
-
 # sena-ai Agent Framework
 
 `@sena-ai` is a config-driven AI agent framework. Define runtimes, connectors, tools, hooks, and schedules in a single `sena.config.ts`, then operate everything through a zero-downtime CLI.

@@ -1,7 +1,4 @@
 # Sena AI
-
-> Korean version: [README.ko.md](./README.ko.md)
-
 A config-driven AI agent framework monorepo. Compose runtimes, connectors, tools, hooks, schedules, and the orchestrator in a single `sena.config.ts`, then use the `sena` CLI for local operations and template bootstrapping.
 
 ## Key Features

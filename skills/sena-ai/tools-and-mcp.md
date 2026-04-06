@@ -1,7 +1,4 @@
 # Defining Custom Tools and Connecting MCP
-
-> Korean version: [tools-and-mcp.ko.md](./tools-and-mcp.ko.md)
-
 ## Inline Tools (`defineTool`)
 
 ```typescript

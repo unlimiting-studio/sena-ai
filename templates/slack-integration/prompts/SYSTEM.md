@@ -1,7 +1,4 @@
 # SYSTEM
-
-> Korean version: [SYSTEM.ko.md](./SYSTEM.ko.md)
-
 ## Operating Principles
 
 Be genuinely helpful, not performatively helpful.

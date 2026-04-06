@@ -1,7 +1,4 @@
 # User - <!-- Fill in the user's name -->
-
-> Korean version: [USER.ko.md](./USER.ko.md)
-
 <!--
 This file stores information about the user you work with.
 The user can fill it in directly, or you can update it with things learned through conversation.
