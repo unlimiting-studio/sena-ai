@@ -1,8 +1,30 @@
 import type { Command } from 'commander'
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { resolve, basename } from 'node:path'
+import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync, statSync } from 'node:fs'
+import { resolve, basename, extname } from 'node:path'
 import { execSync } from 'node:child_process'
 import { input, select } from '@inquirer/prompts'
+
+/** Text file extensions to scan for placeholder replacement */
+const TEXT_EXTENSIONS = new Set([
+  '.ts', '.js', '.json', '.md', '.txt', '.yaml', '.yml', '.toml', '.env', '.template',
+])
+
+/** Recursively replace %%BOT_NAME%% in all text files under a directory */
+function replacePlaceholdersRecursive(dir: string, botName: string): void {
+  for (const entry of readdirSync(dir)) {
+    const fullPath = resolve(dir, entry)
+    const stat = statSync(fullPath)
+    if (stat.isDirectory()) {
+      if (entry === 'node_modules' || entry === '.git') continue
+      replacePlaceholdersRecursive(fullPath, botName)
+    } else if (stat.isFile() && TEXT_EXTENSIONS.has(extname(entry).toLowerCase())) {
+      const content = readFileSync(fullPath, 'utf-8')
+      if (content.includes('%%BOT_NAME%%')) {
+        writeFileSync(fullPath, content.replace(/%%BOT_NAME%%/g, botName))
+      }
+    }
+  }
+}
 
 const TEMPLATES: Record<string, { label: string; repo: string; envHint: string }> = {
   'slack-integration': {
@@ -64,25 +86,14 @@ export function registerInit(program: Command): void {
       const emitter = degit(tmpl.repo, { cache: false })
       await emitter.clone(targetDir)
 
-      // Replace placeholders
-      const configPath = resolve(targetDir, 'sena.config.ts')
+      // Replace %%BOT_NAME%% in all text files recursively
+      replacePlaceholdersRecursive(targetDir, botName)
+
+      // Also replace package name
       const pkgPath = resolve(targetDir, 'package.json')
-
-      let config = readFileSync(configPath, 'utf-8')
-      config = config.replace(/%%BOT_NAME%%/g, botName)
-      writeFileSync(configPath, config)
-
       let pkg = readFileSync(pkgPath, 'utf-8')
       pkg = pkg.replace('"sena-bot"', `"${botName}"`)
       writeFileSync(pkgPath, pkg)
-
-      // Replace placeholders in manifest if present
-      const manifestPath = resolve(targetDir, 'slack-app-manifest.json')
-      if (existsSync(manifestPath)) {
-        let manifest = readFileSync(manifestPath, 'utf-8')
-        manifest = manifest.replace(/%%BOT_NAME%%/g, botName)
-        writeFileSync(manifestPath, manifest)
-      }
 
       // .env.template → .env
       const envTemplate = resolve(targetDir, '.env.template')
