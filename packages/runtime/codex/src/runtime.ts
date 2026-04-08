@@ -12,6 +12,8 @@ export type CodexRuntimeOptions = {
   approvalPolicy?: 'never' | 'on-request' | 'always'
   /** Explicit override for the Codex executable path or command. */
   codexBin?: string
+  /** Tool name patterns to always disallow. Merged with per-turn disabledTools. */
+  disallowedTools?: string[]
 }
 
 export function buildCodexConfigOverrides(
@@ -60,6 +62,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
     sandboxMode = 'danger-full-access',
     approvalPolicy = 'never',
     codexBin,
+    disallowedTools: staticDisallowedTools = [],
   } = options
 
   return {
@@ -75,14 +78,32 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         tools = [],
         pendingMessages,
         hooks,
+        disabledTools,
       } = streamOptions
+
+      // Merge static disallowedTools with per-turn disabledTools.
+      // Codex CLI does not currently support a disabledTools config override,
+      // so we filter the tools array at the runtime layer for any remaining matches
+      // (engine already filters exact-match ToolPort names, but static disallowedTools
+      // and pattern matches need to be handled here).
+      const mergedDisallowedTools = [...staticDisallowedTools, ...(disabledTools ?? [])]
+      if (mergedDisallowedTools.length > 0) {
+        console.log(`[runtime-codex] disabledTools (merged): ${JSON.stringify(mergedDisallowedTools)}`)
+      }
 
       if (apiKey) {
         process.env.OPENAI_API_KEY = apiKey
       }
 
-      const inlineTools = tools.filter((t): t is InlineToolPort => t.type === 'inline')
-      const mcpTools = tools.filter((t): t is McpToolPort => t.type === 'mcp-http' || t.type === 'mcp-stdio')
+      // Filter tools by mergedDisallowedTools (exact name match).
+      // Engine already did exact-match filtering for per-turn disabledTools on ToolPort names,
+      // but static disallowedTools from runtime config need runtime-level filtering.
+      const filteredTools = mergedDisallowedTools.length > 0
+        ? tools.filter((t) => !mergedDisallowedTools.includes(t.name))
+        : tools
+
+      const inlineTools = filteredTools.filter((t): t is InlineToolPort => t.type === 'inline')
+      const mcpTools = filteredTools.filter((t): t is McpToolPort => t.type === 'mcp-http' || t.type === 'mcp-stdio')
 
       const bridge = await startInlineMcpHttpServer(inlineTools)
       const configOverrides = buildCodexConfigOverrides(bridge?.url ?? null, mcpTools)

@@ -60,8 +60,8 @@ type SlackThinkingMessage = string | false
 
 type SlackPromptSource =
   | string
-  | { text: string; thinkingMessage?: SlackThinkingMessage }
-  | { file: string; thinkingMessage?: SlackThinkingMessage }
+  | { text: string; thinkingMessage?: SlackThinkingMessage; disabledTools?: string[] }
+  | { file: string; thinkingMessage?: SlackThinkingMessage; disabledTools?: string[] }
 
 export type SlackMessageTriggerFunctionResult = SlackPromptSource
 
@@ -282,10 +282,11 @@ function isPromptSourceResult(value: unknown): value is Exclude<SlackPromptSourc
   const hasFile = typeof value.file === 'string'
   if (hasText === hasFile) return false
   if (value.thinkingMessage !== undefined && !isThinkingMessage(value.thinkingMessage)) return false
+  if (value.disabledTools !== undefined && !Array.isArray(value.disabledTools)) return false
 
   const allowedKeys = hasText
-    ? ['text', 'thinkingMessage']
-    : ['file', 'thinkingMessage']
+    ? ['text', 'thinkingMessage', 'disabledTools']
+    : ['file', 'thinkingMessage', 'disabledTools']
   return Object.keys(value).every(key => allowedKeys.includes(key))
 }
 
@@ -444,6 +445,14 @@ function buildReactionInputText(prompt: string, event: SlackReactionTriggerEvent
 
   const sections = [prompt.trim(), lines.join('\n')].filter((part) => part.length > 0)
   return sections.join('\n\n')
+}
+
+function getDisabledTools(
+  source: SlackPromptSource | SlackMessagePromptTrigger | SlackReactionPromptTrigger,
+): string[] | undefined {
+  if (typeof source === 'string' || isFunction(source)) return undefined
+  if ('disabledTools' in source && Array.isArray(source.disabledTools)) return source.disabledTools
+  return undefined
 }
 
 function getThinkingMessageOverride(
@@ -902,6 +911,7 @@ export async function processSlackEvent(
         globalThinkingMessage,
       )
       const prompt = await resolvePromptSource(selectedRule.source, promptBaseDir)
+      const disabledTools = getDisabledTools(selectedRule.source)
       const inbound: InboundEvent = {
         connector: 'slack',
         conversationId: context.conversationId,
@@ -914,6 +924,7 @@ export async function processSlackEvent(
           triggerKind: 'reaction',
           thinkingMessage,
         },
+        disabledTools,
       }
 
       activeThreads.add(context.conversationId)
@@ -996,6 +1007,7 @@ export async function processSlackEvent(
       getThinkingMessageOverride(selected.source),
       globalThinkingMessage,
     )
+    const disabledTools = getDisabledTools(selected.source)
     const files = messageEvent.files.length > 0
       ? await downloadSlackFiles(messageEvent.files, botToken)
       : undefined
@@ -1011,6 +1023,7 @@ export async function processSlackEvent(
         triggerKind: selected.kind,
         thinkingMessage,
       },
+      disabledTools,
     }
 
     activeThreads.add(conversationId)

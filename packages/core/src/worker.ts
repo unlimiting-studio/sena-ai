@@ -437,7 +437,11 @@ export function createWorker(options: WorkerOptions) {
               userName: originalEvent.userName,
               raw: originalEvent.raw,
             },
-            metadata: { forkedFrom: originalEvent.conversationId },
+            metadata: {
+              forkedFrom: originalEvent.conversationId,
+              isFollowUp: true,
+            },
+            disabledTools: originalEvent.disabledTools,
           })
 
           // Save forked session under its own key (don't pollute original)
@@ -467,7 +471,10 @@ export function createWorker(options: WorkerOptions) {
                   userName: originalEvent.userName,
                   raw: originalEvent.raw,
                 },
-                metadata: { forkedFrom: originalEvent.conversationId },
+                metadata: {
+                  forkedFrom: originalEvent.conversationId,
+                  isFollowUp: true,
+                },
               })
               if (childTrace.result?.sessionId) {
                 await sessionStore.set(forkConversationId, childTrace.result.sessionId)

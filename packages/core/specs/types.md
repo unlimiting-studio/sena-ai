@@ -41,7 +41,7 @@
 - Tool:
   `ToolPort`, `McpToolPort`, `InlineToolPort`, `InlineToolDef`
 - Schedule/Session/Config:
-  `Schedule`, `SessionStore`, `SenaConfig`, `OrchestratorConfig`
+  `Schedule` (`name`, `type`, `expression`, `prompt`, `timezone?`, `disabledTools?: string[]`), `SessionStore`, `SenaConfig`, `OrchestratorConfig`
 
 ## Realization
 
@@ -63,6 +63,7 @@
 - Given 커넥터가 inbound 이벤트를 생성할 때, When `InboundEvent`를 전달하면, Then Worker는 conversation/session/tool 비활성화 정보를 해석할 수 있다.
 - Given 커넥터가 `InboundEvent.raw`에 per-turn 메타데이터를 넣을 때, When Worker가 `createOutput()`을 호출하면, Then `ConnectorOutputContext.metadata`로 해당 값이 전달된다.
 - Given 인라인 도구와 MCP 도구가 혼재할 때, When core가 이를 받으면, Then `ToolPort` 유니온으로 동일하게 전달할 수 있다.
+- Given `Schedule`에 `disabledTools`가 설정됐을 때, When scheduler가 턴을 생성하면, Then `ProcessTurnOptions.disabledTools`로 전달할 수 있다.
 ## 개편 메모
 
 - AGENTS.md 가이드에 맞춰 상위/상세 스펙 섹션과 traceability를 정규화했다.

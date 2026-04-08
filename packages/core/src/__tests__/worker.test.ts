@@ -488,4 +488,79 @@ describe('createWorker', () => {
 
     await worker.stop()
   })
+
+  it('marks fork follow-up turns as hook-originated so onTurnEnd does not recurse', async () => {
+    const seenInputs: string[] = []
+    const forkTurnSeen = createDeferred()
+    let hookCalls = 0
+    let turnEngine: TurnEngine | undefined
+
+    const runtime: Runtime = {
+      name: 'fork-followup-runtime',
+      async *createStream(options): AsyncGenerator<RuntimeEvent> {
+        let input = ''
+        for await (const message of options.prompt) {
+          input += message.text
+        }
+        seenInputs.push(input)
+        if (input === 'follow-1') {
+          forkTurnSeen.resolve()
+        }
+        yield { type: 'result', text: input }
+      },
+    }
+
+    const connector: Connector = {
+      name: 'fork-followup-capture',
+      registerRoutes(_server, engine) {
+        turnEngine = engine
+      },
+      createOutput() {
+        return {
+          async showProgress() {},
+          async sendResult() {},
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const worker = createWorker({
+      config: defineConfig({
+        name: 'fork-followup-worker',
+        runtime,
+        connectors: [connector],
+        hooks: {
+          onTurnEnd: [async () => {
+            hookCalls += 1
+            if (hookCalls === 1) {
+              return { followUp: 'follow-1', fork: true }
+            }
+            return { followUp: 'follow-2', fork: true }
+          }],
+        },
+      }),
+      port: 0,
+    })
+    stopFn = () => worker.stop()
+
+    expect(turnEngine).toBeDefined()
+    const connectorEngine = turnEngine!
+
+    await connectorEngine.submitTurn({
+      connector: 'fork-followup-capture',
+      conversationId: 'C1:300.1',
+      userId: 'U1',
+      userName: 'tester',
+      text: 'start',
+      raw: { id: 'raw-start' },
+    })
+
+    await forkTurnSeen.promise
+    await worker.stop()
+    stopFn = null
+
+    expect(hookCalls).toBe(1)
+    expect(seenInputs).toEqual(['start', 'follow-1'])
+  })
 })

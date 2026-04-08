@@ -222,6 +222,8 @@ export type Schedule = {
   expression: string
   prompt: string
   timezone?: string
+  /** Tool names/patterns to disable for turns triggered by this schedule (blocklist). */
+  disabledTools?: string[]
 }
 
 // === SessionStore (Part 8) ===

@@ -76,6 +76,7 @@ export function createScheduler(options: SchedulerOptions) {
           name: schedule.name,
           type: schedule.type,
         },
+        disabledTools: schedule.disabledTools,
       })
     } catch (err) {
       console.error(`Schedule "${schedule.name}" failed:`, err)

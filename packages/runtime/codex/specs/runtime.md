@@ -20,14 +20,15 @@
 - Main Flow:
   1. 시스템 컨텍스트를 `baseInstructions`로 조립한다.
   2. `prepend`/`append` 프래그먼트로 사용자 메시지를 감싼다.
-  3. 인라인 도구와 외부 MCP 도구를 분리한다.
-  4. 인라인 도구가 있으면 로컬 HTTP MCP 서버를 기동한다.
-  5. `codexBin` override가 없으면 공식 `@openai/codex` 패키지에서 managed executable 경로를 해상한다.
-  6. 설정 오버라이드와 함께 Codex App Server 클라이언트를 spawn/initialize한다.
-  7. 세션 ID가 있으면 `threadResume`, 없으면 `threadStart` 후 `session.init`을 발행한다.
-  8. `turnStart()`로 턴을 시작하고 알림 큐를 drain하며 `RuntimeEvent`를 yield한다.
-  9. `tool.end` 경계에서 `pendingMessages`가 있으면 `turnSteer()`를 시도한다.
-  10. 종료 또는 abort 시 프로세스와 MCP 서버를 정리한다.
+  3. `disabledTools`(정적 `disallowedTools` + per-turn `disabledTools` 병합)를 Codex 설정 오버라이드의 `disabledTools` 필드로 전달한다. Codex CLI가 해당 옵션을 지원하지 않으면 engine 레이어의 ToolPort 필터링에 의존하고, 미지원 사실을 debug log로 남긴다.
+  4. 인라인 도구와 외부 MCP 도구를 분리한다.
+  5. 인라인 도구가 있으면 로컬 HTTP MCP 서버를 기동한다.
+  6. `codexBin` override가 없으면 공식 `@openai/codex` 패키지에서 managed executable 경로를 해상한다.
+  7. 설정 오버라이드와 함께 Codex App Server 클라이언트를 spawn/initialize한다.
+  8. 세션 ID가 있으면 `threadResume`, 없으면 `threadStart` 후 `session.init`을 발행한다.
+  9. `turnStart()`로 턴을 시작하고 알림 큐를 drain하며 `RuntimeEvent`를 yield한다.
+  10. `tool.end` 경계에서 `pendingMessages`가 있으면 `turnSteer()`를 시도한다.
+  11. 종료 또는 abort 시 프로세스와 MCP 서버를 정리한다.
 - Alternative Flow:
   세션 ID가 있으면 기존 thread를 재개한다.
 - Failure Modes:
@@ -53,9 +54,9 @@
 - 팩토리:
   `codexRuntime(options?: CodexRuntimeOptions): Runtime`
 - 옵션:
-  `model`, `apiKey`, `reasoningEffort`, `sandboxMode`, `approvalPolicy`, `codexBin`
+  `model`, `apiKey`, `reasoningEffort`, `sandboxMode`, `approvalPolicy`, `codexBin`, `disallowedTools?: string[]`
 - 입력 계약:
-  `RuntimeStreamOptions`의 `contextFragments`, `prompt`, `sessionId`, `cwd`, `abortSignal`, `tools`, `pendingMessages`
+  `RuntimeStreamOptions`의 `contextFragments`, `prompt`, `sessionId`, `cwd`, `abortSignal`, `tools`, `pendingMessages`, `disabledTools`
 - 출력 계약:
   `AsyncGenerator<RuntimeEvent>`
 - 이벤트 규칙:
@@ -87,6 +88,8 @@
 - Given steer 실패가 발생할 때, When 런타임이 오류를 받으면, Then 대기 메시지는 복원되어 follow-up 턴으로 이어질 수 있다.
 - Given abortSignal이 발화될 때, When 스트림이 종료되면, Then 자식 프로세스와 인라인 MCP 서버는 모두 닫힌다.
 - Given `codexBin`이 주어지지 않을 때, When 런타임이 App Server를 실행하면, Then 공식 `@openai/codex` 패키지의 managed executable을 기본 사용한다.
+- Given `disabledTools: ['Bash']`가 per-turn으로 전달될 때, When Codex CLI가 `disabledTools` 옵션을 지원하면, Then 해당 도구가 Codex 세션에서 차단된다.
+- Given `disallowedTools: ['Write']`가 정적으로 설정되고 per-turn `disabledTools: ['Edit']`가 전달될 때, When 런타임이 실행되면, Then 두 목록이 병합되어 `['Write', 'Edit']`가 적용된다.
 ## 개편 메모
 
 - AGENTS.md 가이드에 맞춰 상위/상세 스펙 섹션과 traceability를 정규화했다.

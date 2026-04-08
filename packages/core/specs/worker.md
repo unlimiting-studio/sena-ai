@@ -27,6 +27,7 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
        - `detached: true`이면 커넥터 출력을 억제한다 (NullOutput 사용).
        - `detached: false`이면 원본 커넥터로 결과를 전송한다.
        - fork 턴의 에러는 로그만 남기고 원본 턴에 전파하지 않는다.
+     - Blocking/Fork 공통으로, hook-originated follow-up turn은 `metadata.isFollowUp === true`로 표시하여 해당 turn의 `onTurnEnd` 재실행과 중첩 follow-up 생성을 막는다.
   8. drain 시 새 턴을 거부하고 서버/커넥터/스케줄러를 멈춘 뒤 활성 턴과 활성 fork 모두 종료를 기다린다.
 - Failure Modes:
   턴 오류는 해당 커넥터 output으로 전달하되 abort로 인한 종료는 사용자 에러로 전송하지 않는다.
@@ -73,6 +74,7 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
 - Given drain이 시작될 때, When 새 턴이 도착하면, Then Worker는 이를 거부하고 기존 활성 턴과 활성 fork를 마무리한다.
 - Given 턴이 fork follow-up을 가질 때, When Worker가 follow-up을 처리하면, Then `spawnForkedTurn()`이 호출되어 별도 세션에서 실행되고 원본 턴 처리에는 영향을 주지 않는다.
 - Given 턴이 blocking follow-up을 가질 때, When Worker가 follow-up을 처리하면, Then 같은 대화 큐의 후속 턴으로 순차 실행된다.
+- Given 턴이 fork follow-up을 가질 때, When Worker가 forked turn을 실행하면, Then 해당 forked turn은 hook-originated metadata로 표시되어 또 다른 `onTurnEnd` follow-up turn을 만들지 않는다.
 - Given detached fork 턴일 때, When 결과가 생성되면, Then 커넥터 출력이 억제되고 세션만 저장된다.
 - Given 턴이 성공 종료될 때, When 세션 ID가 생기면, Then 세션 스토어에 conversationId -> sessionId가 저장된다.
 - Given 서로 다른 `raw`를 가진 pending event가 steer drain 후 restore될 때, When 후속 turn으로 처리되면, Then 각 event는 자신의 원본 `raw`를 유지하고, 현재 turn의 `raw`로 대체되지 않는다.
@@ -81,4 +83,3 @@ Worker는 커넥터 서빙, 세션 저장, steer 큐잉, 스케줄 실행, grace
 
 - AGENTS.md 가이드에 맞춰 상위/상세 스펙 섹션과 traceability를 정규화했다.
 - 기존 구현 계약을 바꾸지 않고 문서 구조와 검증 기준을 명확히 재배치했다.
-

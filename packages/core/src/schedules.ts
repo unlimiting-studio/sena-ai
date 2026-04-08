@@ -4,6 +4,8 @@ export type CronScheduleOptions = {
   name: string
   prompt: string
   timezone?: string
+  /** Tool names/patterns to disable for turns triggered by this schedule. */
+  disabledTools?: string[]
 }
 
 /**
@@ -18,12 +20,15 @@ export function cronSchedule(expression: string, options: CronScheduleOptions): 
     expression,
     prompt: options.prompt,
     ...(options.timezone && { timezone: options.timezone }),
+    ...(options.disabledTools && { disabledTools: options.disabledTools }),
   }
 }
 
 export type HeartbeatOptions = {
   prompt: string
   name?: string
+  /** Tool names/patterns to disable for turns triggered by this schedule. */
+  disabledTools?: string[]
 }
 
 /**
@@ -36,5 +41,6 @@ export function heartbeat(interval: string, options: HeartbeatOptions): Schedule
     type: 'heartbeat',
     expression: interval,
     prompt: options.prompt,
+    ...(options.disabledTools && { disabledTools: options.disabledTools }),
   }
 }
