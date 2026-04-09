@@ -427,7 +427,7 @@ function buildMessageInputText(prompt: string, messageText: string): string {
   return sections.join('\n\n')
 }
 
-function buildReactionInputText(prompt: string, event: SlackReactionTriggerEvent): string {
+function buildReactionContextText(event: SlackReactionTriggerEvent): string {
   const lines = [
     `reaction: :${event.reaction}:`,
     `actorUserId: ${event.userId}`,
@@ -443,8 +443,48 @@ function buildReactionInputText(prompt: string, event: SlackReactionTriggerEvent
     event.text || '(empty)',
   ].filter((line) => line.length > 0)
 
-  const sections = [prompt.trim(), lines.join('\n')].filter((part) => part.length > 0)
+  return lines.join('\n')
+}
+
+function buildReactionInputText(prompt: string, event: SlackReactionTriggerEvent): string {
+  const contextText = buildReactionContextText(event)
+  const sections = [prompt.trim(), contextText].filter((part) => part.length > 0)
   return sections.join('\n\n')
+}
+
+function getPromptSourceMetadata(
+  source: ResolvedSlackPromptSource,
+): { triggerPromptSource: 'inline-string' | 'inline-text' | 'file'; triggerPromptFile?: string } {
+  if (typeof source === 'string') {
+    return { triggerPromptSource: 'inline-string' }
+  }
+  if ('text' in source) {
+    return { triggerPromptSource: 'inline-text' }
+  }
+  return {
+    triggerPromptSource: 'file',
+    triggerPromptFile: source.file,
+  }
+}
+
+function buildReactionInboundText(prompt: string, event: SlackReactionTriggerEvent): {
+  fullText: string
+  userText: string
+} {
+  return {
+    fullText: buildReactionInputText(prompt, event),
+    userText: buildReactionContextText(event),
+  }
+}
+
+function buildMessageInboundText(prompt: string, messageText: string): {
+  fullText: string
+  userText: string
+} {
+  return {
+    fullText: buildMessageInputText(prompt, messageText),
+    userText: messageText,
+  }
 }
 
 function getDisabledTools(
@@ -911,18 +951,22 @@ export async function processSlackEvent(
         globalThinkingMessage,
       )
       const prompt = await resolvePromptSource(selectedRule.source, promptBaseDir)
+      const promptSourceMeta = getPromptSourceMetadata(selectedRule.source)
+      const inboundText = buildReactionInboundText(prompt, context.filterEvent)
       const disabledTools = getDisabledTools(selectedRule.source)
       const inbound: InboundEvent = {
         connector: 'slack',
         conversationId: context.conversationId,
         userId: context.filterEvent.userId,
         userName: context.filterEvent.userName ?? '',
-        text: buildReactionInputText(prompt, context.filterEvent),
+        text: inboundText.fullText,
+        userText: inboundText.userText,
         files: context.files,
         raw: {
           ...(isRecord(context.filterEvent.raw) ? context.filterEvent.raw : { value: context.filterEvent.raw }),
           triggerKind: 'reaction',
           thinkingMessage,
+          ...promptSourceMeta,
         },
         disabledTools,
       }
@@ -1003,10 +1047,12 @@ export async function processSlackEvent(
 
   try {
     const prompt = await resolvePromptSource(selected.source, promptBaseDir)
+    const promptSourceMeta = getPromptSourceMetadata(selected.source)
     const thinkingMessage = resolveThinkingMessage(
       getThinkingMessageOverride(selected.source),
       globalThinkingMessage,
     )
+    const inboundText = buildMessageInboundText(prompt, messageEvent.text)
     const disabledTools = getDisabledTools(selected.source)
     const files = messageEvent.files.length > 0
       ? await downloadSlackFiles(messageEvent.files, botToken)
@@ -1016,12 +1062,14 @@ export async function processSlackEvent(
       conversationId,
       userId: messageEvent.userId,
       userName,
-      text: buildMessageInputText(prompt, messageEvent.text),
+      text: inboundText.fullText,
+      userText: inboundText.userText,
       files,
       raw: {
         ...body,
         triggerKind: selected.kind,
         thinkingMessage,
+        ...promptSourceMeta,
       },
       disabledTools,
     }

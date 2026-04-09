@@ -120,7 +120,9 @@ describe('processSlackEvent', () => {
 
     const inbound = firstSubmittedEvent(engine)
     expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('message')
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerPromptSource : undefined).toBe('inline-text')
     expect(inbound.text).toContain('message prompt')
+    expect(inbound.userText).toBe('일반 스레드 메시지')
     expect(inbound.conversationId).toBe('C1:150.0')
   })
 
@@ -446,7 +448,10 @@ describe('processSlackEvent', () => {
     expect(inbound.text).toContain('동적 프롬프트')
     expect(inbound.text).toContain('<@UBOT> 도와줘')
     expect(isRecord(inbound.raw) ? inbound.raw.triggerKind : undefined).toBe('mention')
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerPromptSource : undefined).toBe('file')
+    expect(isRecord(inbound.raw) ? inbound.raw.triggerPromptFile : undefined).toBe('./dynamic.md')
     expect(isRecord(inbound.raw) ? inbound.raw.thinkingMessage : undefined).toBe(false)
+    expect(inbound.userText).toBe('<@UBOT> 도와줘')
   })
 
   it('stores trigger-level thinkingMessage on the inbound raw payload', async () => {

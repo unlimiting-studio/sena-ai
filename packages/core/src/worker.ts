@@ -149,6 +149,7 @@ export function createWorker(options: WorkerOptions) {
     ? createScheduler({
         schedules: config.schedules,
         onTurn: (turnOptions) => engine.processTurn(turnOptions),
+        baseDir: config.cwd ?? process.cwd(),
       })
     : null
 
@@ -270,7 +271,7 @@ export function createWorker(options: WorkerOptions) {
         for (const followUp of followUps) {
           if (!followUp.fork) {
             // Blocking followUp: enqueue as pending event (same session)
-            pendingEvents.push({ ...event, text: followUp.prompt, _isFollowUp: true } as InboundEvent & { _isFollowUp: boolean })
+            pendingEvents.push({ ...event, text: followUp.prompt, userText: followUp.prompt, _isFollowUp: true } as InboundEvent & { _isFollowUp: boolean })
             console.log(`[worker] enqueued blocking follow-up from onTurnEnd hook`)
           } else {
             // Fork followUp: spawn in background (fire-and-forget)
@@ -323,6 +324,7 @@ export function createWorker(options: WorkerOptions) {
 
       const trace = await engine.processTurn({
         input: event.text,
+        userInput: event.userText ?? event.text,
         trigger: 'connector',
         sessionId: existingSessionId,
         abortSignal,
@@ -428,6 +430,7 @@ export function createWorker(options: WorkerOptions) {
         try {
           const trace = await engine.processTurn({
             input: followUp.prompt,
+            userInput: followUp.prompt,
             trigger: 'connector',
             sessionId: originalSessionId,
             connector: {

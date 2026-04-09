@@ -139,6 +139,8 @@ export type InboundEvent = {
   userId: string
   userName: string
   text: string
+  /** Original user-facing message text before connector-level prompts are prepended/appended. */
+  userText?: string
   files?: FileAttachment[]
   raw: unknown
   /** Tool names/patterns to disable for this turn (blocklist). */
@@ -216,11 +218,13 @@ export type ToolPort = McpToolPort | InlineToolPort
 
 // === Schedule (Part 7) ===
 
+export type SchedulePromptSource = string | { file: string }
+
 export type Schedule = {
   name: string
   type: 'cron' | 'heartbeat'
   expression: string
-  prompt: string
+  prompt: SchedulePromptSource
   timezone?: string
   /** Tool names/patterns to disable for turns triggered by this schedule (blocklist). */
   disabledTools?: string[]

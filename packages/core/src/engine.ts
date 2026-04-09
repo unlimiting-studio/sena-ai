@@ -22,6 +22,8 @@ export type TurnEngineConfig = {
 
 export type ProcessTurnOptions = {
   input: string
+  /** Original user-facing input before connector-level prompt text is merged in. */
+  userInput?: string
   trigger?: 'connector' | 'schedule' | 'programmatic'
   sessionId?: string | null
   connector?: TurnContext['connector']
@@ -46,11 +48,13 @@ export function createTurnEngine(config: TurnEngineConfig) {
 
     console.log(`[engine] turn ${turnId.slice(0, 8)} start — trigger:${trigger}, input:"${options.input.slice(0, 80)}"`)
 
+    const userInput = options.userInput ?? options.input
+
     const context: TurnContext = {
       turnId,
       agentName: name,
       trigger,
-      input: options.input,
+      input: userInput,
       connector: options.connector,
       schedule: options.schedule,
       sessionId: options.sessionId ?? null,
@@ -75,6 +79,18 @@ export function createTurnEngine(config: TurnEngineConfig) {
         c.userName && c.userName !== c.userId ? `userName: ${c.userName}` : null,
       ].filter(Boolean).join(', ')
       let contextContent = `[Current Message Context] ${parts}`
+      const raw = isRecord(c.raw) ? c.raw : undefined
+      const triggerKind = raw ? readString(raw, 'triggerKind') : undefined
+      const triggerPromptSource = raw ? readString(raw, 'triggerPromptSource') : undefined
+      const triggerPromptFile = raw ? readString(raw, 'triggerPromptFile') : undefined
+      if (triggerKind || triggerPromptSource || triggerPromptFile) {
+        const triggerParts = [
+          triggerKind ? `triggerKind: ${triggerKind}` : null,
+          triggerPromptSource ? `promptSource: ${triggerPromptSource}` : null,
+          triggerPromptFile ? `promptFile: ${triggerPromptFile}` : null,
+        ].filter(Boolean).join(', ')
+        contextContent += `\n[Trigger Context] ${triggerParts}`
+      }
       if (c.files?.length) {
         const fileDescs = c.files.map(f => {
           if (f.localPath) return `${f.name} (${f.mimeType}) → ${f.localPath}`
@@ -94,7 +110,7 @@ export function createTurnEngine(config: TurnEngineConfig) {
       try {
         const turnStartInput: TurnStartInput = {
           hookEventName: 'turnStart',
-          prompt: options.input,
+          prompt: userInput,
           turnContext: context,
         }
         const decision = await callback(turnStartInput)
@@ -224,6 +240,15 @@ export function createTurnEngine(config: TurnEngineConfig) {
 }
 
 // === Internal helpers ===
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function readString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' ? value : undefined
+}
 
 function assembleContext(fragments: ContextFragment[]): string {
   const systemFragments = fragments.filter(f => f.role === 'system')

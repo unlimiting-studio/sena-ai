@@ -61,6 +61,44 @@ describe('TurnEngine', () => {
     expect(capturedOptions!.hooks?.onTurnStart).toBeUndefined()
   })
 
+  it('uses userInput for TurnContext and hooks while preserving full runtime input', async () => {
+    const seen: { hookPrompt?: string; turnInput?: string; runtimePrompt?: string } = {}
+    const onTurnStartCallback = vi.fn(async (input) => {
+      seen.hookPrompt = input.prompt
+      seen.turnInput = input.turnContext.input
+      return { decision: 'allow' as const }
+    })
+
+    const runtime = {
+      name: 'capture-prompt',
+      async *createStream(options: RuntimeStreamOptions): AsyncGenerator<RuntimeEvent> {
+        for await (const msg of options.prompt) {
+          seen.runtimePrompt = msg.text
+          break
+        }
+        yield { type: 'session.init', sessionId: 'sess-user-input' }
+        yield { type: 'result', text: 'ok' }
+      },
+    }
+
+    const engine = createTurnEngine({
+      name: 'test',
+      cwd: '/tmp',
+      runtime,
+      hooks: { onTurnStart: [onTurnStartCallback] },
+      tools: [],
+    })
+
+    await engine.processTurn({
+      input: 'connector prompt\n\n실제 사용자 메시지',
+      userInput: '실제 사용자 메시지',
+    })
+
+    expect(seen.hookPrompt).toBe('실제 사용자 메시지')
+    expect(seen.turnInput).toBe('실제 사용자 메시지')
+    expect(seen.runtimePrompt).toBe('connector prompt\n\n실제 사용자 메시지')
+  })
+
   it('records error in trace when runtime fails', async () => {
     const failRuntime = createFailRuntime('runtime exploded')
 

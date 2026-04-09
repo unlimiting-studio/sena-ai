@@ -1,8 +1,8 @@
-import type { Schedule } from './types.js'
+import type { Schedule, SchedulePromptSource } from './types.js'
 
 export type CronScheduleOptions = {
   name: string
-  prompt: string
+  prompt: SchedulePromptSource
   timezone?: string
   /** Tool names/patterns to disable for turns triggered by this schedule. */
   disabledTools?: string[]
@@ -25,7 +25,7 @@ export function cronSchedule(expression: string, options: CronScheduleOptions): 
 }
 
 export type HeartbeatOptions = {
-  prompt: string
+  prompt: SchedulePromptSource
   name?: string
   /** Tool names/patterns to disable for turns triggered by this schedule. */
   disabledTools?: string[]

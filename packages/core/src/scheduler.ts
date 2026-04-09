@@ -1,10 +1,14 @@
-import type { Schedule, TurnTrace } from './types.js'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import type { Schedule, SchedulePromptSource, TurnTrace } from './types.js'
 import type { ProcessTurnOptions } from './engine.js'
 
 export type SchedulerOptions = {
   schedules: Schedule[]
   onTurn: (options: ProcessTurnOptions) => Promise<TurnTrace>
   timezone?: string
+  /** Base directory for resolving `{ file }` prompt sources. Defaults to `process.cwd()`. */
+  baseDir?: string
 }
 
 type ScheduleEntry = {
@@ -51,8 +55,16 @@ export function matchesCron(expression: string, date: Date, timezone?: string): 
   )
 }
 
+async function resolveSchedulePrompt(
+  source: SchedulePromptSource,
+  baseDir: string,
+): Promise<string> {
+  if (typeof source === 'string') return source
+  return readFile(resolve(baseDir, source.file), 'utf8')
+}
+
 export function createScheduler(options: SchedulerOptions) {
-  const { onTurn, timezone = 'UTC' } = options
+  const { onTurn, timezone = 'UTC', baseDir = process.cwd() } = options
   const entries: ScheduleEntry[] = []
   let stopped = false
 
@@ -69,8 +81,9 @@ export function createScheduler(options: SchedulerOptions) {
     entry.running = true
 
     try {
+      const prompt = await resolveSchedulePrompt(schedule.prompt, baseDir)
       await onTurn({
-        input: schedule.prompt,
+        input: prompt,
         trigger: 'schedule',
         schedule: {
           name: schedule.name,
