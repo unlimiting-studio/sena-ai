@@ -136,6 +136,16 @@ export type ClaudeRuntimeOptions = {
   model?: string
   apiKey?: string
   maxTurns?: number
+  /**
+   * Controls how much effort Claude puts into its response.
+   * Works with adaptive thinking to guide thinking depth.
+   *
+   * - `'low'` — Minimal thinking, fastest responses
+   * - `'medium'` — Moderate thinking
+   * - `'high'` — Deep reasoning (default)
+   * - `'max'` — Maximum effort (Opus 4.6 only)
+   */
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'max'
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
   /**
    * Tool name patterns to auto-allow without permission prompts (e.g. 'Read', 'Bash', 'mcp__*').
@@ -153,6 +163,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
     model = 'claude-sonnet-4-6',
     apiKey,
     maxTurns,
+    reasoningEffort,
     permissionMode = 'dontAsk',
     allowedTools: configAllowedTools = permissionMode === 'dontAsk' ? [...DEFAULT_ALLOWED_TOOLS] : undefined,
     disallowedTools: staticDisallowedTools = [],
@@ -201,6 +212,7 @@ export function claudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime {
       const sdkOptions: Record<string, any> = {
         model: streamOptions.model || model,
         ...(maxTurns != null && { maxTurns }),
+        ...(reasoningEffort != null && { effort: reasoningEffort }),
         cwd: cwd || process.cwd(),
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',

@@ -107,6 +107,9 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
 
       const bridge = await startInlineMcpHttpServer(inlineTools)
       const configOverrides = buildCodexConfigOverrides(bridge?.url ?? null, mcpTools)
+      if (reasoningEffort) {
+        configOverrides.push(`model_reasoning_effort="${reasoningEffort}"`)
+      }
 
       const client = new CodexAppServerClient(codexBin)
 
