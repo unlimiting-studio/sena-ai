@@ -29,7 +29,7 @@ type Segment = { type: 'text' | 'table'; content: string }
 
 const SECTION_TEXT_LIMIT = 3000
 const EXPLICIT_SLACK_TOKEN_RE =
-  /<(?:@[A-Z0-9]+(?:\|[^>\n]+)?|#[A-Z0-9]+(?:\|[^>\n]+)?|![^>\n]+|(?:https?|mailto|tel|slack):[^>\n]+|www\.[^>\n]+)>/gi
+  /<?<(?:@[A-Z0-9]+(?:\|[^>\n]+)?|#[A-Z0-9]+(?:\|[^>\n]+)?|![^>\n]+|(?:https?|mailto|tel|slack):[^>\n]+|www\.[^>\n]+)>>?/gi
 
 export function createSlackTextPayload(text: string): SlackMessagePayload {
   return {
@@ -61,7 +61,13 @@ export function markdownToMrkdwn(md: string): string {
 
   let text = md.replace(/```[\s\S]*?```/g, match => hold(match))
   text = text.replace(/`[^`\n]+`/g, match => hold(match))
-  text = text.replace(EXPLICIT_SLACK_TOKEN_RE, match => hold(match))
+  text = text.replace(EXPLICIT_SLACK_TOKEN_RE, match => {
+    // Normalize: strip extra outer brackets  <<token>> → <token>
+    let inner = match
+    if (inner.startsWith('<<')) inner = inner.slice(1)
+    if (inner.endsWith('>>')) inner = inner.slice(0, -1)
+    return hold(inner)
+  })
   text = replaceMarkdownImages(text, hold)
   text = replaceMarkdownLinks(text, hold)
 
@@ -78,6 +84,12 @@ export function markdownToMrkdwn(md: string): string {
   text = text.replace(/^(?:>\s?)+/gm, match => hold(match))
 
   text = escapePlainText(text)
+
+  // Strip entity-encoded brackets wrapping Slack token placeholders
+  // e.g. &lt;<url|label>&gt; from previously-encoded text
+  const phPat = `\u200B\u200BPH_\\d+\u200B\u200B`
+  text = text.replace(new RegExp(`&lt;(${phPat})`, 'g'), '$1')
+  text = text.replace(new RegExp(`(${phPat})&gt;`, 'g'), '$1')
 
   for (let i = placeholders.length - 1; i >= 0; i--) {
     text = text.replaceAll(`${PH}PH_${i}${PH}`, placeholders[i])

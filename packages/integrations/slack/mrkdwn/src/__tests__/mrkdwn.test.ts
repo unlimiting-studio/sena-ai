@@ -86,6 +86,30 @@ describe('markdownToMrkdwn', () => {
     const input = '> this is a quote'
     expect(markdownToMrkdwn(input)).toBe('> this is a quote')
   })
+
+  it('normalizes double-bracket wrapped Slack tokens', () => {
+    expect(markdownToMrkdwn('<<https://slack.com/archives/C1/p123|쓰레드>>')).toBe(
+      '<https://slack.com/archives/C1/p123|쓰레드>',
+    )
+  })
+
+  it('normalizes double-bracket Slack tokens with surrounding text', () => {
+    expect(markdownToMrkdwn('여기 <<https://example.com|link>> 참고')).toBe(
+      '여기 <https://example.com|link> 참고',
+    )
+  })
+
+  it('strips entity-encoded brackets wrapping raw Slack tokens', () => {
+    expect(markdownToMrkdwn('&lt;<https://example.com|link>&gt;')).toBe(
+      '<https://example.com|link>',
+    )
+  })
+
+  it('preserves entity-encoded Slack tokens as-is (intentional escaping)', () => {
+    expect(markdownToMrkdwn('&lt;https://example.com|link&gt;')).toBe(
+      '&lt;https://example.com|link&gt;',
+    )
+  })
 })
 
 describe('createSlackTextPayload', () => {
