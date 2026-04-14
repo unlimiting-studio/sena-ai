@@ -128,7 +128,42 @@ describe('createSlackOutput', () => {
     }
   })
 
-  it('keeps oversized live progress in one message instead of posting duplicate thread messages', async () => {
+
+
+  it('bypasses throttle and rolls live preview into continuation messages before hitting Slack limits', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { slack, postCalls, updateCalls } = createSlackMock()
+      const output = createSlackOutput(
+        slack,
+        { connector: 'slack', conversationId: 'C0AFW5Y133J:1775295864.093159' },
+        false,
+      )
+
+      const longText = Array.from({ length: 900 }, (_, i) => `단어${i}`).join(' ')
+      await output.showProgress(longText.slice(0, 120))
+      expect(postCalls).toHaveLength(1)
+      expect(updateCalls).toHaveLength(0)
+
+      await output.showProgress(longText)
+
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1)
+      expect(postCalls.length).toBeGreaterThanOrEqual(2)
+
+      const firstChunk = getText(updateCalls[updateCalls.length - 1])
+      const continuation = getText(postCalls[postCalls.length - 1])
+
+      expect(firstChunk.length).toBeLessThanOrEqual(2200)
+      expect(continuation.length).toBeLessThanOrEqual(2200)
+      expect(longText.startsWith(firstChunk)).toBe(true)
+      expect(longText.includes(continuation)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('splits oversized live progress into continuation messages without truncation markers or duplicate payloads', async () => {
     const { slack, postCalls, updateCalls } = createSlackMock()
     const output = createSlackOutput(
       slack,
@@ -146,17 +181,20 @@ describe('createSlackOutput', () => {
       output.showProgress(longC),
     ])
 
-    expect(postCalls).toHaveLength(1)
-    expect(updateCalls).toHaveLength(1)
-    expect(getText(updateCalls[0])).toContain('계속 생성 중')
-    expect(getParse(updateCalls[0])).toBe('none')
+    expect(postCalls.length).toBeGreaterThan(1)
+    expect(updateCalls.length).toBeGreaterThanOrEqual(1)
+
+    const texts = [...postCalls, ...updateCalls].map(getText)
+    expect(texts.some(text => text.includes('계속 생성 중'))).toBe(false)
+    expect(new Set(texts).size).toBe(texts.length)
+    expect([...postCalls, ...updateCalls].every(call => getParse(call) === 'none')).toBe(true)
   })
 
-  it('sends plain-text chunk fallbacks with safe-mode options', async () => {
+  it('sends plain-text chunked final messages with safe-mode options', async () => {
     const { slack, postCalls, updateCalls } = createSlackMock({
       update: vi.fn(async (args) => {
         updateCalls.push(args)
-        throw new Error('force chunk fallback')
+        throw new Error('force chunk delivery')
       }),
     })
 

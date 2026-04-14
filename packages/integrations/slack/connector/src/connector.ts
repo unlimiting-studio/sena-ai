@@ -1247,6 +1247,7 @@ export function createSlackOutput(
   let currentText = ''                // Latest progress text (live step)
   let activeTs: string | undefined    // Message ts being updated
   let frozenStepCount = 0             // Steps baked into previous (frozen) messages
+  let livePrefixLength = 0            // Plain-text live preview already frozen into previous messages
   let lastRenderTime = 0
   let finalized = false               // true after sendResult/sendError
   let renderPromise: Promise<void> | null = null
@@ -1256,6 +1257,7 @@ export function createSlackOutput(
   const THROTTLE_MS = 1500
   const MAX_BLOCKS = 45       // Leave headroom below Slack's 50-block limit
   const MAX_TEXT_LENGTH = 2800 // Slack text field limit ~3000 chars; leave buffer
+  const LIVE_CHUNK_LENGTH = 2200
   const FINAL_CHUNK_LENGTH = 2600
 
   // --- Serialize all Slack API calls to prevent race conditions ---
@@ -1326,12 +1328,35 @@ export function createSlackOutput(
     return markdownToSlack(combined)
   }
 
-  function createSafeLivePayload(text: string): SlackMessagePayload {
-    const suffix = '\n\n_(계속 생성 중...)_'
-    const truncated = text.length + suffix.length > MAX_TEXT_LENGTH
-      ? text.slice(0, MAX_TEXT_LENGTH - suffix.length) + suffix
-      : text
-    return createSlackTextPayload(truncated)
+  function renderStepsText(steps: string[], liveText?: string): string {
+    const parts = [...steps]
+    if (liveText?.trim()) {
+      parts.push(liveText)
+    }
+    return parts.join('\n\n')
+  }
+
+  function takeSlackTextChunk(text: string, maxLength: number): { chunk: string, consumed: number } {
+    if (text.length <= maxLength) {
+      return { chunk: text.trimEnd(), consumed: text.length }
+    }
+
+    const newlineBreak = text.lastIndexOf('\n', maxLength)
+    const spaceBreak = text.lastIndexOf(' ', maxLength)
+    const preferredBreak = Math.max(newlineBreak, spaceBreak)
+    const splitAt = preferredBreak >= Math.floor(maxLength * 0.6) ? preferredBreak : maxLength
+    const chunk = text.slice(0, splitAt).trimEnd()
+
+    if (!chunk) {
+      return { chunk: text.slice(0, maxLength), consumed: maxLength }
+    }
+
+    let consumed = splitAt
+    while (consumed < text.length && /\s/u.test(text[consumed] ?? '')) {
+      consumed += 1
+    }
+
+    return { chunk, consumed }
   }
 
   function splitTextForSlack(text: string, maxLength: number): string[] {
@@ -1341,25 +1366,12 @@ export function createSlackOutput(
     const chunks: string[] = []
     let remaining = source
 
-    while (remaining.length > maxLength) {
-      const newlineBreak = remaining.lastIndexOf('\n', maxLength)
-      const spaceBreak = remaining.lastIndexOf(' ', maxLength)
-      const preferredBreak = Math.max(newlineBreak, spaceBreak)
-      const splitAt = preferredBreak >= Math.floor(maxLength * 0.6) ? preferredBreak : maxLength
-      const chunk = remaining.slice(0, splitAt).trimEnd()
-
-      if (!chunk) {
-        chunks.push(remaining.slice(0, maxLength))
-        remaining = remaining.slice(maxLength).trimStart()
-        continue
-      }
-
+    while (remaining.length > 0) {
+      const { chunk, consumed } = takeSlackTextChunk(remaining, maxLength)
+      if (!chunk) break
       chunks.push(chunk)
-      remaining = remaining.slice(splitAt).trimStart()
-    }
-
-    if (remaining) {
-      chunks.push(remaining)
+      if (consumed >= remaining.length) break
+      remaining = remaining.slice(consumed).trimStart()
     }
 
     return chunks
@@ -1399,11 +1411,42 @@ export function createSlackOutput(
     }
   }
 
-  async function queueRender(options?: { final?: boolean }): Promise<void> {
+  async function renderLivePreview(): Promise<void> {
+    const source = renderStepsText(completedSteps, currentText)
+    if (!source.trim()) return
+
+    while (livePrefixLength < source.length && /\s/u.test(source[livePrefixLength] ?? '')) {
+      livePrefixLength += 1
+    }
+
+    let remaining = source.slice(livePrefixLength)
+    if (!remaining.trim()) return
+
+    while (remaining.length > 0) {
+      const { chunk, consumed } = takeSlackTextChunk(remaining, LIVE_CHUNK_LENGTH)
+      if (!chunk.trim()) return
+
+      await updateOrCreateMessage(createSlackTextPayload(chunk))
+
+      if (consumed >= remaining.length) {
+        return
+      }
+
+      livePrefixLength += consumed
+      activeTs = undefined
+
+      while (livePrefixLength < source.length && /\s/u.test(source[livePrefixLength] ?? '')) {
+        livePrefixLength += 1
+      }
+      remaining = source.slice(livePrefixLength)
+    }
+  }
+
+  async function queueRender(options?: { final?: boolean, urgent?: boolean }): Promise<void> {
     clearTrailingRenderTimer()
 
     if (renderPromise) {
-      if (options?.final) {
+      if (options?.final || options?.urgent) {
         await renderPromise
         return queueRender(options)
       }
@@ -1430,69 +1473,23 @@ export function createSlackOutput(
   }
 
   /** Update or create the active Slack message. Handles overflow. */
-  async function renderMessage(options?: { final?: boolean }): Promise<void> {
+  async function renderMessage(options?: { final?: boolean, urgent?: boolean }): Promise<void> {
+    if (!options?.final) {
+      await renderLivePreview()
+      return
+    }
+
     // Determine which steps to render in the active message
     const stepsForMessage = completedSteps.slice(frozenStepCount)
-    const liveText = options?.final ? undefined : currentText
-    const payload = renderSteps(stepsForMessage, liveText)
+    const payload = renderSteps(stepsForMessage)
 
     if (!payload.text.trim()) return
 
     const blockCount = payload.blocks?.length ?? 1
     const textLength = payload.text.length
 
-    if (options?.final && (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH)) {
+    if (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH) {
       await renderFinalInChunks(payload.text)
-      return
-    }
-
-    if (!options?.final && (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH)) {
-      const safePayload = createSafeLivePayload(payload.text)
-      try {
-        await updateOrCreateMessage(safePayload)
-      } catch (err) {
-        console.warn('[slack] live preview fallback failed:', err)
-      }
-      return
-    }
-
-    // --- Overflow check: block count OR text length ---
-    if (!options?.final && activeTs && (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH)) {
-      // 1. Freeze the current message with only its completed steps (no live text)
-      const frozenPayload = renderSteps(completedSteps.slice(frozenStepCount))
-      if (frozenPayload.text.trim()) {
-        try {
-          await slack.chat.update({ channel, ts: activeTs, ...frozenPayload })
-        } catch {
-          // Best-effort — old message may stay with stale live text
-        }
-      }
-
-      // 2. Start a new message with only the latest step(s)
-      frozenStepCount = Math.max(0, completedSteps.length - 1)
-      const overflowSteps = completedSteps.slice(frozenStepCount)
-      const overflowPayload = renderSteps(overflowSteps, liveText)
-
-      // Guard: if even the overflow payload exceeds limits (single huge step),
-      // truncate to fit rather than creating an infinite chain of overflow messages
-      const overflowBlocks = overflowPayload.blocks?.length ?? 1
-      const overflowTextLen = overflowPayload.text.length
-      let safePayload: SlackMessagePayload
-      if (overflowBlocks > MAX_BLOCKS || overflowTextLen > MAX_TEXT_LENGTH) {
-        // Truncate text to fit, strip blocks
-        const truncated = overflowPayload.text.slice(0, MAX_TEXT_LENGTH - 20) + '\n\n_(truncated)_'
-        safePayload = createSlackTextPayload(truncated)
-      } else {
-        safePayload = overflowPayload
-      }
-
-      try {
-        const result = await slack.chat.postMessage({ channel, thread_ts: threadTs, ...safePayload })
-        activeTs = result.ts
-        console.log(`[slack] overflow → new message ts=${result.ts}`)
-      } catch (err) {
-        console.warn('[slack] overflow postMessage failed:', err)
-      }
       return
     }
 
@@ -1501,17 +1498,7 @@ export function createSlackOutput(
       try {
         await slack.chat.update({ channel, ts: activeTs, ...payload })
       } catch (err) {
-        if (!options?.final) {
-          console.warn('[slack] chat.update failed, switching to live preview fallback:', err)
-          try {
-            await updateOrCreateMessage(createSafeLivePayload(payload.text))
-          } catch (fallbackErr) {
-            console.warn('[slack] live preview fallback failed after update error:', fallbackErr)
-          }
-          return
-        }
-
-        console.warn('[slack] final chat.update failed, switching to chunked fallback:', err)
+        console.warn('[slack] final chat.update failed, switching to chunked final delivery:', err)
         await renderFinalInChunks(payload.text)
       }
     } else {
@@ -1535,15 +1522,29 @@ export function createSlackOutput(
       }
       currentText = text
 
+      const livePreviewText = renderStepsText(completedSteps, currentText)
+      const needsImmediateRender =
+        activeTs !== undefined &&
+        livePreviewText.slice(Math.min(livePrefixLength, livePreviewText.length)).trimStart().length > LIVE_CHUNK_LENGTH
+
       // Throttle rendering — steps naturally space out (tool execution takes time),
       // but streaming deltas can fire rapidly.
-      const now = Date.now()
       if (renderPromise) {
+        if (needsImmediateRender) {
+          await queueRender({ urgent: true })
+          return
+        }
         pendingProgressRender = true
         scheduleTrailingRender()
         return
       }
 
+      if (needsImmediateRender) {
+        await queueRender({ urgent: true })
+        return
+      }
+
+      const now = Date.now()
       if (now - lastRenderTime < THROTTLE_MS && activeTs) {
         pendingProgressRender = true
         scheduleTrailingRender()
@@ -1567,6 +1568,33 @@ export function createSlackOutput(
         currentTrimmed.length > 0 &&
         finalTrimmed.length > 0 &&
         (finalTrimmed.startsWith(currentTrimmed) || currentTrimmed.startsWith(finalTrimmed))
+
+      if (livePrefixLength > 0) {
+        const continuedFinalText =
+          completedSteps.length === 0 && finalTrimmed.startsWith(currentTrimmed)
+            ? text.slice(Math.min(livePrefixLength, text.length)).trimStart()
+            : text
+
+        completedSteps.length = 0
+        currentText = ''
+
+        if (!continuedFinalText.trim()) {
+          console.warn('[slack] sendResult skipped: empty continued final text')
+          return
+        }
+
+        completedSteps.push(continuedFinalText)
+
+        console.log(`[slack] sendResult: channel=${channel}, thread_ts=${threadTs}, liveContinuation=true, text.length=${continuedFinalText.length}`)
+
+        try {
+          await queueRender({ final: true })
+          console.log(`[slack] sendResult ok: ts=${activeTs}`)
+        } catch (err) {
+          console.error(`[slack] sendResult render failed:`, err)
+        }
+        return
+      }
 
       if (currentText && currentTrimmed !== finalTrimmed && !isGrowingPreview) {
         completedSteps.push(currentText)
@@ -1602,6 +1630,21 @@ export function createSlackOutput(
       finalized = true
       pendingProgressRender = false
       clearTrailingRenderTimer()
+
+      if (livePrefixLength > 0) {
+        completedSteps.length = 0
+        currentText = ''
+        completedSteps.push(`:warning: ${message}`)
+
+        await enqueue(async () => {
+          try {
+            await renderMessage({ final: true })
+          } catch (err) {
+            console.error(`[slack] sendError render failed:`, err)
+          }
+        })
+        return
+      }
 
       // Flush live progress if any
       if (currentText.trim()) {
