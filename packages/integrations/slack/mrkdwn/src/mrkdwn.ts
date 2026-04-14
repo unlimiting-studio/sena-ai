@@ -12,8 +12,8 @@ const PH = '\u200B\u200B'
 export const SAFE_SLACK_MESSAGE_OPTIONS = Object.freeze({
   parse: 'none' as const,
   link_names: false as const,
-  unfurl_links: false as const,
-  unfurl_media: false as const,
+  unfurl_links: true as const,
+  unfurl_media: true as const,
 })
 
 export type SlackMessagePayload = {
@@ -21,8 +21,8 @@ export type SlackMessagePayload = {
   blocks?: Array<Record<string, unknown>>
   parse: 'none'
   link_names: false
-  unfurl_links: false
-  unfurl_media: false
+  unfurl_links: true
+  unfurl_media: true
 }
 
 type Segment = { type: 'text' | 'table'; content: string }
