@@ -56,10 +56,12 @@ export class SdkMessageMapper {
               events.push({ type: 'tool.start', toolName })
             }
           }
-          const text = content
-            .filter((b: any) => b.type === 'text')
-            .map((b: any) => b.text)
-            .join('')
+          const text = stripThinkingTags(
+            content
+              .filter((b: any) => b.type === 'text')
+              .map((b: any) => b.text)
+              .join(''),
+          )
           if (text) {
             events.push({ type: 'progress', text })
           }
@@ -94,7 +96,7 @@ export class SdkMessageMapper {
       }
 
       case 'result': {
-        const text = msg.result ?? ''
+        const text = stripThinkingTags(msg.result ?? '')
         if (msg.subtype === 'success') {
           events.push({ type: 'result', text })
         } else {
@@ -127,6 +129,11 @@ function extractToolResultText(block: { content?: unknown }): string | undefined
     .trim()
 
   return text || undefined
+}
+
+/** Strip literal `<thinking>...</thinking>` tags that Claude sometimes emits inside text blocks. */
+function stripThinkingTags(text: string): string {
+  return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim()
 }
 
 /**
