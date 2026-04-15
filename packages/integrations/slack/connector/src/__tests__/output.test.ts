@@ -182,7 +182,40 @@ describe('createSlackOutput', () => {
     expect(streamInitCalls).toHaveLength(1)
     expect(streamAppendCalls).toEqual([{ markdown_text: '초안' }])
     expect(streamStopCalls).toEqual([{ markdown_text: '을 마무리했어요' }])
-    expect(updateCalls).toHaveLength(0)
+    expect(updateCalls).toHaveLength(1)
+    expect(getText(updateCalls[0])).toBe('초안을 마무리했어요')
+  })
+
+  it('rewrites even plain-text final stream output onto the same ts so the full final text remains visible', async () => {
+    const {
+      slack,
+      updateCalls,
+      streamInitCalls,
+      streamAppendCalls,
+      streamStopCalls,
+    } = createSlackMock({ useChatStream: true })
+
+    const output = createSlackOutput(
+      slack,
+      {
+        connector: 'slack',
+        conversationId: 'C0AFW5Y133J:1775295864.093159',
+        metadata: {
+          team_id: 'T123',
+          event: { user: 'U123' },
+        },
+      },
+      false,
+    )
+
+    const finalText = '테스트 메시지예요.\n지금 이 답변은 일반 출력 경로로 나가고 있어요.\n*이 문장은 bold로 보여야 해요.*'
+    await output.sendResult(finalText)
+
+    expect(streamInitCalls).toHaveLength(1)
+    expect(streamAppendCalls).toHaveLength(0)
+    expect(streamStopCalls).toEqual([{ markdown_text: finalText }])
+    expect(updateCalls).toHaveLength(1)
+    expect(getText(updateCalls[0])).toBe(finalText)
   })
 
   it('rewrites the completed stream into a final safe payload when table blocks are needed', async () => {

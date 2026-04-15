@@ -1676,11 +1676,7 @@ export function createSlackOutput(
       }
 
       const payload = renderSteps(stepsForMessage)
-      if (!payload.blocks?.length) {
-        return
-      }
-
-      const blockCount = payload.blocks.length
+      const blockCount = payload.blocks?.length ?? 0
       const textLength = payload.text.length
 
       if (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH) {
