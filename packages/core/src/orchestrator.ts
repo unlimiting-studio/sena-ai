@@ -179,7 +179,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
     })
   }
 
-  async function restart(): Promise<{ success: boolean; error?: string }> {
+  async function restart(options?: { deferRelease?: boolean }): Promise<{ success: boolean; error?: string; oldWorker?: WorkerInfo }> {
     const oldWorker = currentWorker
 
     // Suppress auto-respawn of old worker during rolling restart.
@@ -205,26 +205,38 @@ export function createOrchestrator(options: OrchestratorOptions) {
     currentWorker = newWorker
 
     // Release old worker — it will drain in-flight work and exit naturally
-    if (oldWorker) {
+    // When deferRelease is true, the caller is responsible for calling releaseWorker()
+    // (used by restartWithReply to send the result before disconnecting IPC)
+    if (oldWorker && !options?.deferRelease) {
       releaseWorker(oldWorker)
     }
-    return { success: true }
+    return { success: true, oldWorker: oldWorker ?? undefined }
   }
 
   /**
    * Rolling restart triggered by a worker's request-restart IPC message.
    * After the restart attempt, replies to the requesting worker with the result
    * so the restart_agent tool can report success/failure back to the LLM.
+   *
+   * IMPORTANT: We defer releasing the old worker until after sending the result.
+   * Otherwise, releaseWorker() disconnects IPC before we can send the restart-result,
+   * causing the requesting worker to timeout waiting for the response.
    */
   async function restartWithReply(requestingWorker: WorkerInfo): Promise<void> {
-    const result = await restart()
-    // Reply to the requesting worker (it's still alive if restart failed, or draining if succeeded).
-    // In both cases IPC may still be open briefly. Best-effort delivery.
+    // Defer release so IPC stays open for the result message
+    const result = await restart({ deferRelease: true })
+
+    // Reply to the requesting worker while IPC is still connected
     try {
-      requestingWorker.process.send({ type: 'restart-result', ...result })
+      requestingWorker.process.send({ type: 'restart-result', success: result.success, error: result.error })
     } catch {
       // IPC already closed — the worker won't get the result, but that's OK
       // (it's already being drained or has exited)
+    }
+
+    // Now release the old worker (disconnect IPC, start drain)
+    if (result.oldWorker) {
+      releaseWorker(result.oldWorker)
     }
   }
 

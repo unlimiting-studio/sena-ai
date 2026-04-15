@@ -33,7 +33,7 @@ export function requestWorkerRestart(): boolean {
  */
 export function requestWorkerRestartAndWait(): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
-    if (!process.send) {
+    if (!process.send || !process.connected) {
       resolve({ success: false, error: 'No IPC channel (not running under orchestrator)' })
       return
     }
@@ -55,7 +55,13 @@ export function requestWorkerRestartAndWait(): Promise<{ success: boolean; error
 
     process.on('message', onMessage)
     console.log('[worker] requesting rolling restart from orchestrator (awaiting result)')
-    process.send({ type: 'request-restart' })
+    try {
+      process.send({ type: 'request-restart' })
+    } catch (err) {
+      clearTimeout(timer)
+      process.removeListener('message', onMessage)
+      resolve({ success: false, error: `Failed to send restart request: ${err instanceof Error ? err.message : String(err)}` })
+    }
   })
 }
 
