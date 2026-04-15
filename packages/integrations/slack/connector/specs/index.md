@@ -11,7 +11,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - 프롬프트를 인라인 문자열로만 두면 재사용과 유지보수가 불편하고, 이벤트별 행동 차이를 문서와 코드가 함께 추적하기 어렵다.
 - 이벤트 발생 직후 무시 여부를 세밀하게 결정할 표면이 없어, 채널/작성자/본문 기준 예외 처리를 선언형으로 쓰기 어렵다.
 - Slack 응답 Markdown 변환 로직이 connector와 tools에 중복되어 있으면 safe mode 규칙과 예외 케이스가 드리프트하기 쉽다.
-- 진행 중 출력은 1500ms throttle 동안 길이가 빠르게 늘어나면 Slack 한계에 닿기 전 선제 분할을 못 하고, `msg_too_long` 이후에야 복구를 시도해 프리뷰가 멈춘 것처럼 보일 수 있다.
+- 진행 중 출력은 단일 메시지 `chat.update` 기반일 때 throttle 동안 길이가 빠르게 늘어나면 Slack 한계에 닿기 전 선제 분할을 못 하고, `msg_too_long` 이후에야 복구를 시도해 프리뷰가 멈춘 것처럼 보일 수 있다.
 
 ## 목표 & 성공 지표
 
@@ -22,6 +22,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - 프롬프트 소스는 인라인 텍스트와 파일 참조를 모두 지원한다.
 - Slack 출력 Markdown 변환은 기본 safe mode를 사용하고, connector와 tools가 동일한 공용 변환 계약을 공유한다.
 - 긴 진행 중 출력도 Slack 거절을 기다리지 않고 같은 쓰레드 안에서 자연스럽게 이어져야 한다.
+- 일반 에이전트 출력은 Slack text streaming을 기본 경로로 사용해, 같은 쓰레드에서 더 자연스럽게 자라나는 응답 경험을 보여줘야 한다.
 
 ## 스펙 안정성 분류
 
@@ -71,6 +72,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `SLACK-CONN-FR-016 [Committed][Stable]`: `directMessage` 트리거는 Slack 1:1 DM 채널(`channel_type = 'im'`, fallback으로 channel id prefix `D`) 메시지에만 반응해야 하며, `thread`보다 낮고 `channel` 및 `message`보다 높은 우선순위를 가져야 한다.
 - `SLACK-CONN-FR-017 [Committed][Stable]`: connector의 Markdown 변환은 `tools-slack`과 공유하는 공용 Slack Markdown 패키지 계약을 사용해야 한다.
 - `SLACK-CONN-FR-018 [Committed][Stable]`: `ConnectorOutput`은 진행 중 출력이 Slack 한계에 가까워지면 `msg_too_long` 오류를 제어 흐름으로 쓰지 않고, 현재 메시지를 안전한 경계에서 고정한 뒤 아직 보이지 않은 나머지 내용을 다음 메시지로 이어서 렌더링해야 한다.
+- `SLACK-CONN-FR-019 [Committed][Stable]`: `ConnectorOutput`의 일반 출력은 Slack text streaming(`chat.startStream`/`chat.appendStream`/`chat.stopStream`)을 기본 경로로 사용해야 한다. 다만 stream helper가 없거나 Slack이 수신자 식별값을 요구하는데 turn metadata에서 확보되지 않는 호환 경로에서는 기존 safe payload 갱신 경로를 사용해 출력 실패를 막아야 한다.
 - `SLACK-CONN-NFR-002 [Committed][Stable]`: 최상위 일반 채널 메시지와 Slack direct message 반응은 `channel`, `directMessage`, `message` key를 명시적으로 켜기 전까지 기본 비활성 상태여야 한다.
 
 ## 수용 기준 (AC)
@@ -100,6 +102,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `SLACK-CONN-AC-023`: Given `channel` trigger만 설정됐을 때 When Slack 1:1 DM 채널 메시지가 들어오면 Then `channel` trigger는 실행되지 않는다.
 - `SLACK-CONN-AC-024`: Given 활성 Slack 프리뷰 메시지가 soft budget에 가까워진 상태일 때 When throttle window 안에서 다음 `showProgress()`가 들어오면 Then connector는 throttle을 그대로 기다리지 않고 현재 메시지를 먼저 고정하거나 분할해 Slack 거절 전에 continuation 메시지를 만든다.
 - `SLACK-CONN-AC-025`: Given 하나의 진행 step 자체가 한 메시지에 다 안 들어갈 정도로 길 때 When live rollover가 발생하면 Then 다음 메시지는 이미 보낸 prefix를 다시 싣지 않고 아직 보이지 않은 suffix부터 이어진다.
+- `SLACK-CONN-AC-026`: Given Slack stream helper와 수신자 식별값이 준비된 일반 출력일 때 When `showProgress()`와 `sendResult()`를 호출하면 Then connector는 `chat.startStream`/`chat.appendStream`/`chat.stopStream` 기반으로 같은 메시지를 스트리밍 완료하고, 최종 payload에 table block 같은 safe rewrite가 필요하면 완료된 stream 메시지를 같은 ts에서 final payload로 다시 정리한다.
 
 ## 의존관계 맵
 
@@ -152,7 +155,7 @@ Slack 이벤트를 sena-ai `InboundEvent`로 바꾸고, 에이전트 응답을 S
 - `config/trigger` 단위 테스트로 고정 우선순위, direct message opt-in, omit=disabled, prompt source, filter, reaction rule 해석 검증
 - shared Slack Markdown 패키지 테스트로 safe mode, explicit Slack token 보존, table fallback, connector/tools 공용 계약을 검증
 - reaction lookup 테스트로 filter 입력의 `text`, `threadTs`, `messageUserId/messageBotId` 채움 여부 검증
-- output 테스트로 soft budget 근처에서 throttle 우회 분할과 step 내부 suffix continuation을 검증
+- output 테스트로 Slack stream 기본 경로, stream 최종 정리 후 block rewrite, soft budget 근처 호환 경로 분할, step 내부 suffix continuation을 검증
 - 수동 smoke test로 Slack 이벤트, 출력, 파일 다운로드, 취소 흐름 검증
 
 ## 상세 스펙

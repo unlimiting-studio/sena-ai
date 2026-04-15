@@ -4,6 +4,10 @@ import { createSlackOutput, type SlackClientLike } from '../connector.js'
 type PostMessageArgs = Parameters<SlackClientLike['chat']['postMessage']>[0]
 type UpdateArgs = Parameters<SlackClientLike['chat']['update']>[0]
 type DeleteArgs = Parameters<SlackClientLike['chat']['delete']>[0]
+type StreamFactory = NonNullable<SlackClientLike['chatStream']>
+type StreamInitArgs = Parameters<StreamFactory>[0]
+type StreamAppendArgs = Parameters<ReturnType<StreamFactory>['append']>[0]
+type StreamStopArgs = Parameters<ReturnType<StreamFactory>['stop']>[0]
 
 function getText(args: object): string {
   const value = Reflect.get(args, 'text')
@@ -21,10 +25,15 @@ function getLinkNames(args: object): unknown {
 function createSlackMock(overrides?: {
   update?: SlackClientLike['chat']['update']
   postMessage?: SlackClientLike['chat']['postMessage']
+  chatStream?: SlackClientLike['chatStream']
+  useChatStream?: boolean
 }) {
   const postCalls: PostMessageArgs[] = []
   const updateCalls: UpdateArgs[] = []
   const deleteCalls: DeleteArgs[] = []
+  const streamInitCalls: StreamInitArgs[] = []
+  const streamAppendCalls: StreamAppendArgs[] = []
+  const streamStopCalls: StreamStopArgs[] = []
 
   const defaultPostMessage: SlackClientLike['chat']['postMessage'] = async (args) => {
     postCalls.push(args)
@@ -41,15 +50,40 @@ function createSlackMock(overrides?: {
     return { ok: true }
   }
 
+  const defaultChatStream: StreamFactory = (args) => {
+    streamInitCalls.push(args)
+    return {
+      append: async (appendArgs) => {
+        streamAppendCalls.push(appendArgs)
+        return { ts: 'stream-ts-1' }
+      },
+      stop: async (stopArgs) => {
+        streamStopCalls.push(stopArgs)
+        return { ts: 'stream-ts-1' }
+      },
+    }
+  }
+
   const slack: SlackClientLike = {
     chat: {
       postMessage: overrides?.postMessage ?? defaultPostMessage,
       update: overrides?.update ?? defaultUpdate,
       delete: defaultDelete,
     },
+    ...((overrides?.useChatStream || overrides?.chatStream)
+      ? { chatStream: overrides?.chatStream ?? defaultChatStream }
+      : {}),
   }
 
-  return { slack, postCalls, updateCalls, deleteCalls }
+  return {
+    slack,
+    postCalls,
+    updateCalls,
+    deleteCalls,
+    streamInitCalls,
+    streamAppendCalls,
+    streamStopCalls,
+  }
 }
 
 describe('createSlackOutput', () => {
@@ -92,6 +126,96 @@ describe('createSlackOutput', () => {
     await Promise.resolve()
 
     expect(postCalls).toHaveLength(0)
+  })
+
+  it('deletes the thinking message when the final result is empty and no content was produced', async () => {
+    const { slack, postCalls, updateCalls, deleteCalls } = createSlackMock()
+
+    const output = createSlackOutput(
+      slack,
+      { connector: 'slack', conversationId: 'C0AFW5Y133J:1775295864.093159' },
+      ':loading-dots: 브렌이 생각 중이에요',
+    )
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await output.sendResult('')
+
+    expect(postCalls).toHaveLength(1)
+    expect(updateCalls).toHaveLength(0)
+    expect(deleteCalls).toHaveLength(1)
+  })
+
+  it('streams general output by default when the Slack stream helper and recipient metadata are available', async () => {
+    const {
+      slack,
+      postCalls,
+      deleteCalls,
+      updateCalls,
+      streamInitCalls,
+      streamAppendCalls,
+      streamStopCalls,
+    } = createSlackMock({ useChatStream: true })
+
+    const output = createSlackOutput(
+      slack,
+      {
+        connector: 'slack',
+        conversationId: 'C0AFW5Y133J:1775295864.093159',
+        metadata: {
+          team_id: 'T123',
+          event: { user: 'U123' },
+        },
+      },
+      ':loading-dots: 브렌이 생각 중이에요',
+    )
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await output.showProgress('초안')
+    await output.sendResult('초안을 마무리했어요')
+
+    expect(postCalls).toHaveLength(1)
+    expect(deleteCalls).toHaveLength(1)
+    expect(streamInitCalls).toHaveLength(1)
+    expect(streamAppendCalls).toEqual([{ markdown_text: '초안' }])
+    expect(streamStopCalls).toEqual([{ markdown_text: '을 마무리했어요' }])
+    expect(updateCalls).toHaveLength(0)
+  })
+
+  it('rewrites the completed stream into a final safe payload when table blocks are needed', async () => {
+    const {
+      slack,
+      updateCalls,
+      streamInitCalls,
+      streamAppendCalls,
+      streamStopCalls,
+    } = createSlackMock({ useChatStream: true })
+
+    const output = createSlackOutput(
+      slack,
+      {
+        connector: 'slack',
+        conversationId: 'C0AFW5Y133J:1775295864.093159',
+        metadata: {
+          team_id: 'T123',
+          event: { user: 'U123' },
+        },
+      },
+      false,
+    )
+
+    const finalText = '상태: *완료*\n\n| 항목 | 값 |\n|---|---|\n| A | 1 |'
+    await output.sendResult(finalText)
+
+    expect(streamInitCalls).toHaveLength(1)
+    expect(streamAppendCalls).toHaveLength(0)
+    expect(streamStopCalls).toEqual([{ markdown_text: finalText }])
+    expect(updateCalls).toHaveLength(1)
+    expect(getText(updateCalls[0])).toContain('*완료*')
+    expect(Array.isArray(Reflect.get(updateCalls[0], 'blocks'))).toBe(true)
   })
 
   it('flushes the latest throttled progress after the throttle window even if no new delta arrives', async () => {

@@ -2,14 +2,14 @@
 
 ## 1. 한 줄 요약 (Outcome Statement)
 
-긴 진행 중 출력이 Slack 한계에 가까워지면, `ConnectorOutput`이 실패를 기다리지 않고 현재 메시지를 안전한 지점에서 고정한 뒤 다음 메시지로 자연스럽게 이어 준다.
+stream helper를 바로 쓸 수 없는 호환 경로나 final safe payload chunking 경로에서, 긴 출력이 Slack 한계에 가까워지면 `ConnectorOutput`이 실패를 기다리지 않고 현재 메시지를 안전한 지점에서 고정한 뒤 다음 메시지로 자연스럽게 이어 준다.
 
 ---
 
 ## 2. 상위 스펙 연결 (Traceability)
 
 - Related Goals:
-  - 긴 진행 중 출력에서도 프리뷰가 멈춘 것처럼 보이지 않게 한다.
+  - 호환 경로의 긴 진행 중 출력에서도 프리뷰가 멈춘 것처럼 보이지 않게 한다.
   - Slack hard limit에 닿기 전에 continuation 메시지로 넘겨 `msg_too_long`를 정상 흐름에서 없앤다.
 - Related Requirements (FR/NFR ID):
   - `SLACK-CONN-FR-004`
@@ -30,7 +30,7 @@
 - Actor:
   `ConnectorOutput`
 - Trigger:
-  `showProgress(text)`
+  stream helper를 바로 쓸 수 없는 호환 경로에서 `showProgress(text)`가 호출됨
 - Preconditions:
   - `finalized = false`
   - 현재 turn에 대응하는 Slack thread가 존재한다.
@@ -50,7 +50,7 @@
 - Actor:
   `ConnectorOutput`
 - Trigger:
-  `SLACK-OUT-ROLLOVER-01`이 `urgent`로 판정됨
+  호환 경로에서 `SLACK-OUT-ROLLOVER-01`이 `urgent`로 판정됨
 - Preconditions:
   - `activeTs`가 존재한다.
 - Main Flow:
@@ -161,9 +161,9 @@
   - `sendError(message)`
   - `dispose()`
 - User-visible Behavior:
-  - 긴 진행 중 출력은 같은 thread 안에서 여러 메시지로 이어질 수 있다.
+  - 호환 경로의 긴 진행 중 출력은 같은 thread 안에서 여러 메시지로 이어질 수 있다.
   - continuation message의 첫 문장은 직전 메시지에 이미 보인 prefix를 반복하지 않는다.
-  - 짧은 진행 중 출력에서는 기존 단일 메시지 갱신 UX를 유지한다.
+  - stream helper를 바로 쓸 수 없는 경우에만 기존 단일 메시지 갱신 UX를 유지한다.
 
 ### 5.2 Observability Contract
 
@@ -180,7 +180,7 @@
 - Data Ownership:
   - `completedSteps`: step 단위로 완전히 고정된 텍스트
   - `currentText`: 현재 step의 최신 전체 텍스트
-  - `liveStepPrefixLength`: plain-text live preview에서 이전 메시지들에 이미 고정한 prefix 길이
+  - `liveStepPrefixLength`: 호환 경로의 plain-text live preview에서 이전 메시지들에 이미 고정한 prefix 길이
   - `activeTs`: 지금 갱신 중인 Slack message ts
 - State Model:
   - 새 step이 시작되면 `liveStepPrefixLength`는 0으로 리셋한다.
@@ -190,7 +190,7 @@
   - Slack API 호출 직렬화 큐는 유지한다.
   - urgent rollover는 기존 throttle 대기보다 앞선 우선순위를 가진다.
 - Failure Handling:
-  - live path는 plain-text soft budget 안에서 동작하는 것을 기본 경로로 삼는다.
+  - stream 경로가 우선이고, 이 문서는 plain-text soft budget 기반 호환 경로를 다룬다.
   - 예산 계산과 실제 Slack 제한이 어긋나면 로그를 남기고 원인을 먼저 수정한다.
 - Observability Plan:
   - rollover 횟수, reason, split boundary를 로그로 남긴다.
@@ -215,7 +215,7 @@
 
 ## 8. Acceptance Criteria
 
-- Given 활성 프리뷰 메시지가 soft budget 근처이고 throttle window 안일 때 When 다음 `showProgress()`가 들어오면 Then connector는 throttle을 그대로 기다리지 않고 continuation message를 먼저 만든다.
+- Given stream helper를 바로 쓸 수 없는 호환 경로에서 활성 프리뷰 메시지가 soft budget 근처이고 throttle window 안일 때 When 다음 `showProgress()`가 들어오면 Then connector는 throttle을 그대로 기다리지 않고 continuation message를 먼저 만든다.
 - Given 하나의 진행 step이 한 메시지 예산보다 길 때 When rollover가 일어나면 Then 새 continuation message는 이미 보낸 prefix가 아닌 unseen suffix로 시작한다.
 - Given 이전에 rollover가 여러 번 있었을 때 When `sendResult()`가 끝나면 Then thread 전체를 합친 텍스트는 중복이나 누락 없이 최종 답변과 같은 순서를 가진다.
-- Given 짧은 진행 중 출력일 때 When `showProgress()`와 `sendResult()`를 호출하면 Then 기존 단일 메시지 갱신 동작은 유지된다.
+- Given stream helper를 바로 쓸 수 없는 호환 경로에서 짧은 진행 중 출력일 때 When `showProgress()`와 `sendResult()`를 호출하면 Then 기존 단일 메시지 갱신 동작은 유지된다.

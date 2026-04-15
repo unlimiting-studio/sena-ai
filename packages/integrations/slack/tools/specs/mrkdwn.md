@@ -15,8 +15,9 @@ Slack tools는 공용 Slack Markdown 패키지로 safe payload를 만들고, 조
   `slack_post_message`가 Markdown을 보낼 때, 또는 `slack_get_messages`가 Slack message payload를 파싱할 때 사용된다.
 - Main Flow:
   1. `slack_post_message`는 공용 패키지의 `markdownToMrkdwn()`/`markdownToSlack()`으로 safe payload를 만든다.
-  2. 공용 패키지는 코드 블록을 보호하고 explicit Slack token을 보존한 채 Slack 형식으로 변환한다.
-  3. 메시지 parser는 Block Kit, rich text, attachment, table을 텍스트로 정규화한다.
+  2. 다만 이미 Slack mrkdwn으로 작성된 inline 강조(`*bold*`, `_italic_`, `~strike~`)는 먼저 보호해, Markdown 단일 asterisk italic 규칙 때문에 의미가 뒤집히지 않게 한다.
+  3. 공용 패키지는 코드 블록을 보호하고 explicit Slack token을 보존한 채 Slack 형식으로 변환한다.
+  4. 메시지 parser는 Block Kit, rich text, attachment, table을 텍스트로 정규화한다.
 - Failure Modes:
   Slack에서 table block 제약을 넘는 추가 테이블은 code block section으로 폴백한다.
 
@@ -52,6 +53,7 @@ Slack tools는 공용 Slack Markdown 패키지로 safe payload를 만들고, 조
 ## AC
 
 - Given Markdown 텍스트, When `slack_post_message`가 변환을 호출하면, Then 코드 블록은 유지되고 safe mode Slack 포맷이 적용되며 explicit Slack token은 보존된다.
+- Given 이미 Slack mrkdwn으로 작성된 `*중요*` 텍스트가 있을 때, When `slack_post_message`가 변환을 호출하면, Then 이 구간은 `_중요_`로 바뀌지 않는다.
 - Given Markdown 표가 하나 이상 있을 때, When `markdownToSlack()`을 호출하면, Then 첫 표는 table block으로 변환되고 이후 표는 안전한 폴백으로 변환된다.
 - Given Block Kit 메시지 조회, When parser가 이를 읽으면, Then rich text와 attachment가 읽기 쉬운 텍스트로 반환된다.
 

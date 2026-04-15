@@ -34,6 +34,7 @@
 - `SLACK-TOOLS-FR-003 [Committed][Stable]`: 메시지 전송은 Markdown을 Slack safe payload로 변환해야 한다. 기본 렌더링은 auto parsing에 의존하지 않고 explicit Slack token만 링크/멘션/채널/유저그룹으로 해석한다.
 - `SLACK-TOOLS-FR-004 [Committed][Stable]`: 파일 업로드/다운로드와 사용자/채널 조회를 지원해야 한다.
 - `SLACK-TOOLS-FR-005 [Committed][Stable]`: `slack_post_message`의 Markdown 변환은 connector와 공유하는 공용 Slack Markdown 패키지 계약을 사용해야 한다.
+- `SLACK-TOOLS-FR-006 [Committed][Stable]`: `slack_post_message`는 이미 Slack mrkdwn으로 작성된 inline 강조(`*bold*`, `_italic_`, `~strike~`)를 Markdown italic 규칙으로 다시 해석해 의미를 뒤집으면 안 된다.
 - `SLACK-TOOLS-NFR-001 [Committed][Stable]`: 모든 도구는 `@sena-ai/core` `ToolPort` 계약을 사용해야 한다.
 
 ## 수용 기준 (AC)
@@ -42,6 +43,7 @@
 - `SLACK-TOOLS-AC-002`: Given 메시지 조회 도구를 사용할 때 When thread/channel 조회를 실행하면 Then 사람이 읽기 쉬운 텍스트가 반환된다.
 - `SLACK-TOOLS-AC-003`: Given 메시지 전송 도구를 사용할 때 When Markdown 텍스트를 보내면 Then Slack safe payload가 전송되고 explicit Slack token만 링크/멘션/채널로 해석된다.
 - `SLACK-TOOLS-AC-004`: Given 파일/사용자/채널 도구를 사용할 때 When 호출하면 Then 문서화된 JSON 응답을 반환한다.
+- `SLACK-TOOLS-AC-005`: Given `slack_post_message` 입력에 이미 Slack mrkdwn 형태의 `*중요*`가 있을 때 When 메시지를 전송하면 Then 이 구간은 italic으로 뒤집히지 않고 그대로 bold 의미를 유지한다.
 
 ## 범위 경계 (Non-goals)
 

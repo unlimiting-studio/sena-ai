@@ -20,7 +20,7 @@ Slack connector와 tools가 공용으로 사용하는 safe mode Markdown 변환 
 
 - `Stable`
   - 기본 safe mode 정책
-  - public API (`markdownToMrkdwn`, `markdownToSlack`, payload shape)
+  - public API (`markdownToMrkdwn`, `markdownToSlack`, `markdownOrMrkdwnToSlack`, payload shape)
   - explicit Slack token 보존 규칙
   - table block 1개 제한과 fallback 의미
 - `Flexible`
@@ -36,7 +36,8 @@ Slack connector와 tools가 공용으로 사용하는 safe mode Markdown 변환 
 
 ## 요구사항
 
-- `SLACK-MR-FR-001 [Committed][Stable]`: 패키지는 `markdownToMrkdwn(md: string): string`과 `markdownToSlack(md: string): SlackMessagePayload`를 제공해야 한다.
+- `SLACK-MR-FR-001 [Committed][Stable]`: 패키지는 `markdownToMrkdwn(md: string): string`, `markdownToSlack(md: string): SlackMessagePayload`, `markdownOrMrkdwnToSlack(md: string): SlackMessagePayload`를 제공해야 한다.
+- `SLACK-MR-FR-009 [Committed][Stable]`: `markdownOrMrkdwnToSlack()`은 이미 Slack mrkdwn으로 작성된 inline 강조(`*bold*`, `_italic_`, `~strike~`)를 Markdown 단일-delimiter 규칙으로 다시 해석해 의미를 뒤집으면 안 된다.
 - `SLACK-MR-FR-002 [Committed][Stable]`: 기본 렌더링은 safe mode여야 하며 Slack 자동 파싱에 의존하면 안 된다.
 - `SLACK-MR-FR-003 [Committed][Stable]`: explicit Slack token은 변환 과정에서 손상되거나 escape되면 안 된다.
 - `SLACK-MR-FR-004 [Committed][Stable]`: Markdown 텍스트의 `&`, `<`, `>`는 코드 블록과 explicit Slack token 바깥에서 Slack 규칙에 맞게 escape해야 한다.
@@ -55,6 +56,7 @@ Slack connector와 tools가 공용으로 사용하는 safe mode Markdown 변환 
 - `SLACK-MR-AC-005`: Given table 주변 텍스트가 있을 때 When block payload를 만들면 Then mrkdwn text object는 `verbatim: true`로 렌더링된다.
 - `SLACK-MR-AC-007`: Given table이 없는 일반 메시지일 때 When `markdownToSlack()`을 호출하면 Then payload는 safe mode 전송 옵션(`parse: 'none'`, `link_names: false`, `unfurl_links: false`, `unfurl_media: false`)을 포함한다.
 - `SLACK-MR-AC-006`: Given connector와 tools가 같은 Markdown 입력을 사용할 때 When 각각 payload를 생성하면 Then 동일한 safe mode semantics를 가진다.
+- `SLACK-MR-AC-008`: Given 입력에 이미 Slack mrkdwn 형태의 `*중요*`가 있을 때 When `markdownOrMrkdwnToSlack()`을 호출하면 Then 이 구간은 `_중요_`로 바뀌지 않고 그대로 보존된다.
 
 ## 범위 경계 (Non-goals)
 

@@ -3,6 +3,7 @@ import {
   SAFE_SLACK_MESSAGE_OPTIONS,
   createSlackTextPayload,
   markdownToMrkdwn,
+  markdownOrMrkdwnToSlack,
   markdownToSlack,
 } from '../mrkdwn.js'
 
@@ -220,5 +221,30 @@ describe('markdownToSlack', () => {
       text: expect.any(String),
       ...SAFE_SLACK_MESSAGE_OPTIONS,
     })
+  })
+})
+
+describe('markdownOrMrkdwnToSlack', () => {
+  it('preserves existing Slack bold syntax instead of converting it to italic', () => {
+    expect(markdownOrMrkdwnToSlack('*중요*')).toEqual({
+      text: '*중요*',
+      ...SAFE_SLACK_MESSAGE_OPTIONS,
+    })
+  })
+
+  it('preserves existing Slack emphasis while still converting markdown list syntax', () => {
+    expect(markdownOrMrkdwnToSlack('상태: *완료*\n- 항목')).toEqual({
+      text: '상태: *완료*\n• 항목',
+      ...SAFE_SLACK_MESSAGE_OPTIONS,
+    })
+  })
+
+  it('preserves existing Slack emphasis in section blocks around tables', () => {
+    const result = markdownOrMrkdwnToSlack('상태: *완료*\n\n| A | B |\n|---|---|\n| 1 | 2 |')
+    const section = result.blocks?.[0] as { type: string; text?: { text?: string } }
+
+    expect(section.type).toBe('section')
+    expect(section.text?.text).toContain('*완료*')
+    expect(result.blocks?.[1].type).toBe('table')
   })
 })

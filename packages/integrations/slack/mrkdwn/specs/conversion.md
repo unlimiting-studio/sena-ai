@@ -6,8 +6,8 @@
 
 ## 상위 스펙 연결
 
-- 관련 요구사항: `SLACK-MR-FR-001`, `SLACK-MR-FR-002`, `SLACK-MR-FR-003`, `SLACK-MR-FR-004`, `SLACK-MR-FR-005`, `SLACK-MR-FR-006`, `SLACK-MR-FR-007`, `SLACK-MR-FR-008`
-- 관련 수용 기준: `SLACK-MR-AC-001`, `SLACK-MR-AC-002`, `SLACK-MR-AC-003`, `SLACK-MR-AC-004`, `SLACK-MR-AC-005`, `SLACK-MR-AC-006`, `SLACK-MR-AC-007`
+- 관련 요구사항: `SLACK-MR-FR-001`, `SLACK-MR-FR-002`, `SLACK-MR-FR-003`, `SLACK-MR-FR-004`, `SLACK-MR-FR-005`, `SLACK-MR-FR-006`, `SLACK-MR-FR-007`, `SLACK-MR-FR-008`, `SLACK-MR-FR-009`
+- 관련 수용 기준: `SLACK-MR-AC-001`, `SLACK-MR-AC-002`, `SLACK-MR-AC-003`, `SLACK-MR-AC-004`, `SLACK-MR-AC-005`, `SLACK-MR-AC-006`, `SLACK-MR-AC-007`, `SLACK-MR-AC-008`
 
 ## Behavior
 
@@ -22,6 +22,7 @@
   6. Block Kit payload를 만들더라도 safe mode fallback text와 safe mode 전송 옵션을 함께 반환한다.
 - Alternative Flow
   - table이 없어도 payload는 safe mode 전송 옵션을 반드시 포함해야 한다.
+  - `markdownOrMrkdwnToSlack()`은 변환 전에 이미 Slack mrkdwn으로 작성된 inline 강조를 placeholder로 보호한 뒤, 최종 payload에 그대로 복원한다.
 - Outputs / Side Effects / Failure Modes
   - 출력은 `{ text, blocks?, parse, link_names, unfurl_links, unfurl_media }` 형태다.
   - safe mode에서 이름 문자열 기반 auto parsing은 발생하지 않는다.
@@ -42,6 +43,7 @@
 - API
   - `markdownToMrkdwn(md: string): string`
   - `markdownToSlack(md: string): SlackMessagePayload`
+  - `markdownOrMrkdwnToSlack(md: string): SlackMessagePayload`
 - Schema
   - `SlackMessagePayload`
     - `text: string`
@@ -82,3 +84,4 @@
 - Given table과 주변 설명문이 함께 있을 때 When `markdownToSlack()`을 호출하면 Then 설명문 section block은 `verbatim: true`를 가진다.
 - Given table이 두 개 이상일 때 When `markdownToSlack()`을 호출하면 Then 첫 table만 table block이고 이후 table은 fallback section이 된다.
 - Given connector와 tools가 같은 입력을 쓸 때 When 각각 렌더링하면 Then 공용 패키지 import를 통해 같은 semantics를 가진 payload를 만든다.
+- Given 입력에 이미 Slack mrkdwn 형태의 `*중요*`가 있을 때 When `markdownOrMrkdwnToSlack()`을 호출하면 Then 이 구간은 `_중요_`로 바뀌지 않는다.

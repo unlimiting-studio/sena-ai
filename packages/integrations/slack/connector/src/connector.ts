@@ -10,7 +10,7 @@ import type {
 } from '@sena-ai/core'
 import {
   createSlackTextPayload,
-  markdownToSlack,
+  markdownOrMrkdwnToSlack,
   type SlackMessagePayload,
 } from '@sena-ai/slack-mrkdwn'
 import { WebClient } from '@slack/web-api'
@@ -138,8 +138,20 @@ export type SlackChatApi = {
   delete: WebClient['chat']['delete']
 }
 
+export type SlackChatStreamerLike = {
+  append(args: { markdown_text?: string }): Promise<{ ts?: string } | null>
+  stop(args?: { markdown_text?: string }): Promise<{ ts?: string }>
+}
+
 export type SlackClientLike = {
   chat: SlackChatApi
+  chatStream?: (args: {
+    channel: string
+    thread_ts: string
+    recipient_team_id?: string
+    recipient_user_id?: string
+    buffer_size?: number
+  }) => SlackChatStreamerLike
 }
 
 type NormalizedSlackTriggerConfig = {
@@ -227,6 +239,30 @@ function readString(record: Record<string, unknown>, key: string): string | unde
 function readRecord(record: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
   const value = record[key]
   return isRecord(value) ? value : undefined
+}
+
+function resolveStreamRecipient(metadata: unknown): {
+  recipientTeamId?: string
+  recipientUserId?: string
+} {
+  if (!isRecord(metadata)) return {}
+
+  const body = readRecord(metadata, 'body')
+  const primary = body ?? metadata
+  const event = readRecord(primary, 'event')
+  const team = readRecord(primary, 'team')
+
+  return {
+    recipientTeamId:
+      readString(primary, 'team_id')
+      ?? readString(primary, 'teamId')
+      ?? (team ? readString(team, 'id') : undefined),
+    recipientUserId:
+      readString(primary, 'user_id')
+      ?? readString(primary, 'userId')
+      ?? readString(primary, 'user')
+      ?? (event ? readString(event, 'user') : undefined),
+  }
 }
 
 function readFileList(record: Record<string, unknown>, key: string): ParsedSlackFile[] {
@@ -1241,24 +1277,39 @@ export function createSlackOutput(
     readThinkingMessageFromMetadata(context.metadata),
     globalThinkingMessage,
   )
+  const streamRecipient = resolveStreamRecipient(context.metadata)
+  const canUseStreaming =
+    typeof slack.chatStream === 'function'
+    && (channel.startsWith('D') || !!(streamRecipient.recipientTeamId && streamRecipient.recipientUserId))
 
   // --- Accumulated state ---
   const completedSteps: string[] = [] // Flushed step texts
   let currentText = ''                // Latest progress text (live step)
   let activeTs: string | undefined    // Message ts being updated
+  let thinkingTs: string | undefined
   let frozenStepCount = 0             // Steps baked into previous (frozen) messages
   let livePrefixLength = 0            // Plain-text live preview already frozen into previous messages
+  let streamedSource = ''
+  let streamer: SlackChatStreamerLike | null = null
+  let streamingMode: 'stream' | 'legacy' = canUseStreaming ? 'stream' : 'legacy'
   let lastRenderTime = 0
   let finalized = false               // true after sendResult/sendError
   let renderPromise: Promise<void> | null = null
   let pendingProgressRender = false
   let trailingRenderTimer: ReturnType<typeof setTimeout> | null = null
 
-  const THROTTLE_MS = 1500
+  const LEGACY_THROTTLE_MS = 1500
+  const STREAM_THROTTLE_MS = 300
   const MAX_BLOCKS = 45       // Leave headroom below Slack's 50-block limit
   const MAX_TEXT_LENGTH = 2800 // Slack text field limit ~3000 chars; leave buffer
   const LIVE_CHUNK_LENGTH = 2200
   const FINAL_CHUNK_LENGTH = 2600
+
+  if (typeof slack.chatStream === 'function' && streamingMode === 'legacy' && !channel.startsWith('D')) {
+    console.warn(
+      `[slack] stream output disabled for ${context.conversationId}: missing recipient_team_id or recipient_user_id`,
+    )
+  }
 
   // --- Serialize all Slack API calls to prevent race conditions ---
   let apiQueue: Promise<void> = Promise.resolve()
@@ -1266,6 +1317,10 @@ export function createSlackOutput(
     const p = apiQueue.then(fn).catch(err => console.warn('[slack] enqueued api call failed:', err))
     apiQueue = p
     return p
+  }
+
+  function throttleMs(): number {
+    return streamingMode === 'stream' ? STREAM_THROTTLE_MS : LEGACY_THROTTLE_MS
   }
 
   function clearTrailingRenderTimer(): void {
@@ -1276,7 +1331,7 @@ export function createSlackOutput(
 
   function scheduleTrailingRender(): void {
     if (finalized || trailingRenderTimer || !pendingProgressRender) return
-    const delay = activeTs ? Math.max(0, lastRenderTime + THROTTLE_MS - Date.now()) : 0
+    const delay = activeTs ? Math.max(0, lastRenderTime + throttleMs() - Date.now()) : 0
     trailingRenderTimer = setTimeout(() => {
       trailingRenderTimer = null
       if (finalized || !pendingProgressRender) return
@@ -1296,6 +1351,7 @@ export function createSlackOutput(
           blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: thinkingMessage, verbatim: true }] }],
         })
         activeTs = result.ts
+        thinkingTs = result.ts
         lastRenderTime = Date.now()
       } catch (err) {
         console.warn('[slack] thinkingMessage failed:', err)
@@ -1315,8 +1371,8 @@ export function createSlackOutput(
   /**
    * Render steps (from `startIdx`) into a Slack payload.
    * Steps are joined with blank lines so separate agent outputs do not visually collapse;
-   * markdownToSlack handles
-   * mrkdwn conversion, section splitting, and the 1-table-per-message limit.
+   * shared Slack conversion handles mrkdwn conversion, section splitting,
+   * and the 1-table-per-message limit.
    */
   function renderSteps(steps: string[], liveText?: string): SlackMessagePayload {
     const parts = [...steps]
@@ -1325,7 +1381,7 @@ export function createSlackOutput(
     }
     if (parts.length === 0) return createSlackTextPayload('')
     const combined = parts.join('\n\n')
-    return markdownToSlack(combined)
+    return markdownOrMrkdwnToSlack(combined)
   }
 
   function renderStepsText(steps: string[], liveText?: string): string {
@@ -1380,6 +1436,9 @@ export function createSlackOutput(
   async function updateOrCreateMessage(payload: SlackMessagePayload): Promise<void> {
     if (activeTs) {
       await slack.chat.update({ channel, ts: activeTs, ...payload })
+      if (thinkingTs === activeTs) {
+        thinkingTs = undefined
+      }
       return
     }
 
@@ -1387,31 +1446,47 @@ export function createSlackOutput(
     activeTs = result.ts
   }
 
-  async function renderFinalInChunks(text: string): Promise<void> {
-    const chunks = splitTextForSlack(text, FINAL_CHUNK_LENGTH)
-    if (chunks.length === 0) return
-
-    if (activeTs) {
-      await slack.chat.update({ channel, ts: activeTs, ...createSlackTextPayload(chunks[0]) })
-    } else {
-      const result = await slack.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        ...createSlackTextPayload(chunks[0]),
-      })
-      activeTs = result.ts
-    }
-
-    for (const chunk of chunks.slice(1)) {
-      await slack.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        ...createSlackTextPayload(chunk),
-      })
-    }
+  async function deleteMessage(ts: string): Promise<void> {
+    await slack.chat.delete({ channel, ts })
   }
 
-  async function renderLivePreview(): Promise<void> {
+  async function deleteActiveMessage(): Promise<void> {
+    if (!activeTs) return
+    const ts = activeTs
+    activeTs = undefined
+    if (thinkingTs === ts) {
+      thinkingTs = undefined
+    }
+    await deleteMessage(ts)
+  }
+
+  async function deleteThinkingMessage(): Promise<void> {
+    if (!thinkingTs) return
+    const ts = thinkingTs
+    thinkingTs = undefined
+    if (activeTs === ts) {
+      activeTs = undefined
+    }
+    await deleteMessage(ts)
+  }
+
+  async function ensureStreamer(): Promise<SlackChatStreamerLike> {
+    if (!slack.chatStream) {
+      throw new Error('Slack chatStream helper is not available')
+    }
+    if (!streamer) {
+      streamer = slack.chatStream({
+        channel,
+        thread_ts: threadTs,
+        ...(streamRecipient.recipientTeamId ? { recipient_team_id: streamRecipient.recipientTeamId } : {}),
+        ...(streamRecipient.recipientUserId ? { recipient_user_id: streamRecipient.recipientUserId } : {}),
+        buffer_size: 1,
+      })
+    }
+    return streamer
+  }
+
+  async function renderLivePreviewLegacy(): Promise<void> {
     const source = renderStepsText(completedSteps, currentText)
     if (!source.trim()) return
 
@@ -1439,6 +1514,76 @@ export function createSlackOutput(
         livePrefixLength += 1
       }
       remaining = source.slice(livePrefixLength)
+    }
+  }
+
+  async function appendStreamSource(source: string): Promise<void> {
+    if (streamingMode !== 'stream') {
+      await renderLivePreviewLegacy()
+      return
+    }
+    if (!source.trim() || source === streamedSource) return
+    if (!source.startsWith(streamedSource)) {
+      console.warn('[slack] stream source diverged; skipping append')
+      return
+    }
+
+    const delta = source.slice(streamedSource.length)
+    if (!delta) return
+
+    await deleteThinkingMessage().catch(err => {
+      console.warn('[slack] failed to delete thinking message before stream append:', err)
+    })
+
+    const activeStreamer = await ensureStreamer()
+    const result = await activeStreamer.append({ markdown_text: delta })
+    streamedSource = source
+    if (result?.ts) {
+      activeTs = result.ts
+    }
+  }
+
+  async function finalizeStreamSource(source: string): Promise<void> {
+    if (streamingMode !== 'stream') return
+
+    await deleteThinkingMessage().catch(err => {
+      console.warn('[slack] failed to delete thinking message before stream stop:', err)
+    })
+
+    const activeStreamer = await ensureStreamer()
+    const delta = source.startsWith(streamedSource) ? source.slice(streamedSource.length) : source
+    const result = delta
+      ? await activeStreamer.stop({ markdown_text: delta })
+      : await activeStreamer.stop()
+
+    streamedSource = source
+    streamer = null
+    if (result.ts) {
+      activeTs = result.ts
+    }
+  }
+
+  async function renderFinalInChunks(text: string): Promise<void> {
+    const chunks = splitTextForSlack(text, FINAL_CHUNK_LENGTH)
+    if (chunks.length === 0) return
+
+    if (activeTs) {
+      await slack.chat.update({ channel, ts: activeTs, ...createSlackTextPayload(chunks[0]) })
+    } else {
+      const result = await slack.chat.postMessage({
+        channel,
+        thread_ts: threadTs,
+        ...createSlackTextPayload(chunks[0]),
+      })
+      activeTs = result.ts
+    }
+
+    for (const chunk of chunks.slice(1)) {
+      await slack.chat.postMessage({
+        channel,
+        thread_ts: threadTs,
+        ...createSlackTextPayload(chunk),
+      })
     }
   }
 
@@ -1472,15 +1617,7 @@ export function createSlackOutput(
     return renderPromise
   }
 
-  /** Update or create the active Slack message. Handles overflow. */
-  async function renderMessage(options?: { final?: boolean, urgent?: boolean }): Promise<void> {
-    if (!options?.final) {
-      await renderLivePreview()
-      return
-    }
-
-    // Determine which steps to render in the active message
-    const stepsForMessage = completedSteps.slice(frozenStepCount)
+  async function renderFinalLegacy(stepsForMessage: string[]): Promise<void> {
     const payload = renderSteps(stepsForMessage)
 
     if (!payload.text.trim()) return
@@ -1511,6 +1648,60 @@ export function createSlackOutput(
     }
   }
 
+  /** Update or create the active Slack message. Handles overflow. */
+  async function renderMessage(options?: { final?: boolean, urgent?: boolean }): Promise<void> {
+    if (!options?.final) {
+      const source = renderStepsText(completedSteps, currentText)
+      if (streamingMode === 'stream') {
+        await appendStreamSource(source)
+      } else {
+        await renderLivePreviewLegacy()
+      }
+      return
+    }
+
+    const stepsForMessage = completedSteps.slice(frozenStepCount)
+    const source = renderStepsText(stepsForMessage)
+    if (!source.trim()) return
+
+    if (streamingMode === 'stream') {
+      try {
+        await finalizeStreamSource(source)
+      } catch (err) {
+        console.warn('[slack] stream finalize failed, switching to legacy final delivery:', err)
+        streamingMode = 'legacy'
+        streamer = null
+        await renderFinalLegacy(stepsForMessage)
+        return
+      }
+
+      const payload = renderSteps(stepsForMessage)
+      if (!payload.blocks?.length) {
+        return
+      }
+
+      const blockCount = payload.blocks.length
+      const textLength = payload.text.length
+
+      if (blockCount > MAX_BLOCKS || textLength > MAX_TEXT_LENGTH) {
+        await renderFinalInChunks(payload.text)
+        return
+      }
+
+      if (activeTs) {
+        try {
+          await slack.chat.update({ channel, ts: activeTs, ...payload })
+        } catch (err) {
+          console.warn('[slack] final stream rewrite failed, switching to chunked final delivery:', err)
+          await renderFinalInChunks(payload.text)
+        }
+        return
+      }
+    }
+
+    await renderFinalLegacy(stepsForMessage)
+  }
+
   return {
     async showProgress(text: string): Promise<void> {
       if (finalized) return
@@ -1524,6 +1715,7 @@ export function createSlackOutput(
 
       const livePreviewText = renderStepsText(completedSteps, currentText)
       const needsImmediateRender =
+        streamingMode === 'legacy' &&
         activeTs !== undefined &&
         livePreviewText.slice(Math.min(livePrefixLength, livePreviewText.length)).trimStart().length > LIVE_CHUNK_LENGTH
 
@@ -1545,7 +1737,7 @@ export function createSlackOutput(
       }
 
       const now = Date.now()
-      if (now - lastRenderTime < THROTTLE_MS && activeTs) {
+      if (now - lastRenderTime < throttleMs() && activeTs && activeTs !== thinkingTs) {
         pendingProgressRender = true
         scheduleTrailingRender()
         return
@@ -1569,7 +1761,7 @@ export function createSlackOutput(
         finalTrimmed.length > 0 &&
         (finalTrimmed.startsWith(currentTrimmed) || currentTrimmed.startsWith(finalTrimmed))
 
-      if (livePrefixLength > 0) {
+      if (streamingMode === 'legacy' && livePrefixLength > 0) {
         const continuedFinalText =
           completedSteps.length === 0 && finalTrimmed.startsWith(currentTrimmed)
             ? text.slice(Math.min(livePrefixLength, text.length)).trimStart()
@@ -1610,7 +1802,14 @@ export function createSlackOutput(
       // Guard: no content at all
       if (completedSteps.length === 0) {
         if (!text.trim()) {
-          console.warn('[slack] sendResult skipped: empty text and no steps')
+          console.warn('[slack] sendResult: empty text and no steps, deleting thinking message')
+          try {
+            await enqueue(async () => {
+              await deleteActiveMessage()
+            })
+          } catch (err) {
+            console.error('[slack] sendResult empty cleanup failed:', err)
+          }
           return
         }
         completedSteps.push(text)
@@ -1631,9 +1830,11 @@ export function createSlackOutput(
       pendingProgressRender = false
       clearTrailingRenderTimer()
 
-      if (livePrefixLength > 0) {
-        completedSteps.length = 0
-        currentText = ''
+      if (streamingMode === 'stream' || livePrefixLength > 0) {
+        if (currentText.trim()) {
+          completedSteps.push(currentText)
+          currentText = ''
+        }
         completedSteps.push(`:warning: ${message}`)
 
         await enqueue(async () => {
@@ -1696,7 +1897,7 @@ export function createSlackOutput(
       if (completedSteps.length === 0 && !currentText.trim() && activeTs && !finalized) {
         await enqueue(async () => {
           try {
-            await slack.chat.delete({ channel, ts: activeTs! })
+            await deleteActiveMessage()
           } catch {
             // Ignore — message may already be deleted
           }

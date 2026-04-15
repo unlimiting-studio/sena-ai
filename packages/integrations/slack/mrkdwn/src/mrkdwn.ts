@@ -98,6 +98,65 @@ export function markdownToMrkdwn(md: string): string {
   return text
 }
 
+function protectExistingMrkdwn(text: string): {
+  text: string
+  restore<T>(value: T): T
+} {
+  const placeholders: string[] = []
+
+  function hold(value: string): string {
+    placeholders.push(value)
+    return `${PH}MR_${placeholders.length - 1}${PH}`
+  }
+
+  let protectedText = text.replace(/```[\s\S]*?```/g, match => hold(match))
+  protectedText = protectedText.replace(/`[^`\n]+`/g, match => hold(match))
+  protectedText = protectedText.replace(
+    /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,
+    match => hold(match),
+  )
+  protectedText = protectedText.replace(
+    /(?<!\w)_(?!_)(.+?)(?<!_)_(?!\w)/g,
+    match => hold(match),
+  )
+  protectedText = protectedText.replace(
+    /(?<!~)~(?!~)(.+?)(?<!~)~(?!~)/g,
+    match => hold(match),
+  )
+
+  function restoreString(value: string): string {
+    let restored = value
+    for (let i = placeholders.length - 1; i >= 0; i--) {
+      restored = restored.replaceAll(`${PH}MR_${i}${PH}`, placeholders[i])
+    }
+    return restored
+  }
+
+  function restoreValue<T>(value: T): T {
+    if (typeof value === 'string') {
+      return restoreString(value) as T
+    }
+    if (Array.isArray(value)) {
+      return value.map(item => restoreValue(item)) as T
+    }
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        restoreValue(entry),
+      ])
+      return Object.fromEntries(entries) as T
+    }
+    return value
+  }
+
+  return {
+    text: protectedText,
+    restore<T>(value: T): T {
+      return restoreValue(value)
+    },
+  }
+}
+
 function replaceMarkdownImages(text: string, hold: (value: string) => string): string {
   return replaceMarkdownLinkLike(text, hold, true)
 }
@@ -381,4 +440,9 @@ export function markdownToSlack(md: string): SlackMessagePayload {
   }
 
   return createSlackPayload(mrkdwnText, blocks)
+}
+
+export function markdownOrMrkdwnToSlack(md: string): SlackMessagePayload {
+  const protectedInput = protectExistingMrkdwn(md)
+  return protectedInput.restore(markdownToSlack(protectedInput.text))
 }
