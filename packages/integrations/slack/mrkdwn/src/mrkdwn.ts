@@ -8,6 +8,8 @@
  */
 
 const PH = '\u200B\u200B'
+const SLACK_ARCHIVE_URL_SOURCE =
+  'https:\\/\\/(?:[\\w-]+\\.)?slack\\.com\\/archives\\/[A-Z0-9]+\\/p\\d+(?:\\?[\\w=&.-]+)?(?:#[^\\s)>]+)?'
 
 export const SAFE_SLACK_MESSAGE_OPTIONS = Object.freeze({
   parse: 'none' as const,
@@ -30,6 +32,11 @@ type Segment = { type: 'text' | 'table'; content: string }
 const SECTION_TEXT_LIMIT = 3000
 const EXPLICIT_SLACK_TOKEN_RE =
   /<?<(?:@[A-Z0-9]+(?:\|[^>\n]+)?|#[A-Z0-9]+(?:\|[^>\n]+)?|![^>\n]+|(?:https?|mailto|tel|slack):[^>\n]+|www\.[^>\n]+)>>?/gi
+const PLAIN_SLACK_ARCHIVE_URL_RE = new RegExp(
+  `(^|[\\s([\\{])(${SLACK_ARCHIVE_URL_SOURCE})(?=$|[\\s)\\]\\}.,!?;:])`,
+  'g',
+)
+const SLACK_ARCHIVE_URL_EXACT_RE = new RegExp(`^${SLACK_ARCHIVE_URL_SOURCE}$`)
 
 export function createSlackTextPayload(text: string): SlackMessagePayload {
   return {
@@ -66,10 +73,11 @@ export function markdownToMrkdwn(md: string): string {
     let inner = match
     if (inner.startsWith('<<')) inner = inner.slice(1)
     if (inner.endsWith('>>')) inner = inner.slice(0, -1)
-    return hold(inner)
+    return hold(normalizeExplicitSlackToken(inner))
   })
   text = replaceMarkdownImages(text, hold)
   text = replaceMarkdownLinks(text, hold)
+  text = replacePlainSlackArchiveUrls(text, hold)
 
   text = text.replace(/^#{1,6}\s+(.+)$/gm, (_, content) => hold(`*${content}*`))
   text = text.replace(/\*{3}(.+?)\*{3}/g, (_, content) => hold(`*_${content}_*`))
@@ -96,6 +104,41 @@ export function markdownToMrkdwn(md: string): string {
   }
 
   return text
+}
+
+function replacePlainSlackArchiveUrls(
+  text: string,
+  hold: (value: string) => string,
+): string {
+  return text.replace(PLAIN_SLACK_ARCHIVE_URL_RE, (_, prefix: string, url: string) => {
+    return `${prefix}${hold(`<${url}|원문 보기>`)}`
+  })
+}
+
+function normalizeExplicitSlackToken(token: string): string {
+  const decodedToken = decodeSlackHtmlEntities(token)
+  if (!decodedToken.startsWith('<') || !decodedToken.endsWith('>')) {
+    return decodedToken
+  }
+
+  const body = decodedToken.slice(1, -1)
+  const separatorIndex = body.indexOf('|')
+  if (separatorIndex < 0) {
+    return SLACK_ARCHIVE_URL_EXACT_RE.test(body) ? `<${body}|원문 보기>` : decodedToken
+  }
+
+  const url = body.slice(0, separatorIndex)
+  const label = body.slice(separatorIndex + 1)
+
+  if (!SLACK_ARCHIVE_URL_EXACT_RE.test(url)) {
+    return decodedToken
+  }
+
+  return label === url ? `<${url}|원문 보기>` : decodedToken
+}
+
+function decodeSlackHtmlEntities(text: string): string {
+  return text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>')
 }
 
 function protectExistingMrkdwn(text: string): {

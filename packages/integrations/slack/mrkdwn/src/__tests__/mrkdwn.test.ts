@@ -38,6 +38,24 @@ describe('markdownToMrkdwn', () => {
     expect(markdownToMrkdwn('열기 <https://example.com|문서>')).toBe('열기 <https://example.com|문서>')
   })
 
+  it('relabels explicit Slack archive tokens when label is the raw URL', () => {
+    expect(
+      markdownToMrkdwn(
+        '<https://unlimitingstudio.slack.com/archives/C0AT9SHN5QA/p1776415151974759|https://unlimitingstudio.slack.com/archives/C0AT9SHN5QA/p1776415151974759>',
+      ),
+    ).toBe('<https://unlimitingstudio.slack.com/archives/C0AT9SHN5QA/p1776415151974759|원문 보기>')
+  })
+
+  it('relabels explicit Slack archive tokens with encoded query strings when label is the raw URL', () => {
+    expect(
+      markdownToMrkdwn(
+        '<https://unlimitingstudio.slack.com/archives/C0AT9SHN5QA/p1776415151974759?thread_ts=1776339318.918929&amp;channel=C0AT9SHN5QA&amp;message_ts=1776415151.974759|https://unlimitingstudio.slack.com/archives/C0AT9SHN5QA/p1776415151974759?thread_ts=1776339318.918929&amp;channel=C0AT9SHN5QA&amp;message_ts=1776415151.974759>',
+      ),
+    ).toBe(
+      '<https://unlimitingstudio.slack.com/archives/C0AT9SHN5QA/p1776415151974759?thread_ts=1776339318.918929&channel=C0AT9SHN5QA&message_ts=1776415151.974759|원문 보기>',
+    )
+  })
+
   it('preserves explicit mention and channel tokens', () => {
     expect(markdownToMrkdwn('<@U123> in <#C123|general>')).toBe('<@U123> in <#C123|general>')
   })
@@ -75,6 +93,31 @@ describe('markdownToMrkdwn', () => {
 
   it('passes through plain text unchanged', () => {
     const input = 'just plain text with no formatting'
+    expect(markdownToMrkdwn(input)).toBe(input)
+  })
+
+  it('auto-labels plain Slack archive URLs', () => {
+    expect(
+      markdownToMrkdwn('https://daangn.slack.com/archives/C01234567/p1776397144664829'),
+    ).toBe('<https://daangn.slack.com/archives/C01234567/p1776397144664829|원문 보기>')
+  })
+
+  it('does not relabel explicit Slack archive tokens', () => {
+    expect(
+      markdownToMrkdwn(
+        '<https://daangn.slack.com/archives/C01234567/p1776397144664829|이전 대화>',
+      ),
+    ).toBe('<https://daangn.slack.com/archives/C01234567/p1776397144664829|이전 대화>')
+  })
+
+  it('does not relabel Slack archive URLs inside code blocks', () => {
+    const input = '```\nhttps://daangn.slack.com/archives/C01234567/p1776397144664829\n```'
+    expect(markdownToMrkdwn(input)).toBe(input)
+  })
+
+  it('does not relabel Slack archive URLs embedded inside another URL query', () => {
+    const input =
+      'https://example.com/redirect?next=https://daangn.slack.com/archives/C01234567/p1776397144664829'
     expect(markdownToMrkdwn(input)).toBe(input)
   })
 
