@@ -218,42 +218,6 @@ describe('createSlackOutput', () => {
     expect(getText(updateCalls[0])).toBe(finalText)
   })
 
-  it('reposts the final stream output as a fresh message when it contains a URL so Slack can unfurl it', async () => {
-    const {
-      slack,
-      postCalls,
-      deleteCalls,
-      updateCalls,
-      streamInitCalls,
-      streamAppendCalls,
-      streamStopCalls,
-    } = createSlackMock({ useChatStream: true })
-
-    const output = createSlackOutput(
-      slack,
-      {
-        connector: 'slack',
-        conversationId: 'C0AFW5Y133J:1775295864.093159',
-        metadata: {
-          team_id: 'T123',
-          event: { user: 'U123' },
-        },
-      },
-      false,
-    )
-
-    const finalText = '배포 완료예요.\nhttps://github.com/Variel/skills/commit/a5ae525'
-    await output.sendResult(finalText)
-
-    expect(streamInitCalls).toHaveLength(1)
-    expect(streamAppendCalls).toHaveLength(0)
-    expect(streamStopCalls).toEqual([{ markdown_text: finalText }])
-    expect(deleteCalls).toEqual([{ channel: 'C0AFW5Y133J', ts: 'stream-ts-1' }])
-    expect(updateCalls).toHaveLength(0)
-    expect(postCalls).toHaveLength(1)
-    expect(getText(postCalls[0])).toBe(finalText)
-  })
-
   it('rewrites the completed stream into a final safe payload when table blocks are needed', async () => {
     const {
       slack,

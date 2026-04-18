@@ -1304,7 +1304,6 @@ export function createSlackOutput(
   const MAX_TEXT_LENGTH = 2800 // Slack text field limit ~3000 chars; leave buffer
   const LIVE_CHUNK_LENGTH = 2200
   const FINAL_CHUNK_LENGTH = 2600
-  const UNFURLABLE_URL_RE = /(?:https?:\/\/[^\s<>()]+|<https?:\/\/[^>\n]+>)/u
 
   if (typeof slack.chatStream === 'function' && streamingMode === 'legacy' && !channel.startsWith('D')) {
     console.warn(
@@ -1432,10 +1431,6 @@ export function createSlackOutput(
     }
 
     return chunks
-  }
-
-  function containsUnfurlableUrl(text: string): boolean {
-    return UNFURLABLE_URL_RE.test(text)
   }
 
   async function updateOrCreateMessage(payload: SlackMessagePayload): Promise<void> {
@@ -1668,10 +1663,6 @@ export function createSlackOutput(
     const stepsForMessage = completedSteps.slice(frozenStepCount)
     const source = renderStepsText(stepsForMessage)
     if (!source.trim()) return
-    // Slack docs: unfurling is disabled in streaming messages.
-    // Re-post URL-bearing finals as a fresh message so classic unfurling can run.
-    const requiresFreshPostForUnfurl =
-      streamingMode === 'stream' && containsUnfurlableUrl(source)
 
     if (streamingMode === 'stream') {
       try {
@@ -1680,12 +1671,6 @@ export function createSlackOutput(
         console.warn('[slack] stream finalize failed, switching to legacy final delivery:', err)
         streamingMode = 'legacy'
         streamer = null
-        await renderFinalLegacy(stepsForMessage)
-        return
-      }
-
-      if (requiresFreshPostForUnfurl) {
-        await deleteActiveMessage()
         await renderFinalLegacy(stepsForMessage)
         return
       }
