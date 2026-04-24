@@ -1,6 +1,6 @@
 {
   "name": "@sena-ai/runtime-codex",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "type": "module",
   "exports": {
     ".": {
@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@openai/codex": "0.118.0",
+    "@openai/codex": "0.124.0",
     "@sena-ai/core": "workspace:*",
     "zod": "^4.3.6"
   },
