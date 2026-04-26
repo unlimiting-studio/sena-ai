@@ -375,6 +375,100 @@ describe('createWorker', () => {
     await worker.stop()
   })
 
+
+  it('processes queued connector messages as separate turns when the active turn does not drain them', async () => {
+    const seenInputs: string[] = []
+    const sentResults: string[] = []
+    const outputContexts: unknown[] = []
+    const firstStarted = createDeferred()
+    const releaseFirst = createDeferred()
+    let turnEngine: TurnEngine | undefined
+
+    const runtime: Runtime = {
+      name: 'queue-runtime',
+      async *createStream(options): AsyncGenerator<RuntimeEvent> {
+        let input = ''
+        for await (const message of options.prompt) {
+          input += message.text
+        }
+        seenInputs.push(input)
+        if (input === 'first') {
+          firstStarted.resolve()
+          await releaseFirst.promise
+        }
+        yield { type: 'result', text: input }
+      },
+    }
+
+    const connector: Connector = {
+      name: 'queue-capture',
+      registerRoutes(_server, engine) {
+        turnEngine = engine
+      },
+      createOutput(context) {
+        outputContexts.push(context)
+        return {
+          async showProgress() {},
+          async sendResult(text: string) { sentResults.push(text) },
+          async sendError() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const worker = createWorker({
+      config: defineConfig({
+        name: 'queue-worker',
+        runtime,
+        connectors: [connector],
+      }),
+      port: 0,
+    })
+    expect(worker).toBeDefined()
+    expect(turnEngine).toBeDefined()
+    const connectorEngine = turnEngine!
+
+    const firstTurn = connectorEngine.submitTurn({
+      connector: 'queue-capture',
+      conversationId: 'C1:300.1',
+      userId: 'U1',
+      userName: 'tester',
+      text: 'first',
+      raw: { id: 'raw-first' },
+    })
+
+    await firstStarted.promise
+
+    const secondTurn = connectorEngine.submitTurn({
+      connector: 'queue-capture',
+      conversationId: 'C1:300.1',
+      userId: 'U2',
+      userName: 'tester-2',
+      text: 'second',
+      raw: { id: 'raw-second' },
+    })
+
+    releaseFirst.resolve()
+    await Promise.all([firstTurn, secondTurn])
+
+    expect(seenInputs).toEqual(['first', 'second'])
+    expect(sentResults).toEqual(['first', 'second'])
+    expect(outputContexts).toEqual([
+      {
+        connector: 'queue-capture',
+        conversationId: 'C1:300.1',
+        metadata: { id: 'raw-first' },
+      },
+      {
+        connector: 'queue-capture',
+        conversationId: 'C1:300.1',
+        metadata: { id: 'raw-second' },
+      },
+    ])
+
+    await worker.stop()
+  })
+
   it('restores drained pending events in FIFO order while preserving each raw payload', async () => {
     const outputContexts: unknown[] = []
     const seenInputs: string[] = []
