@@ -1,6 +1,6 @@
 {
   "name": "@sena-ai/runtime-codex",
-  "version": "1.7.4",
+  "version": "1.7.3",
   "type": "module",
   "exports": {
     ".": {

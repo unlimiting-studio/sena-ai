@@ -76,6 +76,7 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
         cwd,
         abortSignal,
         tools = [],
+        pendingMessages,
         hooks,
         disabledTools,
       } = streamOptions
@@ -269,11 +270,23 @@ export function codexRuntime(options: CodexRuntimeOptions = {}): Runtime {
             const event = eventQueue.shift()!
             yield event
 
-            // Do not steer queued connector messages into an active Codex turn.
-            // Steering interrupts the in-flight answer, which can leave Slack with a
-            // half-visible progress message or a side effect (for example, an uploaded
-            // file) without the final explanation. The worker keeps queued messages and
-            // processes them as separate turns after the current answer is sent.
+            // After tool.end, check for pending messages to steer
+            if (event.type === 'tool.end' && pendingMessages && expectedTurnId) {
+              const pending = pendingMessages.drain()
+              if (pending.length > 0) {
+                const steerText = pending.join('\n')
+                console.log(`[runtime-codex] steering with ${pending.length} pending message(s)`)
+                try {
+                  const steerResult = await client.turnSteer(threadId, steerText, expectedTurnId)
+                  expectedTurnId = steerResult.turnId
+                  console.log(`[runtime-codex] steered — new turn ${expectedTurnId.slice(0, 8)}`)
+                } catch (err) {
+                  console.error(`[runtime-codex] steer failed, restoring messages to pending:`, err)
+                  // Put messages back so executeTurnWithSteer can process them as follow-up turns
+                  pendingMessages.restore(pending)
+                }
+              }
+            }
           }
           if (turnDone) break
           await new Promise<void>((resolve) => {
