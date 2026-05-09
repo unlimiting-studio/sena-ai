@@ -1,8 +1,10 @@
 # Channel Context
 
+**상태:** rev. 2 (PoC 0단계 검증 결과 반영).
+
 ## 한 줄
 
-채널 단위 메타(설명·리포지토리·메모)를 한 turn의 system prompt에 합성한다. v2의 `channels.json` + per-channel `memory.md` 패턴을 유지하되 **합성 위치는 ai-sdk middleware 또는 chat-sdk 핸들러 둘 중 하나로 결정** (검증 필요).
+채널 단위 메타(설명·리포지토리·메모)를 한 turn의 system prompt에 합성한다. v2의 `channels.json` + per-channel `memory.md` 패턴을 유지하고, **합성 위치는 ai-sdk middleware (`transformParams`)로 확정** (PoC 0단계, 2026-05-10).
 
 ## 파일 구조 (1차 가설, v2 호환)
 
@@ -35,24 +37,34 @@
 2. 항목이 있으면 `description` + `repositories` + lazy-read한 `memory` 본문을 합쳐 system prompt 후보로 만든다.
 3. 다른 system prompt(앱 전체 baseline)와 병합하여 최종 system 메시지 구성.
 
-## 합성 위치 (검증 필요)
+## 합성 위치 ✅ 확정
 
-| 옵션                                      | 장점                                                        | 단점                                                                              |
-| ----------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| **A. ai-sdk middleware (`transformParams`)** | LanguageModel 호출 직전이라 cron 트리거에도 자동 적용         | chat-sdk가 자체 system 합성 hook을 노출한다면 두 레이어가 중복.                     |
-| **B. chat-sdk 핸들러 (before-respond)**     | chat-sdk Conversation 단계라 chat-sdk 자체 추상화에 자연스러움 | chat-sdk의 합성 hook 시그니처가 어디까지 노출되는지 미상. cron 트리거에도 적용되는지 확인 필요. |
+**ai-sdk middleware `transformParams`에서 합성한다.** PoC 0단계에서 chat-sdk가 자체 system prompt 합성 hook을 별도로 노출하지 않는 것이 확인됐다 (`docs/specs/hooks.md` rev. 2 §"검증 결과"). LanguageModel 호출 직전 단계라 cron 셀프 트리거에도 동일하게 적용된다는 게 본질적인 장점.
 
-→ **1차 마이그에서 두 옵션 모두 시도해 보고 결정.** 기본 가설은 A (`docs/specs/hooks.md` §"v2 hook → v3 middleware 매핑"의 `system` prompt 합성 행).
+```ts
+function channelContext(): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v3",
+    transformParams: async ({ params }) => {
+      const channelId = extractChannelIdFromParams(params); // adapter conversation id 활용
+      const meta = await loadChannelMeta(channelId);        // channels.json + lazy-read memory.md
+      if (!meta) return params;
+      const systemAddition = composeChannelSystem(meta);
+      return prependSystem(params, systemAddition);
+    },
+  };
+}
+```
 
 ## v2와 다른 점
 
 - **합성 위치**: v2는 `TurnStartHook`에서 message 본문 자체를 변형했지만, v3는 LanguageModel 입력 단계의 system 메시지로 분리한다.
 - **memory 형식**: v2는 markdown 본문을 그대로 prompt에 넣었다. v3에서도 동일하지만, 길이가 길어지는 경우(예: 5000자+) 자동 요약 또는 잘라내기 정책을 둘지 — 1차 마이그에서 결정.
 
-## 검증 필요
+## 후속 (1차 마이그에서 마무리)
 
-- chat-sdk `Chat` 또는 `Conversation` 클래스가 per-conversation 정적 system prompt API를 제공한다면, 동적 합성(파일 lazy read)을 그 위에 어떻게 얹을지.
-- 채널이 여러 어댑터(Slack + 그 외)에 동시에 매핑되는 경우, key 충돌을 어떻게 다룰지 — 1차 범위에서는 Slack 하나라 우회.
+- 채널이 여러 어댑터(Slack + 그 외)에 동시에 매핑되는 경우 key 충돌 정책 — 1차 범위는 Slack 단일이라 우회. 본 마이그 §1에서 namespace prefix(`slack:` / `discord:`) 도입 시점에 결정.
+- `memory.md`가 길어질 때(예: 5000자 초과) 자동 요약/잘라내기 정책 — 본 마이그 §1 turn 이후 첫 회귀에서 결정.
 
 ## AC
 

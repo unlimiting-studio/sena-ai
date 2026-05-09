@@ -36,7 +36,7 @@ export default defineConfig({
     traceLogger({ stream: process.stdout }),
   ],
 
-  // cron 트리거. chat-sdk ScheduledMessage 흡수 가능성 검증
+  // cron 트리거. 우리가 직접 짠다 (chat-sdk ScheduledMessage는 미래 발송 1-shot이라 cron 의미 없음 — PoC 확정).
   schedules: [
     cronSchedule({
       cron: '0 8 * * *',
@@ -71,11 +71,11 @@ export default defineConfig({
 | `state`       | chat-sdk `StateAdapter`                            | `@chat-adapter/state-pg` | 확정. PoC 0단계에서 실 동작 검증.                                       |
 | `mcpServers`  | `Record<string, McpServerConfig>`                  | 사용자            | `docs/specs/tools.md` 참조.                                           |
 
-## 검증 필요
+## 검증 결과 (rev. 2)
 
-- chat-sdk `Chat` 클래스가 이미 비슷한 config를 받는다면, `defineConfig`는 chat-sdk Chat 인스턴스를 만드는 얇은 래퍼로 줄어들 수 있다 — 시그니처는 그대로 두고 내부만 chat-sdk에 위임.
-- middleware 배열을 chat-sdk handler 미들웨어 / ai-sdk LanguageModel middleware 두 종으로 분리할지, 한 배열로 받고 내부에서 라우팅할지 — `docs/specs/hooks.md` 결정에 따른다.
-- cron 트리거가 `schedules` 배열인지 chat-sdk `ScheduledMessage` 인스턴스인지 — `docs/specs/schedules.md` 참조.
+- ✅ chat-sdk `Chat` 인스턴스를 `defineConfig` 내부에서 만드는 구조 그대로. 어댑터/state/concurrency를 합쳐서 `new Chat({...})` 호출.
+- ✅ middleware는 ai-sdk `LanguageModelV3Middleware` 한 종만 사용 (`wrapLanguageModel`). chat-sdk가 별도 핸들러 미들웨어 hook을 노출하지 않으므로 분리 불필요.
+- ✅ cron은 `schedules` 배열로 받고 우리가 직접 트리거 (`docs/specs/schedules.md`). chat-sdk `ScheduledMessage`는 미래 발송 1-shot이라 cron과 별개.
 
 ## AC
 

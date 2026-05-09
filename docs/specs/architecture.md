@@ -17,7 +17,7 @@
 | provider              | LanguageModel → Claude Code CLI / codex CLI 변환                                | `ai-sdk-provider-claude-code` / `-codex-cli` |
 | 엔진                  | 실제 LLM·tool call 실행                                                         | Claude Code CLI / codex CLI   |
 
-> **우리가 직접 짜는 코드는 "우리 미들웨어" 레이어 한 덩어리뿐이다.** 그 외는 외부 라이브러리.
+> **우리가 직접 짜는 코드는 "얇은 앱 레이어"** — ai-sdk middleware(channel context · system compose · trace) + 자체 schedules + drain wrapper + AbortController 기반 steering 레이어 + 인라인 MCP 서버. 그 외(어댑터 / LanguageModel 추상 / provider / 엔진)는 외부 라이브러리에 위임.
 
 ## 프로세스 구조 (확정 결정 #3)
 
@@ -60,6 +60,6 @@
 
 ## AC
 
-1. Slack `app_mention` 한 발이 도착했을 때, 위 1~7 흐름이 우리 코드의 미들웨어 한 덩어리만 거쳐 응답으로 돌아온다.
+1. Slack `app_mention` 한 발이 도착했을 때, 위 1~7 흐름이 우리 얇은 앱 레이어(middleware + drain wrapper + steering)를 거쳐 응답으로 돌아온다.
 2. `cronSchedule` 한 발이 발화했을 때 같은 LanguageModel 호출 경로(5~6)를 거치며, 결과가 지정된 conversation에 일반 메시지처럼 누적된다.
 3. 우리가 publish하는 코드 줄 수가 v2 대비 80% 이상 줄어든다 (감각 기준; PRD `S-2` 측정의 보조 지표).
