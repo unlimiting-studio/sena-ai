@@ -7,7 +7,8 @@
  * 이번 단계에서는 entry stub만 둔다.
  */
 
-import type { LanguageModel, LanguageModelMiddleware } from "ai";
+import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModelMiddleware } from "ai";
 
 // chat-sdk·state types — 1차 가설은 그대로 위임.
 // (구체 import는 다음 단계에서 PoC 코드 이전 시 채운다.)
@@ -19,8 +20,8 @@ type McpServerConfig = unknown;
 export interface SenaConfig {
   /** `prompt: { file }` 등 파일 경로 baseDir. 기본값 `process.cwd()` */
   cwd: string;
-  /** ai-sdk LanguageModel — provider 한 줄 교체로 엔진 변경 */
-  model: LanguageModel;
+  /** ai-sdk LanguageModelV3 — provider 한 줄 교체로 엔진 변경 (`claudeCode("sonnet")` 등) */
+  model: LanguageModelV3;
   /** chat-sdk 어댑터 1개 이상 (Slack 등) */
   adapters: ChatAdapter[];
   /** ai-sdk middleware 체인. `wrapLanguageModel` 순서대로 적용 */

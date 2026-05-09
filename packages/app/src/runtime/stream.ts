@@ -26,18 +26,22 @@ export interface PostableThread {
   /** chat-sdk Thread는 `_currentMessage`를 internal property로 갖는다 (undefined일 수 있음) */
   readonly _currentMessage?: { author?: { userId?: string } } | null;
   post(message: string): Promise<unknown>;
-  post(stream: AsyncIterable<unknown>): Promise<unknown>;
+  // ReadableStream은 `Symbol.asyncIterator`를 구현하므로 chat-sdk의 AsyncIterable 시그니처와 호환.
+  post(stream: AsyncIterable<unknown> | ReadableStream<unknown>): Promise<unknown>;
 }
 
 /**
  * ai-sdk `streamText` 결과에서 본 wrapper가 실제로 사용하는 표면만 좁힌 인터페이스.
  * (`ai`의 구체 `StreamTextResult` 제네릭은 ToolSet/Output 제약이 까다로워 직접 import하지 않는다.)
+ *
+ * - `fullStream`: ai-sdk는 `ReadableStream<...>`을 반환. 본 wrapper는 chat-sdk thread.post로
+ *   그대로 forward하므로 `unknown`으로 좁히지 않고 `ReadableStream<unknown>` 또는
+ *   `AsyncIterable<unknown>` 둘 다 받는 형태로 둔다.
+ * - `text`: ai-sdk `result.text`는 `PromiseLike<string>` (Promise 인터페이스 일부만 노출).
  */
 export interface StreamableResult {
-  /** 정상 경로에서 chat-sdk Thread가 흡수하는 fullStream */
-  readonly fullStream: AsyncIterable<unknown>;
-  /** fallback 경로에서 사용. ai-sdk `streamText({}).text`는 Promise<string>. */
-  readonly text: Promise<string>;
+  readonly fullStream: ReadableStream<unknown> | AsyncIterable<unknown>;
+  readonly text: PromiseLike<string>;
 }
 
 export interface SafePostStreamOptions {

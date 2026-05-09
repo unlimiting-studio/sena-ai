@@ -26,6 +26,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@ai-sdk/provider':
+        specifier: ^3.0.0
+        version: 3.0.10
       '@chat-adapter/slack':
         specifier: ^4.28.1
         version: 4.28.1

@@ -16,8 +16,6 @@
  * - step: tool-call=2 tool-result=2 짝수 마감 후 abort → 새 turn 5917ms
  */
 
-export type SteeringMode = "immediate" | "step";
-
 export interface SteeringSlot {
   /** 진행 중 turn의 AbortController */
   controller: AbortController;
@@ -43,6 +41,22 @@ export class SteeringRegistry {
 
   set(threadKey: string, slot: SteeringSlot): void {
     this.slots.set(threadKey, slot);
+  }
+
+  /**
+   * Atomic check-and-register (codex P1 round 10).
+   * - 기존 slot 이 있으면 그대로 반환하고 set 하지 않음 → 호출자는 기존 turn 의 pendingSteer
+   *   적재 등 in-flight 경로로 분기.
+   * - 없으면 새 slot 을 등록하고 undefined 반환 → 호출자는 새 turn 시작.
+   *
+   * Map 의 get + set 은 동기 연산이므로 microtask boundary 가 끼지 않아 같은 thread 에 메시지가
+   * 거의 동시에 도착해도 "한 thread 당 하나의 새 turn" 이 보장된다 (step-steering 의 핵심).
+   */
+  setIfAbsent(threadKey: string, slot: SteeringSlot): SteeringSlot | undefined {
+    const existing = this.slots.get(threadKey);
+    if (existing) return existing;
+    this.slots.set(threadKey, slot);
+    return undefined;
   }
 
   /** 우리가 등록한 slot이 그대로 남아있을 때만 정리 (race-safe) */
