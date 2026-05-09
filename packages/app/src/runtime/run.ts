@@ -17,11 +17,13 @@
 import { wrapLanguageModel } from "ai";
 import { Chat, type Adapter } from "chat";
 import type { SenaConfig } from "../config.js";
+import type { Schedule } from "../schedules/cron.js";
 import { createDrainController, type DrainController } from "./drain.js";
 import { createQueueHandler } from "./handlers/queue.js";
 import { createStepSteeringHandler } from "./handlers/step.js";
 import { createSteeringHandler } from "./handlers/steering.js";
 import type { ChatSdkHandler, HandlerDeps } from "./handlers/types.js";
+import { type ScheduleFanOut, setupScheduleFanOut } from "./scheduleFanOut.js";
 import { SteeringRegistry } from "./steering.js";
 
 export type SteeringMode = "queue" | "steering" | "step-steering";
@@ -70,18 +72,11 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
   const steerMode = options.steerMode ?? "steering";
 
   // 0. fail-fast — 미구현 기능이 설정에 들어있으면 silent 실패 대신 명시적으로 throw.
-  // schedules 통합은 본 마이그 §1 step 4 예정. step 3에서는 cronSchedule() factory가
-  // spec 시그니처만 노출하고, run() 시점에 실제 트리거는 등록되지 않는다.
-  if (config.schedules.length > 0) {
-    throw new Error(
-      "[@sena-ai/app] schedules fan-out not implemented yet (본 마이그 §1 step 4 예정). " +
-        `${config.schedules.length}개 schedule이 SenaConfig에 들어있지만 트리거가 등록되지 않는다. ` +
-        "임시로는 schedules: [] 로 두거나, 호출자가 직접 chat.thread()/streamText로 cron을 구현.",
-    );
-  }
+  // step 4 (2026-05-10): schedules 는 setupScheduleFanOut 으로 실제 등록한다 (아래 §10).
+  // mcpServers / adapters[0] 만 fail-fast 유지.
   // codex P1 round 14 — mcpServers 도 schedules 와 동일하게 step 3 시점엔 모델에 실제로
   // 연결되지 않는다. silent 무시는 운영자가 "도구가 안 붙는 이유" 를 찾기 매우 어렵게 하므로
-  // schedules 와 동일한 fail-fast 로 본 미구현을 명시한다 (step 4+ 에서 provider 옵션 병합).
+  // 동일한 fail-fast 로 본 미구현을 명시한다 (step 4+ 에서 provider 옵션 병합).
   const mcpServerNames = config.mcpServers ? Object.keys(config.mcpServers) : [];
   if (mcpServerNames.length > 0) {
     throw new Error(
@@ -226,6 +221,36 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
   await chat.initialize();
   log("[sena] initialized");
 
+  // 7.5. schedules fan-out — `cronSchedule({...})` 배열을 node-cron 으로 등록한다.
+  // chat.initialize 직후에 등록해 chat-sdk 가 thread reference 를 받을 준비가 된 상태를
+  // 보장한다 (cron 발화 시점에 thread.post 가 즉시 동작).
+  // step 4 (2026-05-10) — fan-out 구현. SPEC `docs/specs/schedules.md` rev. 2.
+  //
+  // codex P2 round 3 — fanOut 등록이 잘못된 cron 식 / target 으로 throw 하면 이미 connect
+  // 된 chat (adapter socket / state-pg pool) 이 호출자 손에 reach 되지 않아 leak 된다.
+  // try/catch 로 받아서 chat.shutdown 후 다시 throw 한다.
+  let scheduleFanOut: ScheduleFanOut | null = null;
+  if ((config.schedules as Schedule[]).length > 0) {
+    try {
+      scheduleFanOut = await setupScheduleFanOut(config.schedules as Schedule[], {
+        chat,
+        model: wrappedModel,
+        drain,
+        cwd: config.cwd,
+        log,
+      });
+    } catch (err) {
+      log(`[sena] schedules.setup.failed err=${String(err)} → chat.shutdown 후 재throw`);
+      try {
+        await chat.shutdown();
+      } catch (shutdownErr) {
+        log(`[sena] chat.shutdown.error during schedule rollback: ${String(shutdownErr)}`);
+      }
+      throw err;
+    }
+    log(`[sena] schedules.registered count=${(config.schedules as Schedule[]).length}`);
+  }
+
   // 8. signal handler — 자동 등록 시에도 *drain + steering 정리까지만*.
   // process.exit 은 호출자 책임 (라이브러리로 임베드된 프로세스 보호).
   // codex P3 round 4 — 한 프로세스에서 run() 이 여러 번 호출될 수 있는 환경(테스트, 핫리로드)을
@@ -239,7 +264,15 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
   const shutdown = async (): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
     shutdownPromise = (async () => {
-      // 순서 중요 (codex P2 round 1): 먼저 drain → 그 후 steering.clear (잔여 AbortController 정리).
+      // 순서 중요 (codex P2 round 1): 먼저 schedule fan-out 을 멈춰 새 cron tick 진입을 막고,
+      // 그다음 drain → steering.clear (in-flight cron turn 도 drain 안에서 함께 비워진다).
+      if (scheduleFanOut) {
+        try {
+          await scheduleFanOut.stop();
+        } catch (err) {
+          log(`[sena] schedule.stop.error err=${String(err)}`);
+        }
+      }
       await drain.shutdown(chat);
       steering.clear();
       if (autoSignals) {

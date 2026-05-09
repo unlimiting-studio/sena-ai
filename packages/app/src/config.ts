@@ -9,12 +9,12 @@
 
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { LanguageModelMiddleware } from "ai";
+import type { Schedule } from "./schedules/cron.js";
 
 // chat-sdk·state types — 1차 가설은 그대로 위임.
 // (구체 import는 다음 단계에서 PoC 코드 이전 시 채운다.)
 type ChatAdapter = unknown;
 type StateAdapter = unknown;
-type Schedule = unknown;
 type McpServerConfig = unknown;
 
 export interface SenaConfig {
