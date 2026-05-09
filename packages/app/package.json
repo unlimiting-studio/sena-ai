@@ -1,0 +1,50 @@
+{
+  "name": "@sena-ai/app",
+  "version": "0.1.0",
+  "description": "sena-ai v3 — 얇은 앱 레이어 (chat-sdk wrapper + ai-sdk middleware + schedules + steering)",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./middlewares": {
+      "types": "./dist/middlewares/index.d.ts",
+      "import": "./dist/middlewares/index.js"
+    },
+    "./schedules": {
+      "types": "./dist/schedules/index.d.ts",
+      "import": "./dist/schedules/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ai": "^6.0.177",
+    "chat": "^4.28.1",
+    "@chat-adapter/slack": "^4.28.1",
+    "@chat-adapter/state-memory": "^4.28.1",
+    "@chat-adapter/state-pg": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unlimiting-studio/sena-ai.git",
+    "directory": "packages/app"
+  }
+}
