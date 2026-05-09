@@ -1,21 +1,13 @@
 /**
- * 앱 entry. `sena.config.ts` 를 받아 Chat 인스턴스를 만들고
- * drain wrapper · steering 레이어 · schedules · MCP bridge 를 깐다.
+ * 앱 entry — INTERNAL 스캐폴딩 (§1 step 2 단계).
  *
- * 1단계 (skeleton): stub. 다음 단계에서 PoC `~/agents/sena-poc/src/index.ts`를
- * 이전·일반화하면서 채운다.
+ * step 3에서 chat-sdk Chat 인스턴스 통합 + handler/schedule fan-out을 채운 뒤에야
+ * 외부 export로 끌어올린다. step 2의 외부 surface는 wrapper 도구
+ * (`createDrainController`, `SteeringRegistry`, `safePostStream`,
+ * `traceLogger`, `cronSchedule`)뿐이다.
+ *
+ * 이 파일을 외부에 노출하지 않는 이유:
+ * - 미구현 함수가 타입상 정상 시그니처(`Promise<RunningApp>`)를 약속하면 소비자가
+ *   `await run(...)`으로 통합한 뒤 런타임에서 throw로 깨진다 (codex P2).
+ * - fail-fast 정책: 외부 계약은 작동하는 코드만 노출.
  */
-
-import type { SenaConfig } from "../config.js";
-
-export interface RunOptions {
-  /** SIGTERM 받았을 때 in-flight turn 드레인 timeout (기본 60s) */
-  drainTimeoutMs?: number;
-}
-
-export async function run(_config: SenaConfig, _options: RunOptions = {}): Promise<void> {
-  throw new Error(
-    "[@sena-ai/app] run() not implemented yet. " +
-      "본 마이그 §1 다음 단계에서 PoC 코드를 이전한다.",
-  );
-}
