@@ -1,12 +1,18 @@
 /**
  * @sena-ai/app — entry.
  *
- * 본 마이그 §1 1단계 (skeleton). 다음 단계에서 PoC 코드를 이전하고
- * defineConfig + Chat 통합 + drain/steering/stream wrapper를 채운다.
+ * Slack 운영형 에이전트 1차 실행 경로를 제공한다.
  */
 
 export { defineConfig } from "./config.js";
-export type { SenaConfig, SenaConfigInput } from "./config.js";
+export type {
+  McpServerConfig,
+  MemoryStateConfig,
+  PostgresStateConfig,
+  SenaConfig,
+  SenaConfigInput,
+  StateInput,
+} from "./config.js";
 
 // 통합 entry — step 3 산출물. `sena.config.ts` 한 호출로 베어본 에이전트가 동작.
 export { run } from "./runtime/run.js";
@@ -24,3 +30,9 @@ export type {
   SafePostStreamOptions,
 } from "./runtime/stream.js";
 export { isAbortError, abortableSleep, isChatStreamCloseNoise } from "./runtime/abort.js";
+
+export { slackAdapter, createSlackAdapter } from "./adapters/slack.js";
+export { postgresState, createPostgresState, createMemoryState } from "./state/index.js";
+export { channelContext, traceLogger } from "./middlewares/index.js";
+export { cronSchedule } from "./schedules/index.js";
+export { requiredEnv } from "./env.js";

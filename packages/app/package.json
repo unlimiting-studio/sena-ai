@@ -16,6 +16,38 @@
     "./schedules": {
       "types": "./dist/schedules/index.d.ts",
       "import": "./dist/schedules/index.js"
+    },
+    "./adapters/slack": {
+      "types": "./dist/adapters/slack.d.ts",
+      "import": "./dist/adapters/slack.js"
+    },
+    "./state": {
+      "types": "./dist/state/index.d.ts",
+      "import": "./dist/state/index.js"
+    },
+    "./state/postgres": {
+      "types": "./dist/state/postgres.d.ts",
+      "import": "./dist/state/postgres.js"
+    },
+    "./state/memory": {
+      "types": "./dist/state/memory.d.ts",
+      "import": "./dist/state/memory.js"
+    },
+    "./middlewares/channel-context": {
+      "types": "./dist/middlewares/channel-context.d.ts",
+      "import": "./dist/middlewares/channel-context.js"
+    },
+    "./middlewares/trace": {
+      "types": "./dist/middlewares/trace.d.ts",
+      "import": "./dist/middlewares/trace.js"
+    },
+    "./schedules/cron": {
+      "types": "./dist/schedules/cron.d.ts",
+      "import": "./dist/schedules/cron.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js"
     }
   },
   "files": [

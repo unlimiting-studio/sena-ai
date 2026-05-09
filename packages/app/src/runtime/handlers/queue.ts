@@ -8,7 +8,7 @@
  * 인터럽트 없음. PoC 라이브 검증으로 동작 확인됨.
  */
 
-import { streamText } from "ai";
+import { stepCountIs, streamText } from "ai";
 import { safePostStream } from "../stream.js";
 import { gracefulDrainSkip, type ChatSdkHandler, type HandlerDeps } from "./types.js";
 import { NO_TEXT_NOTICE, buildPromptWithSkipped, stripLeadingMention } from "./utils.js";
@@ -33,7 +33,12 @@ export function createQueueHandler(label: string, deps: HandlerDeps): ChatSdkHan
       }
 
       const prompt = buildPromptWithSkipped(userText, context);
-      const result = streamText({ model: deps.model, prompt });
+      const result = streamText({
+        model: deps.model,
+        tools: deps.tools,
+        stopWhen: deps.tools ? stepCountIs(deps.maxSteps) : undefined,
+        prompt,
+      });
       await safePostStream(thread, result);
     });
   };

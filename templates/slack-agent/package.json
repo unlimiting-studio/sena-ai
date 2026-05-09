@@ -1,0 +1,19 @@
+{
+  "name": "sena-slack-agent-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sena-ai/app": "^0.1.0",
+    "ai": "^6.0.177",
+    "ai-sdk-provider-claude-code": "^3.4.4",
+    "chat": "^4.28.1",
+    "@chat-adapter/slack": "^4.28.1",
+    "@chat-adapter/state-pg": "^4.28.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0"
+  }
+}

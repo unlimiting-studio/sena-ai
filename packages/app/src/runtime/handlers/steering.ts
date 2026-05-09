@@ -7,7 +7,7 @@
  *   AbortError 마감 → 같은 thread 에 새 controller + 새 turn
  */
 
-import { streamText } from "ai";
+import { stepCountIs, streamText } from "ai";
 import { isAbortError, isChatStreamCloseNoise } from "../abort.js";
 import type { SteeringSlot } from "../steering.js";
 import { safePostStream } from "../stream.js";
@@ -86,7 +86,13 @@ export function createSteeringHandler(label: string, deps: HandlerDeps): ChatSdk
           interruptedRequest,
           interruptedPartial,
         });
-        const result = streamText({ model: deps.model, prompt, abortSignal: controller.signal });
+        const result = streamText({
+          model: deps.model,
+          tools: deps.tools,
+          stopWhen: deps.tools ? stepCountIs(deps.maxSteps) : undefined,
+          prompt,
+          abortSignal: controller.signal,
+        });
 
         // partialText 누적 — fullStream을 두 갈래로 분기
         const [tapStream, postStream] = result.fullStream.tee();

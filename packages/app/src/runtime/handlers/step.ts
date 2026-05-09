@@ -9,7 +9,7 @@
  * 도구 호출 없는 짧은 turn 은 step 1개 (turn 끝)라 자연스럽게 큐잉처럼 동작.
  */
 
-import { streamText } from "ai";
+import { stepCountIs, streamText } from "ai";
 import { isAbortError, isChatStreamCloseNoise } from "../abort.js";
 import type { SteeringSlot } from "../steering.js";
 import { safePostStream } from "../stream.js";
@@ -105,7 +105,13 @@ export function createStepSteeringHandler(label: string, deps: HandlerDeps): Cha
             interruptedRequest,
             interruptedPartial,
           });
-          result = streamText({ model: deps.model, prompt, abortSignal: controller.signal });
+          result = streamText({
+            model: deps.model,
+            tools: deps.tools,
+            stopWhen: deps.tools ? stepCountIs(deps.maxSteps) : undefined,
+            prompt,
+            abortSignal: controller.signal,
+          });
           [tapStream, postStream] = result.fullStream.tee();
         } catch (err) {
           deps.steering.releaseIf(threadKey, slot);

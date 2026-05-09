@@ -26,18 +26,21 @@
  */
 
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { streamText } from "ai";
+import { stepCountIs, streamText, type ToolSet } from "ai";
 import type { Chat } from "chat";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import nodeCron, { type ScheduledTask } from "node-cron";
 import type { Schedule, ScheduleTarget } from "../schedules/cron.js";
 import type { DrainController } from "./drain.js";
+import { channelIdFromChatSdkId, runWithTurnContext } from "./turn-context.js";
 
 export interface ScheduleFanOutDeps {
   chat: Chat;
   model: LanguageModelV3;
   drain: DrainController;
+  tools?: ToolSet;
+  maxSteps?: number;
   /** SenaConfig.cwd — `{ file }` prompt 의 baseDir */
   cwd: string;
   log: (msg: string) => void;
@@ -96,7 +99,23 @@ export async function setupScheduleFanOut(
             try {
               const promptText = await resolvePromptText(spec.prompt, deps.cwd);
               const target = resolveTarget(spec.target, spec.name);
-              const result = streamText({ model: deps.model, prompt: promptText });
+              const result = runWithTurnContext(
+                {
+                  adapter: "slack",
+                  channelId: channelIdFromChatSdkId(
+                    target.kind === "thread" ? target.threadId : target.channelId,
+                  ),
+                  threadId: target.kind === "thread" ? target.threadId : undefined,
+                  trigger: "schedule",
+                },
+                () =>
+                  streamText({
+                    model: deps.model,
+                    tools: deps.tools,
+                    stopWhen: deps.tools ? stepCountIs(deps.maxSteps ?? 5) : undefined,
+                    prompt: promptText,
+                  }),
+              );
               // PoC 발견 #1 — `thread.post(stream)` 은 `_currentMessage` 부재로 깨짐. 외부
               // 트리거(cron)는 incoming message 가 없으므로 await text 후 string post.
               const text = await result.text;

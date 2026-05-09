@@ -1,0 +1,11 @@
+{
+  "channels": {
+    "C0YOURCHANNEL": {
+      "name": "project-your-agent",
+      "description": "이 에이전트가 수익화 대상 사용자와 일하는 채널",
+      "repositories": [],
+      "memory": ".sena/channels/C0YOURCHANNEL/memory.md",
+      "notes": "채널별 결정사항과 고객별 운영 규칙을 여기에 누적"
+    }
+  }
+}

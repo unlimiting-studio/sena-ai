@@ -1,4 +1,10 @@
-import { describe, it, expect } from "vitest";
+import type {
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3GenerateResult,
+  LanguageModelV3StreamResult,
+} from "@ai-sdk/provider";
+import { describe, expect, it } from "vitest";
 import { traceLogger } from "../src/middlewares/trace.js";
 
 interface CapturedStream extends NodeJS.WritableStream {
@@ -22,30 +28,48 @@ function makeCapturedStream(): CapturedStream {
   return writable as CapturedStream;
 }
 
+const mockModel: LanguageModelV3 = {
+  specificationVersion: "v3",
+  provider: "test",
+  modelId: "test-model",
+  supportedUrls: {},
+  async doGenerate(): Promise<LanguageModelV3GenerateResult> {
+    throw new Error("doGenerate is not used in trace tests");
+  },
+  async doStream(): Promise<LanguageModelV3StreamResult> {
+    throw new Error("doStream is not used in trace tests");
+  },
+};
+
+function promptParams(messageCount = 1): LanguageModelV3CallOptions {
+  return {
+    prompt: Array.from({ length: messageCount }, () => ({
+      role: "user" as const,
+      content: [{ type: "text" as const, text: "hello" }],
+    })),
+  };
+}
+
 describe("traceLogger", () => {
   it("transformParams logs turn.start", async () => {
     const stream = makeCapturedStream();
     const middleware = traceLogger({ stream, label: "test" });
-    const result = await middleware.transformParams!({
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      params: { prompt: [{ role: "user" }, { role: "assistant" }] } as any,
+    const result = await middleware.transformParams?.({
+      params: promptParams(2),
       type: "stream",
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      model: { modelId: "test-model" } as any,
+      model: mockModel,
     });
     expect(result).toBeDefined();
     expect(stream.lines()).toEqual(["[test] turn.start type=stream messages=2"]);
   });
 
-  it("transformParams logs chars for string prompt", async () => {
+  it("transformParams logs chars for non-array prompt defensively", async () => {
     const stream = makeCapturedStream();
     const middleware = traceLogger({ stream, label: "test" });
-    await middleware.transformParams!({
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      params: { prompt: "hello" } as any,
+    await middleware.transformParams?.({
+      params: { prompt: "hello" } as LanguageModelV3CallOptions,
       type: "generate",
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      model: { modelId: "test-model" } as any,
+      model: mockModel,
     });
     expect(stream.lines()).toEqual(["[test] turn.start type=generate chars=5"]);
   });
@@ -54,7 +78,6 @@ describe("traceLogger", () => {
     const stream = makeCapturedStream();
     const middleware = traceLogger({ stream, label: "test" });
 
-    // 합성 stream — 정상 종료
     const sourceStream = new ReadableStream({
       start(controller) {
         controller.enqueue({ type: "stream-start" });
@@ -64,16 +87,19 @@ describe("traceLogger", () => {
       },
     });
 
-    const wrapped = await middleware.wrapStream!({
+    const wrapped = await middleware.wrapStream?.({
+      doGenerate: async () => {
+        throw new Error("doGenerate is not used in this test");
+      },
       doStream: async () => ({ stream: sourceStream }),
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      params: {} as any,
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      model: { modelId: "test-model" } as any,
+      params: promptParams(),
+      model: mockModel,
     });
 
-    // consume the stream fully
-    const reader = wrapped.stream.getReader();
+    expect(wrapped).toBeDefined();
+    const reader = wrapped?.stream.getReader();
+    expect(reader).toBeDefined();
+    if (!reader) throw new Error("reader missing");
     while (true) {
       const { done } = await reader.read();
       if (done) break;
@@ -81,41 +107,44 @@ describe("traceLogger", () => {
 
     const lines = stream.lines();
     expect(lines.length).toBe(1);
-    expect(lines[0]).toMatch(/turn\.end model=test-model elapsed=\d+ms .*stream-start=1.*text-delta=1.*finish=1/);
+    expect(lines[0]).toMatch(
+      /turn\.end model=test-model elapsed=\d+ms .*stream-start=1.*text-delta=1.*finish=1/,
+    );
     expect(lines[0]).not.toContain("cancelled=");
   });
 
-  // codex P2 회귀 가드 — abort/steering처럼 consumer가 stream을 cancel하면
-  // TransformStream.flush는 호출되지 않는다. cancel 콜백에서도 turn.end 요약을 찍어야
-  // chunk 분포 분석이 가능하다.
   it("wrapStream logs turn.end on consumer cancel (abort/steering)", async () => {
     const stream = makeCapturedStream();
     const middleware = traceLogger({ stream, label: "test" });
 
-    // 합성 stream — 종료되지 않는다 (consumer가 cancel)
     const sourceStream = new ReadableStream({
       start(controller) {
         controller.enqueue({ type: "stream-start" });
         controller.enqueue({ type: "text-delta", text: "partial" });
-        // close 안 함 — abort 시나리오 모방
       },
     });
 
-    const wrapped = await middleware.wrapStream!({
+    const wrapped = await middleware.wrapStream?.({
+      doGenerate: async () => {
+        throw new Error("doGenerate is not used in this test");
+      },
       doStream: async () => ({ stream: sourceStream }),
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      params: {} as any,
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
-      model: { modelId: "test-model" } as any,
+      params: promptParams(),
+      model: mockModel,
     });
 
-    const reader = wrapped.stream.getReader();
-    await reader.read(); // stream-start
-    await reader.read(); // text-delta
-    await reader.cancel("aborted by consumer"); // ← steering cancel
+    expect(wrapped).toBeDefined();
+    const reader = wrapped?.stream.getReader();
+    expect(reader).toBeDefined();
+    if (!reader) throw new Error("reader missing");
+    await reader.read();
+    await reader.read();
+    await reader.cancel("aborted by consumer");
 
     const lines = stream.lines();
     expect(lines.length).toBe(1);
-    expect(lines[0]).toMatch(/turn\.end model=test-model elapsed=\d+ms .*stream-start=1.*text-delta=1.*cancelled=/);
+    expect(lines[0]).toMatch(
+      /turn\.end model=test-model elapsed=\d+ms .*stream-start=1.*text-delta=1.*cancelled=/,
+    );
   });
 });

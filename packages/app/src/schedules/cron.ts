@@ -1,7 +1,7 @@
 /**
  * cronSchedule — `docs/specs/schedules.md` (rev. 2) 1차 가설 시그니처.
  *
- * 1단계(skeleton): 시그니처만. 다음 단계에서 node-cron 등 라이브러리 결정 + 실 트리거 구현.
+ * 런타임 등록은 `runtime/scheduleFanOut.ts`에서 처리한다.
  */
 
 /**

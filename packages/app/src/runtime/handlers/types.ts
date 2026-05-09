@@ -5,6 +5,7 @@
  */
 
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { ToolSet } from "ai";
 import type { DrainController } from "../drain.js";
 import type { SteeringRegistry } from "../steering.js";
 import type { SkippedContext } from "./utils.js";
@@ -34,6 +35,8 @@ export type ChatSdkHandler = (
 export interface HandlerDeps {
   /** ai-sdk wrapped model (middleware 체인 적용된 후) */
   model: LanguageModelV3;
+  tools?: ToolSet;
+  maxSteps: number;
   drain: DrainController;
   steering: SteeringRegistry;
   /** 핸들러 안에서 진행 상황 로깅 (기본 console.log) */

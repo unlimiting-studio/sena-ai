@@ -25,6 +25,12 @@ import { createSteeringHandler } from "./handlers/steering.js";
 import type { ChatSdkHandler, HandlerDeps } from "./handlers/types.js";
 import { type ScheduleFanOut, setupScheduleFanOut } from "./scheduleFanOut.js";
 import { SteeringRegistry } from "./steering.js";
+import { resolveStateAdapter } from "./state.js";
+import {
+  adapterFromChatSdkId,
+  channelIdFromChatSdkId,
+  runWithTurnContext,
+} from "./turn-context.js";
 
 export type SteeringMode = "queue" | "steering" | "step-steering";
 
@@ -128,7 +134,7 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
   // 4. Chat 인스턴스
   const chat = new Chat({
     userName: options.userName ?? "sena",
-    state: config.state as unknown as ConstructorParameters<typeof Chat>[0]["state"],
+    state: resolveStateAdapter(config.state),
     concurrency: chatConcurrency,
     adapters: adapterRecord,
     logger: "info",
@@ -140,7 +146,14 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
   const drain = createDrainController({ timeoutMs: options.drainTimeoutMs, log });
   const steering = new SteeringRegistry();
 
-  const handlerDeps: HandlerDeps = { model: wrappedModel, drain, steering, log };
+  const handlerDeps: HandlerDeps = {
+    model: wrappedModel,
+    tools: config.tools,
+    maxSteps: config.maxSteps ?? 5,
+    drain,
+    steering,
+    log,
+  };
 
   const makeHandler = (label: string): ChatSdkHandler => {
     if (steerMode === "queue") return createQueueHandler(label, handlerDeps);
@@ -183,10 +196,12 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
       await thread.subscribe();
       let success = false;
       try {
-        await onMention(
-          thread as unknown as Parameters<ChatSdkHandler>[0],
-          message as unknown as Parameters<ChatSdkHandler>[1],
-          context as unknown as Parameters<ChatSdkHandler>[2],
+        await runWithTurnContext(resolveChatTurnContext(thread, "mention"), () =>
+          onMention(
+            thread as Parameters<ChatSdkHandler>[0],
+            message as Parameters<ChatSdkHandler>[1],
+            context as Parameters<ChatSdkHandler>[2],
+          ),
         );
         success = true;
       } finally {
@@ -209,10 +224,12 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
     // drain.track 으로 감싸야 follow-up 메시지 처리 도중 SIGTERM 으로 chat.shutdown 이
     // inFlight=0 으로 잘못 판단해 한가운데서 connection 을 끊는 회귀를 막을 수 있다.
     await drain.track("onSubscribedMessage", async () => {
-      await onMessage(
-        thread as unknown as Parameters<ChatSdkHandler>[0],
-        message as unknown as Parameters<ChatSdkHandler>[1],
-        context as unknown as Parameters<ChatSdkHandler>[2],
+      await runWithTurnContext(resolveChatTurnContext(thread, "subscribed-message"), () =>
+        onMessage(
+          thread as Parameters<ChatSdkHandler>[0],
+          message as Parameters<ChatSdkHandler>[1],
+          context as Parameters<ChatSdkHandler>[2],
+        ),
       );
     });
   });
@@ -235,6 +252,8 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
       scheduleFanOut = await setupScheduleFanOut(config.schedules as Schedule[], {
         chat,
         model: wrappedModel,
+        tools: config.tools,
+        maxSteps: config.maxSteps ?? 5,
         drain,
         cwd: config.cwd,
         log,
@@ -300,5 +319,19 @@ export async function run(config: SenaConfig, options: RunOptions = {}): Promise
     drain,
     steering,
     shutdown,
+  };
+}
+
+function resolveChatTurnContext(
+  thread: { id?: string; threadId?: string; channelId?: string },
+  trigger: "mention" | "subscribed-message",
+) {
+  const threadId = thread.threadId ?? thread.id;
+  const channelLikeId = thread.channelId ?? threadId;
+  return {
+    adapter: adapterFromChatSdkId(threadId),
+    channelId: channelIdFromChatSdkId(channelLikeId),
+    threadId,
+    trigger,
   };
 }
