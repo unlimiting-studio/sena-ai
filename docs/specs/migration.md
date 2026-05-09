@@ -4,36 +4,46 @@
 
 **0. PoC 0단계 (조합 검증)** → 1~8. 본 에이전트 순차 마이그(sena_v2 또는 신규 PoC → 본 sena → 브렌 → lumie → sooki).
 
-## 0. PoC 0단계 — 조합 검증
+## 0. PoC 0단계 — 조합 검증 ✅ 완료 (2026-05-10)
 
 차니 시그널: *"ai-sdk + chat-sdk + codex / claude-code adapter 이 조합에서 어떻게 작동할지 보고 생각해줘"* (2026-05-10).
 
 본 마이그(§1~8) 진입 전에 **단일 베어본 에이전트**로 SPEC §"확정된 결정"의 미지수를 한 번에 닫는다.
 
-### 0단계 범위
+### 0단계 범위 (완료)
 
-- 새 디렉토리 `~/agents/sena-poc/` 생성. `@sena-ai/app` 빈 패키지로 시작.
-- 의존: `ai`, `chat`, `@chat-adapter/slack`, `@chat-adapter/state-pg`, `ai-sdk-provider-claude-code`(또는 `codex-cli`).
-- 1개 Slack 채널(예: `#z_log-poc` 신설)에 mention turn 한 발이 끝까지 도는 것까지가 0단계 종료점.
+- ✅ `~/agents/sena-poc/` 디렉토리 생성, `@sena-ai/app` 자리만 잡고 PoC 코드 직접 작성
+- ✅ 의존: `ai@6.0.177`, `chat@4.28.1`, `@chat-adapter/slack@4.28.1`, `@chat-adapter/state-memory@4.28.1`, `@chat-adapter/state-pg@4.28.1`, `ai-sdk-provider-claude-code@3.4.4`, `ai-sdk-provider-codex-cli@1.1.0`
+- ✅ Slack 봇 `lily` (`U0APLTFB3E0`) socket mode + `#project-sena` 채널에서 라이브 검증
 
-### 0단계가 닫는 미지수 (체크리스트)
+### 0단계 미지수 — 결과 (8/8 닫힘)
 
-| 미지수                                                    | 0단계 검증 방법                                                              | 결과 반영 위치                |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------- |
-| ai-sdk `LanguageModelV3Middleware` hook 가능 지점         | `transformParams`로 system 합성, `wrapStream`으로 chunk trace 둘 다 시도         | `docs/specs/hooks.md` rev. 2  |
-| chat-sdk 핸들러 hook 가능 지점                            | `onNewMention` 외 message / reaction / button / slash / modal 핸들러 직접 호출 | `docs/specs/connectors/slack.md` rev. 2 |
-| `ScheduledMessage`가 cronSchedule 흡수                     | 단순 cron 한 발 등록해 trigger turn 동작 확인                                    | `docs/specs/schedules.md` rev. 2 |
-| `@chat-adapter/slack` 출력 디테일 커버 범위                | mrkdwn(꺾쇠/볼드) / unfurl(URL 자동 preview) / streaming preview / table block 한 turn에 모두 통과 | 미커버 항목 wiki(별도)          |
-| Zod inline tool 흡수 여부                                  | `defineTool()` 한 개 등록 후 turn 안에서 호출 시도                              | `docs/specs/tools.md` rev. 2  |
-| chat-sdk observability 범위                                | 핸들러 trace API 노출 여부 + chunk 단위 추적이 어느 레이어에서 가능한지         | `SPEC.md` NFR-4 결정 입력     |
-| `@chat-adapter/state-pg` 실 동작                          | 로컬 PG 띄워서 등록 → 재시작 후 conversation history 복원 확인                  | 확정 결정 #2 검증              |
-| 프로세스 구조 결정 입력                                    | 단일 프로세스에서 hot-reload / 다중 connector / cron 발화 / restart 충돌 여부   | 확정 결정 #3 입력              |
+| 미지수 | 결과 | 검증 방법 |
+|---|---|---|
+| ai-sdk `LanguageModelV3Middleware` hook 가능 지점 | ✅ | `transformParams` + `wrapStream`에 `traceLogger` 박고 chunk 분포 관찰. 한 turn에 8 tool call까지 trace 잡힘 |
+| chat-sdk 핸들러 hook 가능 지점 | ✅ | `onNewMention` → `subscribe()` → `onSubscribedMessage` 정상 라우팅 |
+| `ScheduledMessage`가 `cronSchedule` 흡수 | ❌ 다른 개념 | `ScheduledMessage` = 미래 발송 1-shot. cronSchedule은 우리 패턴(외부 setTimeout + `chat.thread(id)` reference + `thread.post(string)`)으로 직접 짠다 |
+| `@chat-adapter/slack` 출력 디테일 | ✅ | `markdown_text` native·streaming·mrkdwn 자동 처리 lily 사용에서 확인 |
+| Zod inline tool 흡수 | ❌ provider 미지원 | inline MCP 우회 확정 |
+| chat-sdk observability 범위 | ✅ | ai-sdk `wrapStream` middleware로 충분 |
+| `@chat-adapter/state-pg` 실 동작 | ✅ | Docker PG → `createPostgresState` → 5 테이블 자동 생성 → `subscribe()` 영속 → 재시작 → 멘션 없는 follow-up이 `onSubscribedMessage`로 라우팅 |
+| 프로세스 구조 입력 | ✅ | 단일 프로세스 + drain wrapper(`inFlight` 카운터 + 60s drain 루프) + AbortController 기반 steering 레이어. multi-socket coexist로 zero-downtime 가능 |
 
 ### 0단계 결과물
 
-- `~/agents/sena-poc/` 동작 코드.
-- **0단계 보고서** — `reports.yechanny.workers.dev/sena-v3-poc-report/`(예정). 위 체크리스트 결과 + SPEC rev. 2 반영안 + 확정 결정 #3 차니 결정 권고.
-- 보고 후 차니 confirm → SPEC rev. 2 → 본 마이그 §1 시작.
+- ✅ **PoC 코드** — `~/agents/sena-poc/` (모드 토글: `SENA_POC_STEER_MODE` / `DATABASE_URL` / `SENA_POC_CRON_TARGET`)
+- ✅ **PoC 보고서** — <https://reports.yechanny.workers.dev/sena-v3-poc-report/>
+- ✅ **SPEC rev. 2** — 이 문서 + `SPEC.md` + 분할 스펙 6개 갱신 완료
+- ✅ **확정 결정 #2 채택** — `@chat-adapter/state-pg`
+- ✅ **확정 결정 #3 채택** — 단일 프로세스 + drain wrapper + steering 레이어
+
+### 부수 발견 (본 마이그 시 wrapper / upstream PR)
+
+세 건 모두 chat-sdk 4.28.1 / @chat-adapter/slack 4.28.1에서 발견. 본 마이그 §1에서 첫 작업으로 wrapper 또는 upstream 이슈 등록.
+
+1. `Thread.handleStream` 외부 reference에서 깨짐 (`chat/dist/index.js:1631`)
+2. abort 시 `chatStream.stop()`이 `not_authed` 던짐 (`@chat-adapter/slack/dist/index.js:3386`)
+3. `Chat.shutdown()` in-flight handler drain 부재 (`chat/dist/index.js:2454-2476`)
 
 ## 마이그 단위 절차
 
@@ -60,18 +70,21 @@
 | `defineTool()` (Zod 인라인 도구)      | inline MCP 서버 우회 또는 chat-sdk·ai-sdk 자체 메커니즘 | `docs/specs/tools.md`.                                       |
 | `restart_agent` (worker 내부 도구)    | 프로세스 구조 결정에 의존                    | 차니 §11.3 결정 후 별도 다룸.                               |
 
-## 잃는 것 (PRD §9 그대로)
+## 잃는 것 (PRD §9 + PoC 발견)
 
-- claude-code provider Zod tool 미지원 → MCP 우회.
+- claude-code provider Zod tool 미지원 → MCP 우회. (확정)
 - claude-code provider reasoningEffort 미지원 → cc 시스템 설정 위임 (옵션이 noop).
 - codex-cli provider 모델명 사전 정의 → 신규 모델은 provider upstream PR.
 - chat-sdk Slack 어댑터 디테일 커버 범위 미지 → 마이그 1차 직후 전수조사.
+- **chat-sdk `Thread.handleStream` 외부 reference 미지원** (PoC 발견 #1) → cron 발화에서 streaming 출력 불가. wrapper 또는 upstream PR.
+- **chat-sdk abort 시 stream stop이 `not_authed`** (PoC 발견 #2) → wrapper로 무시.
+- **chat-sdk `Chat.shutdown()` drain 부재** (PoC 발견 #3) → 우리 `inFlight` + drain 루프 wrapper로 메움.
 
-## 일정 (PRD §10 + 0단계 추가)
+## 일정 (PRD §10 + 0단계 결과 반영)
 
-- **5/10** SPEC rev. 1 (확정 결정 4개 반영) — 완료.
-- **5/11 ~ 5/13** **0단계 PoC** (위 §0). 차니 confirm 후 SPEC rev. 2.
-- **5/14 ~ 5/20** 베어본 + sena_v2 또는 신규 PoC 에이전트 1개 본 마이그.
+- ✅ **5/10** SPEC rev. 1 (확정 결정 4개 반영) — 완료.
+- ✅ **5/10** **0단계 PoC** (위 §0) — **완료** (당일 라이브 검증). SPEC rev. 2 발행.
+- **5/14 ~ 5/20** 베어본 + sena_v2 또는 신규 PoC 에이전트 1개 본 마이그. **첫 작업: 부수 발견 3건 wrapper.**
 - **5/21 ~ 5/27** Slack 디테일 전수조사 + 미커버 항목 패치.
 - **5/28 ~ 6/10** 본 에이전트 순차 마이그 (sena → 브렌 → lumie → sooki).
 - **6/11 ~ 6/24** v2 deprecation, 6주 측정 시작.

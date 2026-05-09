@@ -1,5 +1,7 @@
 # Slack Connector
 
+**상태:** rev. 2 (PoC 0단계 검증 결과 반영).
+
 ## 한 줄
 
 `chat` + `@chat-adapter/slack`을 채택한다. mrkdwn / streaming / unfurl / table / archive permalink 같은 출력 디테일은 **어댑터 동작을 그대로 따른다** (PRD FR-3). 우리는 trigger 정책과 채널 라우팅만 짠다.
@@ -50,19 +52,39 @@ v2에서 우리가 짰던 trigger 정책 중 v3로 옮겨야 할 것:
 
 v2에서 우리가 디버그한 디테일(`parse:'none'` 양립 불가, mrkdwn 이중 꺾쇠 보존, archive permalink labeling, 1.5초 throttle trailing flush, dedup race) → **어댑터가 자체 처리한다고 1차 가정.** 어댑터가 미커버하는 항목은 PRD §10 일정의 *"5/21 ~ 5/27 Slack 디테일 전수조사"* 슬롯에서 확인 후 wrapper 또는 upstream PR로 처리.
 
-## State (Session) 영속성
+## State (Session) 영속성 ✅ 확정
 
-**`@chat-adapter/state-pg` 채택 (확정).** 차니 결정 (2026-05-10). 단, PoC 0단계(`docs/specs/migration.md` §0)에서 실제 동작을 한 번 검증한 뒤 SPEC rev. 2로 확정.
+**`@chat-adapter/state-pg` 채택** (PoC 0단계 라이브 검증 완료, 2026-05-10).
 
-- biginsight 등 다른 프로젝트가 이미 PG를 운영하고 있어 의존성 추가 부담이 작다.
-- 0단계에서 점검할 것: 재시작 후 conversation history 복원, multi-conversation 격리, schema 마이그레이션 책임 (chat-sdk가 자체로? 우리가?).
-- 0단계 동안만 `state-memory` 임시 사용 가능 (history 휘발 무방).
+`createPostgresState({ url, keyPrefix })` 한 줄 등록 → 부팅 시 자동으로 5개 테이블 생성:
+- `chat_state_subscriptions` — `thread.subscribe()` 영속. **재시작 후 follow-up 메시지가 `onSubscribedMessage`로 라우팅되는 핵심.**
+- `chat_state_locks` — thread별 동시성 제어
+- `chat_state_queues` — concurrency=queue/debounce 모드의 pending 메시지
+- `chat_state_cache` — TTL 있는 KV (chat-sdk message metadata 등)
+- `chat_state_lists` — `appendToList` / `getList` 형태
 
-## 검증 필요
+### codex/claude-code 자체 state와 역할 분리
 
-- `@chat-adapter/slack` 패키지명·옵션 키·trigger 핸들러 시그니처. 사이트에는 `onNewMention`만 명시됨, 나머지(message / reaction / button / slash / modal)는 코드를 까서 확인.
-- 우리가 v2에서 디버그한 출력 디테일이 어댑터에 적용돼 있는지 — 미커버 표는 1차 마이그 직후 별도 wiki에.
-- Socket Mode와 HTTP Events API 중 어댑터 권장 모드, multi-instance 운영 시 어떤 게 안전한지.
+| | codex/claude-code (`~/.claude/projects/*.jsonl`) | chat-sdk state-pg |
+|---|---|---|
+| 보관 대상 | 모델 conversation context | thread routing/concurrency 메타데이터 |
+| 영속 단위 | session ID 단위 message history | thread/channel 단위 subscribe·lock·queue |
+| 재시작 영향 | provider 자체 resume으로 회복 | state adapter가 책임 |
+
+→ 둘이 역할이 다르고 둘 다 필요. v2 `wasBotMentionedInThread()` 우회 패턴이 정확히 chat-sdk state 부재로 생긴 인메모리 한계였고, state-pg가 이걸 native 해결.
+
+## 검증 결과 (rev. 2)
+
+- ✅ `@chat-adapter/slack@4.28.1` 시그니처: `createSlackAdapter({ mode: 'socket', appToken, botToken })`. `onNewMention` / `onSubscribedMessage` / `onDirectMessage` / `onReaction` / `onSlashCommand` / `onModalSubmit` / `onNewMessage` 모두 노출.
+- ✅ Socket Mode 1급 지원. **같은 xapp 토큰으로 다중 인스턴스 동시 socket connect 가능** (Slack 공식 멀티 소켓 분산 라우팅) — zero-downtime rolling restart 패턴 가능.
+- ✅ `markdown_text` native 처리 (Slack 자체 mrkdwn 렌더링 경로 위임). v2 `@sena-ai/slack-mrkdwn` 자체 변환 불필요.
+- ✅ `PostableMessage`가 ai-sdk `fullStream`을 native 흡수 (text-delta 자동 추출).
+
+## 부수 발견 (PoC 0단계, 본 마이그 §1에서 wrapper)
+
+1. **`Thread.handleStream` 외부 reference에서 깨짐** (`chat/dist/index.js:1631`) — `chat.thread(id)`로 만든 reference에서 stream post 시 `_currentMessage.author.userId` undefined dereference. cron 발화 등 incoming message 없는 시나리오에서 streaming 출력 불가. 우리는 `await result.text` 후 string post로 우회.
+2. **abort 시 `chatStream.stop()`이 `not_authed`** (`@chat-adapter/slack/dist/index.js:3386`) — 새 turn에는 영향 없지만 abort된 stream 클로즈 처리가 깨끗하지 않음. wrapper에서 swallow.
+3. **`Chat.shutdown()` in-flight handler drain 부재** (`chat/dist/index.js:2454-2476`) — 우리 `inFlight` 카운터 + drain 루프 wrapper로 메움.
 
 ## AC
 

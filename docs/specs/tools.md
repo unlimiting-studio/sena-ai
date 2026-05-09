@@ -1,8 +1,10 @@
 # Tools (MCP & Inline)
 
+**상태:** rev. 2 (PoC 0단계 검증 결과 반영).
+
 ## 한 줄
 
-**MCP 서버를 1급으로 붙일 수 있다.** Zod 인라인 도구는 chat-sdk · ai-sdk 자체 메커니즘으로 흡수 시도 → 안 되면 MCP 서버 우회.
+**MCP 서버를 1급으로 붙일 수 있다.** Zod 인라인 도구는 provider(claude-code / codex-cli) 둘 다 미지원 — **inline MCP 우회로 확정** (PoC 0단계, 차니 결정).
 
 ## MCP 서버 등록
 
@@ -28,11 +30,11 @@ mcpServers: {
 
 > 정확한 키 이름과 옵션은 두 provider의 mcpServers 시그니처를 1차 마이그에서 검증.
 
-## Inline tool (Zod) — 우회 전략
+## Inline tool (Zod) — 우회 전략 ✅ 확정
 
-**문제:** `ai-sdk-provider-claude-code`는 AI SDK 커스텀 tool(Zod 스키마)을 지원하지 않는다. `ai-sdk-provider-codex-cli`도 동일.
+**문제:** `ai-sdk-provider-claude-code`는 AI SDK 커스텀 tool(Zod 스키마)을 지원하지 않는다. `ai-sdk-provider-codex-cli`도 동일. chat-sdk도 자체 tool 메커니즘을 LLM에 노출하지 않음.
 
-**1차 가설:** chat-sdk가 자체 tool 메커니즘을 LLM에 노출하면 그걸 사용. 흡수 안 되면 다음 우회.
+**해결: 인라인 MCP 서버 우회.** (차니 결정, PoC 0단계, 2026-05-10)
 
 **우회 — 인라인 MCP 서버:**
 v2의 `inline-mcp-bridge.ts` 패턴 재활용. 한 에이전트 프로세스 안에 localhost MCP 서버를 1개 띄우고, 우리 inline 도구들을 그 서버의 tool로 등록한다. provider mcpServers 설정에 `streamable-http`로 추가.

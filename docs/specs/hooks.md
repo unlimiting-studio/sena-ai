@@ -1,8 +1,48 @@
 # Hooks (Middleware)
 
+**상태:** rev. 2 (PoC 0단계 검증 결과 반영).
+
 ## 한 줄
 
 v2의 `TurnStart` / `TurnEnd` / `system 합성` 의도를 ai-sdk `LanguageModelV3Middleware` 위에 다시 짠다. **함수 시그니처는 v2와 다르다.** 1:1 자동 마이그 안 됨.
+
+## 0단계 검증 결과 ✅
+
+PoC에서 `traceLogger` middleware로 `transformParams` + `wrapStream` 양쪽 라이브 검증:
+
+```ts
+// sena-poc/src/middlewares/trace.ts
+export function traceLogger(label: string): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v3",
+    transformParams: async ({ params, type }) => {
+      console.log(`[${label}] turn.start type=${type} promptParts=${params.prompt.length}`);
+      return params;
+    },
+    wrapStream: async ({ doStream, model }) => {
+      const start = Date.now();
+      const result = await doStream();
+      const counts = new Map<string, number>();
+      const transformedStream = result.stream.pipeThrough(new TransformStream({
+        transform(chunk, controller) {
+          counts.set(chunk.type, (counts.get(chunk.type) ?? 0) + 1);
+          controller.enqueue(chunk);
+        },
+        flush() {
+          const elapsed = Date.now() - start;
+          console.log(`[${label}] turn.end model=${model.modelId} elapsed=${elapsed}ms ` +
+            Array.from(counts.entries()).map(([k, v]) => `${k}=${v}`).join(" "));
+        },
+      }));
+      return { ...result, stream: transformedStream };
+    },
+  };
+}
+```
+
+**노출 chunk types** (claude-code provider 기준): `stream-start`, `response-metadata`, `reasoning-start`, `reasoning-delta`, `reasoning-end`, `tool-input-start`, `tool-input-delta`, `tool-input-end`, `tool-call`, `tool-result`, `text-start`, `text-delta`, `text-end`, `finish`, (`error` on abort). 한 turn에 8 tool call까지 깨끗이 분류됨.
+
+**ai-sdk-provider-claude-code는 `step-start` / `finish-step` chunk를 별도로 노출하지 않는다.** Step 경계가 필요하면 `tool-call` / `tool-result` chunk pair로 근사 (sena-poc step-steering 모드에서 검증).
 
 ## ai-sdk LanguageModelV3Middleware
 
@@ -57,10 +97,10 @@ chat-sdk도 이벤트 단위 핸들러를 노출한다 (`onNewMention` 등). 두
 | reaction trigger 분기 / abort       |        ❌        |        ⭕        |
 | trigger filter (channelId·userId)   |        ❌        |        ⭕        |
 
-## 검증 필요
+## 검증 결과 (rev. 2)
 
-- chat-sdk가 `before/after respond` 같은 핸들러 미들웨어를 노출하는지. 노출되면 channelContext를 거기에 두는 게 더 자연스럽다(LanguageModel 입력이 아니라 chat-sdk Conversation 단계에서 합성).
-- v2의 `restart_agent` 같은 워커 lifecycle 훅은 v3에 직접 매핑되는 자리가 없다 — 프로세스 구조 결정(차니 §11.3) 후 별도 다룬다.
+- **chat-sdk `before/after respond` 핸들러 미들웨어 별도 노출 없음.** ai-sdk `transformParams`가 system prompt 합성의 정답 위치. PoC에서 그대로 검증.
+- **`restart_agent` 같은 워커 lifecycle 훅은 v3에서 단일 프로세스 + drain wrapper 패턴으로 흡수** (확정 결정 #3). v2의 worker 분리 자체가 사라지므로 별도 훅 불필요.
 
 ## AC
 

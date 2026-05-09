@@ -1,8 +1,10 @@
 # Architecture
 
+**상태:** rev. 2 (PoC 0단계 검증 결과 반영).
+
 ## 한 줄
 
-트리거(Slack · cron) → chat-sdk 어댑터 → 우리 미들웨어(channel context · system 합성 · trace) → ai-sdk LanguageModel → provider(claude-code / codex-cli) → 엔진(Claude Code CLI / codex CLI).
+트리거(Slack · cron) → chat-sdk 어댑터 → 우리 미들웨어(channel context · system 합성 · trace) → ai-sdk LanguageModel → provider(claude-code / codex-cli) → 엔진(Claude Code CLI / codex CLI). **단일 Node 프로세스 + 자체 drain wrapper + AbortController 기반 steering 레이어** (확정 결정 #3).
 
 ## 레이어
 
@@ -16,6 +18,26 @@
 | 엔진                  | 실제 LLM·tool call 실행                                                         | Claude Code CLI / codex CLI   |
 
 > **우리가 직접 짜는 코드는 "우리 미들웨어" 레이어 한 덩어리뿐이다.** 그 외는 외부 라이브러리.
+
+## 프로세스 구조 (확정 결정 #3)
+
+**단일 Node 프로세스** 안에 다음 레이어가 같이 있다:
+
+1. **chat-sdk Chat 인스턴스** — 어댑터·state·핸들러 등록.
+2. **우리 drain wrapper** — `inFlight` 카운터를 핸들러 진입/탈출 시 증감. SIGTERM 받으면 `draining=true` 플래그 + `inFlight=0` 될 때까지 200ms 폴링 (60s timeout) 후에 `chat.shutdown() + process.exit`.
+3. **우리 steering 레이어** — `chat-sdk concurrency: "concurrent"`로 thread lock 우회 + thread별 `Map<threadKey, { controller: AbortController, partialText }>` 관리. 새 메시지 도착 시 기존 controller `.abort()` → ai-sdk `streamText({ abortSignal })`로 전파 → 같은 핸들러 내부 loop가 새 컨텍스트로 다음 turn 재시작.
+4. **ai-sdk middleware 체인** — `wrapLanguageModel({ model, middleware: [channelContext, systemCompose, traceLogger] })`.
+5. **provider** — `claudeCode()` 또는 `codexCli()`가 LanguageModel 호출 받고 CLI subprocess spawn.
+
+### Zero-downtime rolling restart
+
+같은 xapp 토큰으로 두 인스턴스가 동시에 socket connect 가능 (Slack 공식 멀티 소켓 분산 라우팅). 따라서 SIGUSR2 기반 v2 패턴 대신:
+
+1. 새 인스턴스 띄움 → socket connect (Slack이 새 이벤트를 양쪽에 분산)
+2. 기존 인스턴스 SIGTERM → drain wrapper가 inFlight=0 될 때까지 대기
+3. 기존 인스턴스 자연 exit
+
+→ in-flight turn은 끝까지 처리되고 새 인스턴스가 새 이벤트를 받는다.
 
 ## 데이터 흐름 (한 turn)
 
@@ -31,10 +53,10 @@
 
 > PRD §"시각화 — 아키텍처 레이어" 다이어그램과 동일한 구조 ([HTML view](https://reports.yechanny.workers.dev/sena-v3-prd/#architecture)). 여기서는 텍스트 요약만 둔다.
 
-## 검증 필요
+## 검증 결과 (rev. 2)
 
-- chat-sdk가 자체 system prompt 합성 hook을 제공하면, 우리 미들웨어 1차(채널 컨텍스트)는 ai-sdk가 아니라 chat-sdk 쪽에서 끼는 게 자연스러울 수 있다. 어느 레이어에 둘지는 1차 마이그에서 결정.
-- cron 트리거가 chat-sdk Conversation 입구를 거쳐야 message history가 자연스럽게 누적된다. `ScheduledMessage`가 그 역할을 하는지 — `docs/specs/schedules.md` 참조.
+- ✅ chat-sdk는 자체 system prompt 합성 hook을 노출하지 않음. 우리 미들웨어(channel context, system compose)는 ai-sdk `transformParams`에 둔다.
+- ❌ `ScheduledMessage`는 미래 발송 1-shot이라 cron 트리거 흡수 안 함. 우리가 직접 짠다 — `docs/specs/schedules.md` 참조.
 
 ## AC
 
