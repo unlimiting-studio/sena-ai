@@ -1,20 +1,28 @@
 /**
  * Schedule fan-out — `cronSchedule({ name, cron, target, prompt })` 배열을 받아 `node-cron`
- * 으로 등록하고, 발화 시점에 `chat.thread(threadId)` reference + `streamText` + string post
- * 패턴으로 일반 turn flow 를 태운다 (PoC 0단계 검증 패턴 그대로).
+ * 으로 등록하고, 발화 시점에 `chat.thread()/channel()` reference + `streamText` + string post
+ * 패턴으로 cron turn 을 흘린다 (PoC 0단계 검증 패턴 그대로).
  *
  * SPEC: `docs/specs/schedules.md` rev. 2.
  *
- * 1차 동작:
+ * 차니 우려 (state 호환성) 와 step 4.5 롤백 이력:
+ *  - 차니 우려: "state 가 chat-sdk 에 저장되는데 cron 이 chat-sdk 우회하면 다른 채팅 간 호환성 깨지지 않을지".
+ *  - **outbound** (cron 응답이 chat-sdk thread/channel state 에 어떻게 기록되는가): 이미 깨끗.
+ *    cron 발화 끝에 `thread.post(text) / channel.post(text)` 를 chat-sdk 통해 호출하므로 일반
+ *    mention turn 의 응답과 똑같이 state-pg 에 기록된다. 호환성 안 깨짐.
+ *  - **inbound** (cron 발화가 prior history 를 읽고 답해야 하는가): cron 은 *stand-alone trigger* 라
+ *    history 의존 없는 게 본질에 맞다. step 4.5 로 history-aware 모드를 잠깐 시도했지만 두 회귀
+ *    (codex round 2): ① 채널 dispatch 시 채널 임의 잡담이 모델 input 에 섞임 ② thread dispatch 시
+ *    cron prompt 가 thread 에 안 남아 다음 발화 history 가 assistant-only 비대칭 → 롤백.
+ *  - history-aware 가 정말 필요한 시나리오 (예: thread 안에서 누적되는 정기 리포트) 는 step 5+ 에서
+ *    SPEC §"동작 (1차 가설)" 1번 (state adapter history load) 을 제대로 닫고 별도 다룬다.
+ *
+ * 1차 (step 4) 동작:
  *  - cron 표현은 KST(`Asia/Seoul`) 시간대로 해석.
  *  - `prompt: { file }` 은 발화 시점 lazy read (재시작 없이 prompt 파일만 수정해 다음 발화에 반영).
- *  - 출력은 `await result.text` → `thread.post(text)` (PoC 발견 #1: `Thread.handleStream`
- *    외부 reference 깨짐 우회).
+ *  - 출력은 `await result.text` → `thread.post(text)` 또는 `channel.post(text)` (PoC 발견 #1:
+ *    `Thread.handleStream` 외부 reference 깨짐 우회).
  *  - 발화 turn 도 `drain.track` 으로 감싸 SIGTERM 시 in-flight cron 도 같이 drain.
- *
- * 미구현 (step 4+):
- *  - `slack-channel` + `threadTs` 미지정 (채널 신규 메시지 dispatch).
- *  - adapter prefix 추론 — 1차에는 'slack:' 고정.
  */
 
 import type { LanguageModelV3 } from "@ai-sdk/provider";
@@ -68,19 +76,6 @@ export async function setupScheduleFanOut(
   // ScheduleFanOut 자체 stopping flag 를 두고 콜백 진입 시 *먼저* 검사한다 — fanOut.stop()
   // 첫 줄에 stopping=true 를 박아 이후 tick 콜백은 drain 상태와 무관하게 즉시 빠진다.
   let stopping = false;
-
-  // codex P1 round 2 — SPEC schedules.md §"동작 (1차 가설)" 1번은 "target 이 가리키는
-  // chat-sdk Conversation 을 찾는다 (state adapter 에서 history load)" 라고 약속한다.
-  // step 4 1차 구현은 prompt-only (history 없이 streamText 직행) 로 단순화했다 — SPEC AC 1~3
-  // (morning briefing 채널 dispatch, trace 동등성, file lazy read) 가 모두 history-less
-  // 시나리오라 1차 충족에 충분. history-aware turn 은 step 5+ 에서 conversation 핸들러
-  // 경로 합류로 별도 다룬다 (chat-sdk Thread.handleStream 외부 reference 깨짐 wrapper 와 함께).
-  if (schedules.length > 0) {
-    deps.log(
-      `[sena] schedules: 1차 구현은 prompt-only (conversation history 없이 streamText 직행). ` +
-        `history-aware turn 은 step 5+ 예정.`,
-    );
-  }
 
   try {
     for (const schedule of schedules) {
