@@ -7,12 +7,12 @@
 ## 1차 가설 (시그니처 변경 가능)
 
 ```ts
-import { defineConfig } from '@unlimiting-studio/sena'; // 패키지명 차니 결정 대기
-import { slackAdapter } from '@unlimiting-studio/sena/adapters/slack';
+import { defineConfig } from '@sena-ai/app';
+import { slackAdapter } from '@sena-ai/app/adapters/slack';
 import { claudeCode } from 'ai-sdk-provider-claude-code';
-import { channelContext } from '@unlimiting-studio/sena/middlewares/channel-context';
-import { traceLogger } from '@unlimiting-studio/sena/middlewares/trace';
-import { cronSchedule } from '@unlimiting-studio/sena/schedules';
+import { channelContext } from '@sena-ai/app/middlewares/channel-context';
+import { traceLogger } from '@sena-ai/app/middlewares/trace';
+import { cronSchedule } from '@sena-ai/app/schedules';
 
 export default defineConfig({
   cwd: import.meta.dirname,
@@ -45,8 +45,11 @@ export default defineConfig({
     }),
   ],
 
-  // chat-sdk state adapter — 차니 결정 대기 (FR-9)
-  state: { /* '@chat-adapter/state-pg' | 'state-redis' | 'state-memory' */ },
+  // chat-sdk state adapter — '@chat-adapter/state-pg' 확정 (PoC 0단계에서 검증)
+  state: {
+    type: 'pg',
+    connectionString: process.env.DATABASE_URL!,
+  },
 
   // MCP 서버 1급
   mcpServers: {
@@ -65,7 +68,7 @@ export default defineConfig({
 | `adapters`    | `ChatAdapter[]` (chat-sdk)                         | `@chat-adapter/*` | 여러 어댑터 병렬 등록 가능 (multi-connector, FR-10).                   |
 | `middlewares` | `LanguageModelV3Middleware[]` (ai-sdk)             | sena + 사용자     | `wrapLanguageModel` 순서로 적용. `docs/specs/hooks.md` 참조.           |
 | `schedules`   | `Schedule[]`                                       | sena              | `docs/specs/schedules.md` 참조.                                       |
-| `state`       | chat-sdk `StateAdapter`                            | `@chat-adapter/state-*` | 차니 결정 대기. 미설정 시 `state-memory` 기본(개발용).               |
+| `state`       | chat-sdk `StateAdapter`                            | `@chat-adapter/state-pg` | 확정. PoC 0단계에서 실 동작 검증.                                       |
 | `mcpServers`  | `Record<string, McpServerConfig>`                  | 사용자            | `docs/specs/tools.md` 참조.                                           |
 
 ## 검증 필요
