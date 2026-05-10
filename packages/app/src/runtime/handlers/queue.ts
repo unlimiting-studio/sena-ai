@@ -11,7 +11,12 @@
 import { stepCountIs, streamText } from "ai";
 import { safePostStream } from "../stream.js";
 import { gracefulDrainSkip, type ChatSdkHandler, type HandlerDeps } from "./types.js";
-import { NO_TEXT_NOTICE, buildPromptWithSkipped, stripLeadingMention } from "./utils.js";
+import {
+  NO_TEXT_NOTICE,
+  buildPromptWithSkipped,
+  silenceStreamTextRejections,
+  stripLeadingMention,
+} from "./utils.js";
 
 export function createQueueHandler(label: string, deps: HandlerDeps): ChatSdkHandler {
   return async (thread, message, context) => {
@@ -39,6 +44,9 @@ export function createQueueHandler(label: string, deps: HandlerDeps): ChatSdkHan
         stopWhen: deps.tools ? stepCountIs(deps.maxSteps) : undefined,
         prompt,
       });
+      // 5/10 회귀 fix — abort 가 queue 모드에선 발생 안 하지만, network 에러로 background
+      // PromiseLike (usage/finishReason 등) 가 reject 되는 동일 패턴 가능. 일관 적용.
+      silenceStreamTextRejections(result);
       await safePostStream(thread, result);
     });
   };

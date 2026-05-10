@@ -34,6 +34,63 @@ export function getThreadKey(thread: { id?: string; threadId?: string }): string
 }
 
 /**
+ * ai-sdk `streamText` 의 result 객체는 `text` / `usage` / `finishReason` / `toolCalls`
+ * / `toolResults` 등 *background PromiseLike* 필드를 노출한다. 핸들러가 일부만 await
+ * 하고 나머지는 안 건드리는 게 일반적인데, `controller.abort()` 호출 시 그 모든 promise 가
+ * 한꺼번에 reject 된다 — await 가 등록 안 된 promise 의 reject 는 Node 의 default
+ * `--unhandled-rejections=throw` 모드에서 process 를 죽인다.
+ *
+ * 5/10 05:35 sena-bare 가 두 번째 멘션(steering interrupt) 시점에 unhandled
+ * `DOMException [AbortError]` 로 process exit 한 회귀의 root cause.
+ *
+ * 호출 시점에 모든 background promise 에 noop catch 핸들러를 *미리* 붙여둔다. 핸들러가
+ * 이후 명시적으로 await 해서 catch 하면 동일 promise 라 같은 결과가 흐름. catch 가 한 번
+ * 등록되면 Node 가 더 이상 unhandled 로 카운트하지 않음.
+ *
+ * 등록 형태가 자유로운 result 객체라 known field 만 best-effort 로 cover.
+ */
+export function silenceStreamTextRejections(result: {
+  text?: PromiseLike<unknown>;
+  usage?: PromiseLike<unknown>;
+  finishReason?: PromiseLike<unknown>;
+  toolCalls?: PromiseLike<unknown>;
+  toolResults?: PromiseLike<unknown>;
+  steps?: PromiseLike<unknown>;
+  response?: PromiseLike<unknown>;
+  request?: PromiseLike<unknown>;
+  warnings?: PromiseLike<unknown>;
+  providerMetadata?: PromiseLike<unknown>;
+  reasoning?: PromiseLike<unknown>;
+  reasoningText?: PromiseLike<unknown>;
+  sources?: PromiseLike<unknown>;
+  files?: PromiseLike<unknown>;
+}): void {
+  const fields = [
+    result.text,
+    result.usage,
+    result.finishReason,
+    result.toolCalls,
+    result.toolResults,
+    result.steps,
+    result.response,
+    result.request,
+    result.warnings,
+    result.providerMetadata,
+    result.reasoning,
+    result.reasoningText,
+    result.sources,
+    result.files,
+  ];
+  for (const p of fields) {
+    if (!p) continue;
+    Promise.resolve(p).catch(() => {
+      // 이미 핸들러가 await 한 promise 라면 같은 reject 가 거기서도 catch 됨. 여기는 단지
+      // Node 의 unhandled rejection 카운트만 막기 위한 noop sink.
+    });
+  }
+}
+
+/**
  * Queue 모드 — chat-sdk가 in-flight 중 들어온 메시지를 모아서 가장 최신만 dispatch하고
  * 중간 메시지를 `context.skipped`로 핸들러에 전달한다. 그걸 prompt에 흡수해 모델이
  * "사용자가 N개 더 보냈고 마지막이 메인 요구"임을 알게 한다 (PoC 라이브 검증 동작).

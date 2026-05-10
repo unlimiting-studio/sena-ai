@@ -19,6 +19,7 @@ import {
   buildPromptWithInterrupt,
   getThreadKey,
   hasNoUsableText,
+  silenceStreamTextRejections,
   stripLeadingMention,
 } from "./utils.js";
 
@@ -112,6 +113,9 @@ export function createStepSteeringHandler(label: string, deps: HandlerDeps): Cha
             prompt,
             abortSignal: controller.signal,
           });
+          // 5/10 회귀 fix — abort 시 background PromiseLike 들이 reject 되어 unhandled
+          // rejection 으로 process kill. silent catch 등록.
+          silenceStreamTextRejections(result);
           [tapStream, postStream] = result.fullStream.tee();
         } catch (err) {
           deps.steering.releaseIf(threadKey, slot);

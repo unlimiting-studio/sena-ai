@@ -17,6 +17,7 @@ import {
   buildPromptWithInterrupt,
   getThreadKey,
   hasNoUsableText,
+  silenceStreamTextRejections,
   stripLeadingMention,
   tapTextDelta,
 } from "./utils.js";
@@ -93,6 +94,10 @@ export function createSteeringHandler(label: string, deps: HandlerDeps): ChatSdk
           prompt,
           abortSignal: controller.signal,
         });
+        // 5/10 회귀 fix — abort 시 background PromiseLike 들이 reject 되어 unhandled
+        // rejection 으로 process kill. silent catch 등록 (handler 가 await 하는 result.text 도
+        // 같은 promise 라 결과 동일).
+        silenceStreamTextRejections(result);
 
         // partialText 누적 — fullStream을 두 갈래로 분기
         const [tapStream, postStream] = result.fullStream.tee();

@@ -33,6 +33,7 @@ import * as path from "node:path";
 import nodeCron, { type ScheduledTask } from "node-cron";
 import type { Schedule, ScheduleTarget } from "../schedules/cron.js";
 import type { DrainController } from "./drain.js";
+import { silenceStreamTextRejections } from "./handlers/utils.js";
 import { channelIdFromChatSdkId, runWithTurnContext } from "./turn-context.js";
 
 export interface ScheduleFanOutDeps {
@@ -116,6 +117,9 @@ export async function setupScheduleFanOut(
                     prompt: promptText,
                   }),
               );
+              // 5/10 회귀 fix — abort/network 에러 시 background PromiseLike 들이 reject 되어
+              // unhandled rejection 으로 process kill 가능. silent catch 등록.
+              silenceStreamTextRejections(result);
               // PoC 발견 #1 — `thread.post(stream)` 은 `_currentMessage` 부재로 깨짐. 외부
               // 트리거(cron)는 incoming message 가 없으므로 await text 후 string post.
               const text = await result.text;
