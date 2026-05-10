@@ -1,5 +1,7 @@
 # Migration
 
+**상태:** rev. 3 (§1 step 1 ~ 4.7 진척 + 부수 발견 #4 (5/10 streamText unhandled rejection) + #5 (lily subscription leak) 등재).
+
 ## 한 줄
 
 **0. PoC 0단계 (조합 검증)** → 1~8. 본 에이전트 순차 마이그(sena_v2 또는 신규 PoC → 본 sena → 브렌 → lumie → sooki).
@@ -39,11 +41,39 @@
 
 ### 부수 발견 (본 마이그 시 wrapper / upstream PR)
 
-세 건 모두 chat-sdk 4.28.1 / @chat-adapter/slack 4.28.1에서 발견. 본 마이그 §1에서 첫 작업으로 wrapper 또는 upstream 이슈 등록.
+#1~3 은 chat-sdk 4.28.1 / @chat-adapter/slack 4.28.1 PoC 단계 발견. 본 마이그 §1에서 첫 작업으로 wrapper 또는 upstream 이슈 등록.
 
-1. `Thread.handleStream` 외부 reference에서 깨짐 (`chat/dist/index.js:1631`)
-2. abort 시 `chatStream.stop()`이 `not_authed` 던짐 (`@chat-adapter/slack/dist/index.js:3386`)
-3. `Chat.shutdown()` in-flight handler drain 부재 (`chat/dist/index.js:2454-2476`)
+#4~5 는 본 마이그 §1 step 3 ~ 4.7 라이브 운영 단계 발견.
+
+1. `Thread.handleStream` 외부 reference에서 깨짐 (`chat/dist/index.js:1631`) — PoC.
+2. abort 시 `chatStream.stop()`이 `not_authed` 던짐 (`@chat-adapter/slack/dist/index.js:3386`) — PoC.
+3. `Chat.shutdown()` in-flight handler drain 부재 (`chat/dist/index.js:2454-2476`) — PoC.
+4. **ai-sdk `streamText` background PromiseLike unhandled rejection** — step 4.7 (`f028ef7`, 5/10 라이브 회귀 fix). steering 시 `prev.controller.abort()` 호출 후 ai-sdk `streamText` 의 `text`/`usage`/`finishReason`/... 14개 background promise 가 한꺼번에 reject 되는데 핸들러가 일부만 await 한 경우 나머지는 unhandled — Node `--unhandled-rejections=throw` default 에서 process kill. **증상:** 5/10 05:35 sena-bare 가 두 번째 멘션(steering interrupt) 시점에 unhandled `DOMException [AbortError]` 로 process exit. **봉합:** `silenceStreamTextRejections(result)` (`runtime/handlers/utils.ts`) 가 14개 known field 에 noop `.catch()` 핸들러를 미리 부착 → Node 가 더 이상 unhandled 로 카운트하지 않음. handler 가 명시적으로 await 하면 같은 reject 가 거기서도 흐르므로 동작은 동등. steering / step-steering / schedules 모두 동일 패턴 적용. **운영 안전망:** `runtime/run.ts` 의 `process.on('unhandledRejection', ...)` listener 도 같이 박혀 있어 신규 필드가 추가돼도 process kill 안 됨. **진짜 root fix** 는 ai-sdk / chat-sdk 내부 (background promise 의 reject 가 user-await 안 됐을 때 silently 흡수) — step 5+.
+5. **lily subscription leak (운영 격리)** — step 4.7 라이브 운영에서 발견. *코드 수정 없이 state-pg 수동 DELETE 로 격리.* **증상:** 일반 mention 핸들러(`chat.onNewMention`) 가 자동으로 `thread.subscribe()` 를 호출하는 구조 + 활발한 작업 thread → 봇이 그 thread 의 *모든 후속 메시지* 를 흡수 → 봇끼리 / 사람끼리 주고받는 잡담까지 `onSubscribedMessage` 라우팅 → `inFlight` 카운터 폭주 + 응답 지연. **봉합:** `chat_state_subscriptions` 테이블에서 해당 lily-thread 행을 수동 DELETE 로 격리 (영속 subscribe 해제). **진짜 fix** 는 step 5+:
+   - `triggers.filter(event)` 정식 구현 (Slack connector 4/4 spec) — channelId / userId / text / threadTs 등 기준 무시 가능.
+   - 자동 unsubscribe 도구 (turn 내 명시 호출 또는 idle TTL).
+   - 핸들러를 *opt-in subscribe* 로 디자인 변경 (현재는 opt-out 도 어려운 자동 subscribe 디자인).
+
+## §1 step 별 진척 (본 마이그 1번 시작 — 코드 commit 단위)
+
+본 마이그 §1 의 *1번 (베어본 + 신규 PoC 에이전트)* 은 PoC 0단계 직후 step 1~4.7 의 7 commit 으로 진행 중. 본 표는 step 단위 commit 과 결과를 추적한다 (스펙 ↔ 코드 정합성 트래킹용).
+
+| step | commit | 내용 | 결과 |
+|---|---|---|---|
+| 1 | `f8afbe4` | monorepo 골격 + `@sena-ai/app` skeleton | pnpm workspace + tsconfig + package.json + skeleton export. 코드 동작 없음. |
+| 2 | `ede03b1` | chat-sdk 부수 발견 3건 wrapper + traceLogger 이전 | PoC 발견 #1~3 wrapper 패키지로 추출. v2 `traceLogger` ai-sdk middleware 로 다시 짬. |
+| 3 | `8c916cf` | `run()` 통합 entry + 3종 핸들러 + codex 11 라운드 | `runtime/run.ts` 가 mention/onSubscribedMessage/reaction 3종 핸들러를 등록. drain wrapper + steering 레이어 + AbortController 기반 인터럽트. codex 11 라운드 review. |
+| 4 | `53649b7` | schedules fan-out + ScheduleTarget 좁힘 + codex 6 라운드 | `runtime/scheduleFanOut.ts` 신설. `ScheduleTarget` union 에서 `conversation` 제거 (step 5+ 로 미룸). `node-cron` + `noOverlap` + KST + drain.track + rollback. codex 6 라운드 review. |
+| 4.5 | `fe91d92` | history-aware 시도 후 롤백 결정 기록 | 차니 우려 (state 호환성) 받아 history-aware 모드를 잠깐 시도했지만 두 회귀 (채널 잡담 섞임 / thread assistant-only 비대칭) → 롤백. *prompt-only 직행* 으로 정정. 결정만 기록 (코드는 step 4 상태 유지). |
+| 4.6 | `cbc0208` (차니 직접) | starter runnable + factory wrapper + channelContext 확장 + tools/maxSteps | `templates/slack-agent/` starter 가 실제로 부팅 되도록 factory wrapper (`slackAdapter`, `postgresState`, `requiredEnv`, `createMemoryState`) 추가. `channelContext.optional` 추가. `streamText({ tools, stopWhen: stepCountIs(maxSteps) })` 를 모든 핸들러 + schedule 에 적용. |
+| 4.7 | `f028ef7` | `silenceStreamTextRejections` — 5/10 라이브 unhandled rejection 회귀 fix | 부수 발견 #4 봉합. 14개 background promise 필드에 noop catch + `process.on('unhandledRejection', ...)` 운영 안전망. handler / schedule 진입 후 첫 줄에 호출. |
+
+### 라이브 운영 상태 (rev. 3 작성 시점)
+
+- **sena-bare** (step 4.7 빌드, lily 봇 `U0APLTFB3E0` socket mode) — PID 59351 실행 중, `#project-sena` 라이브.
+- **state-pg** Docker — 5 테이블 (`chat_messages`, `chat_state_subscriptions`, `chat_state_kv`, `chat_state_dedup`, `chat_state_outbox`) 정상.
+- **테스트** — `@sena-ai/app` 26 tests passing (drain / schedule fan-out / handlers / utils / turn-context).
+- **부수 발견 #5 격리** — `chat_state_subscriptions` 에서 lily 의 leaked subscription 행 수동 DELETE 로 inFlight 폭주 차단. step 5+ 에서 `triggers.filter` / opt-in subscribe / 자동 unsubscribe 도구로 정식 fix.
 
 ## 마이그 단위 절차
 
